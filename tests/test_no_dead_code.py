@@ -19,9 +19,11 @@ PACKAGE = ROOT / "custom_components" / "hvac_horizon"
 # async_setup_entry: called for each config entry (a platform adds async_add_entities as a third argument).
 # async_unload_entry: called when an entry unloads.
 # async_get_config_entry_diagnostics: called for the diagnostics download.
+# async_migrate_entry: called when a stored entry has an older VERSION than the config flow.
 HA_HOOKS = {
     "async_setup_entry": ["hass", "entry"],
     "async_unload_entry": ["hass", "entry"],
+    "async_migrate_entry": ["hass", "entry"],
     "async_get_config_entry_diagnostics": ["hass", "entry"],
 }
 

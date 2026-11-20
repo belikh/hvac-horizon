@@ -19,6 +19,8 @@ from homeassistant.util import dt as dt_util
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon.const import (
     CONF_BOOST_C,
+    CONF_AWAY_DELAY_MIN,
+    CONF_COMFORT_C,
     CONF_ECO_C,
     CONF_HEATER_INVERTED,
     CONF_HEATER_KP,
@@ -27,6 +29,7 @@ from custom_components.hvac_horizon.const import (
     CONF_LOCK_PIN,
     CONF_SCHEDULE_BLOCKS,
     CONF_OUTDOOR,
+    CONF_PRESENCE,
     CONF_VACATION,
     CONF_POWER,
     CONF_PRICE,
@@ -978,6 +981,34 @@ async def test_heater_pid_publishes_output_with_control_on(hass, enable_custom_i
     await hass.async_block_till_done()
     out = coordinator.data["heater_pid_output"]
     assert 0.0 <= out <= 100.0
+
+
+async def test_version_1_eco_one_degree_above_comfort_is_dropped_on_migration(hass, enable_custom_integrations, config_data, freezer):
+    # Version 1 stored eco = comfort + 1 as the form default. Migration drops it, so an empty house uses away_c.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set("input_boolean.home", "off")
+    data = dict(config_data, comfort_c=24.0, eco_c=25.0, away_c=27.0, presence=["input_boolean.home"], away_delay_min=0.0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", version=1, data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 2
+    assert CONF_ECO_C not in entry.data
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(27.0)
+
+
+async def test_version_1_user_eco_is_kept_on_migration(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    data = dict(config_data, comfort_c=24.0, eco_c=26.0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", version=1, data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 2
+    assert entry.data[CONF_ECO_C] == 26.0
 
 
 def test_every_conf_key_is_in_the_flow_schema():

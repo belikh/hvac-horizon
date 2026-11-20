@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import CONF_COMFORT_C, CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
 from .coordinator import HorizonCoordinator
 from .forecast import Forecast, PriceSlot, forecast
 from .model import Fit, NotEnoughData, Sample, fit
@@ -90,6 +90,21 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
     hass.services.async_register(DOMAIN, SERVICE_RESPOND, respond)
     hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Version 1 stored eco = comfort + 1 as the form default. Drop that value, so an empty house uses away_c.
+
+    A user-set eco that happens to equal comfort + 1 is dropped too. The stored value cannot tell the two apart.
+    """
+    if entry.version == 1:
+        data = dict(entry.data)
+        comfort = float(data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        eco = data.get(CONF_ECO_C)
+        if eco is not None and abs(float(eco) - (comfort + 1.0)) < 1e-6:
+            del data[CONF_ECO_C]
+        hass.config_entries.async_update_entry(entry, data=data, version=2)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

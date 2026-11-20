@@ -241,7 +241,7 @@ FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
 
 
 class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = 2
 
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None:
