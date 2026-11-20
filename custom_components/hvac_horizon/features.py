@@ -198,3 +198,13 @@ def vacation_target(vacation_on: bool, vacation_c: float, normal_target_c: float
     Ported from RoomMind's vacation mode, which holds a lower target through one switch.
     """
     return vacation_c if vacation_on else normal_target_c
+
+
+def presence_mode(home_states: list[bool], away_delay_min: float, minutes_since_last_home: float) -> str:
+    """Occupancy mode from several presence sources. 'home' if any source is home. 'away' only after the delay.
+
+    Ported from RoomMind's presence and vacancy handling. An empty list means no sources, so the room is treated as home.
+    """
+    if not home_states or any(home_states):
+        return "home"
+    return "away" if minutes_since_last_home >= away_delay_min else "home"

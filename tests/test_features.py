@@ -197,3 +197,21 @@ class VacationTests(unittest.TestCase):
         from custom_components.hvac_horizon.features import vacation_target
 
         self.assertEqual(vacation_target(False, 16.0, 24.0), 24.0)
+
+
+class PresenceModeTests(unittest.TestCase):
+    def test_home_when_any_source_is_home(self):
+        from custom_components.hvac_horizon.features import presence_mode
+
+        self.assertEqual(presence_mode([False, True], 30.0, 90.0), "home")
+
+    def test_away_only_after_delay(self):
+        from custom_components.hvac_horizon.features import presence_mode
+
+        self.assertEqual(presence_mode([False, False], 30.0, 10.0), "home")
+        self.assertEqual(presence_mode([False, False], 30.0, 45.0), "away")
+
+    def test_no_sources_means_home(self):
+        from custom_components.hvac_horizon.features import presence_mode
+
+        self.assertEqual(presence_mode([], 30.0, 999.0), "home")
