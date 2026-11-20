@@ -1875,3 +1875,49 @@ async def test_forecast_day_counts_are_published_as_content(hass, enable_custom_
     state = hass.states.get(entity_id)
     assert state is not None
     assert state.attributes["value"]["hot"] == 1
+
+
+class _FakeRecorderState:
+    def __init__(self, when, state):
+        self.last_changed = when
+        self.state = state
+
+
+class _FakeRecorder:
+    def __init__(self, histories):
+        self._histories = histories
+
+    async def async_add_executor_job(self, func):
+        return func()
+
+
+async def test_recorder_history_becomes_samples_at_startup(hass, enable_custom_integrations, config_data, monkeypatch):
+    # Two hours of 5-minute recorder states for the room, outdoor and power sensors. Setup must turn them into readings
+    # before the first refresh, so the model has data without waiting for live samples.
+    from datetime import timedelta as _td
+
+    from homeassistant.components import recorder
+    from homeassistant.components.recorder import history
+
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    now = dt_util.utcnow()
+    histories = {}
+    for entity, value in ((ROOM_A, 25.0), (ROOM_B, 25.2), (OUTDOOR, 30.0), (POWER, 1100.0)):
+        histories[entity] = [
+            _FakeRecorderState(now - _td(minutes=5 * k), str(value + (k % 3) * 0.1)) for k in range(24, 0, -1)
+        ]
+
+    def fake_significant_states(hass_arg, start, end, entity_ids, **kwargs):
+        return {entity: histories[entity] for entity in entity_ids if entity in histories}
+
+    monkeypatch.setattr(recorder, "get_instance", lambda hass_arg: _FakeRecorder(histories))
+    monkeypatch.setattr(history, "get_significant_states", fake_significant_states)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    readings = entry.runtime_data._entries
+    historic = [e for e in readings if e.t < now.timestamp() - 600]
+    assert len(historic) >= 10
+    assert all(30.0 <= e.outdoor_c <= 30.2 for e in historic)  # the fake states carry the recorder values, not live ones
