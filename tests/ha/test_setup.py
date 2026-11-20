@@ -2557,7 +2557,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
     """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
 
     The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
-    deadband is 0.5 K, so a room at 23.0 C is below the idle limit of 23.54 C and a room at 23.8 C is not.
+    deadband is 0.5 K, so a room at 23.0 C is below the idle limit of 23.54 C, and a room at 23.8 C is above it.
     """
     from custom_components.hvac_horizon import coordinator as coordinator_module
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
