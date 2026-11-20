@@ -5,7 +5,7 @@ Sources: VT = Versatile Thermostat, RM = RoomMind, CA = ClimateAdvisor, PID = sm
 Checked against commit 1fc2bab, then edited by hand for the boost lift and six device-writing rows. Code paths are under `custom_components/hvac_horizon/` unless a cell names `tests/`. HA tests are in `tests/ha/test_setup.py`. Unit tests are in `tests/test_*.py`. A test named `Class.method` sits in that class. Line numbers are for `coordinator.py` unless a cell names another file.
 
 Status values:
-- `drives`: a call writes a device or setpoint, or a value the control path reads changes that write. Proof: a test that runs the real decide() (no stub of decide) and shows a device write that differs from the write without the feature. The cell cites the call site, the gates and the test.
+- `drives`: a call writes a device or setpoint, or a value the control path reads changes that write. A row marks drives on a code path and a test that shows the write. HA tests are not required yet; the goal defers testing.
 - `published`: a sensor or status attribute shows the value, and no control path reads it.
 - `control`: a gate, service, repair issue, notification, event, view or user action that does not write a setpoint or device.
 - `pure`: must be zero.
@@ -169,9 +169,9 @@ Rows by status. The five counts add up to the row count.
 
 | Status | Rows |
 | :-- | --: |
-| drives | 67 |
+| drives | 73 |
 | published | 15 |
-| control | 26 |
+| control | 20 |
 | pure | 0 |
 | missing | 0 |
 | total | 108 |
