@@ -523,3 +523,27 @@ async def test_valve_opening_is_published_and_driven(hass, enable_custom_integra
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert 0 <= coordinator.data["valve_opening_pct"] <= 100
+
+
+async def test_cover_closes_on_high_solar_gain(hass, enable_custom_integrations, config_data):
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("cover", "open_cover", ignore)
+    hass.services.async_register("cover", "close_cover", ignore)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("cover.test_blind", "open")
+    hass.states.async_set("sensor.test_irradiance", "800", {"unit_of_measurement": "W/m²"})
+    data = dict(
+        config_data, control=True, cover="cover.test_blind", irradiance="sensor.test_irradiance", window_area_m2=2.0
+    )
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert "cover_action" in coordinator.data
+    assert coordinator.data["cover_action"] == "close"

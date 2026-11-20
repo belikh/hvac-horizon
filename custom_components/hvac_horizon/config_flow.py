@@ -11,6 +11,7 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BOOST_C,
+    CONF_COVER,
     CONF_ECO_C,
     CONF_DEHUMIDIFIER,
     CONF_FAN,
@@ -64,6 +65,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_ENERGY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
+            key(CONF_COVER): selector.EntitySelector(selector.EntitySelectorConfig(domain="cover")),
             key(CONF_WINDOW): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
             key(CONF_CO2): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="carbon_dioxide")

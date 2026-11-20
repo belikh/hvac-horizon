@@ -64,7 +64,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -97,6 +97,8 @@ from .const import (
     CONF_PM25,
     CONF_MIN_ON_MIN,
     CONF_CONTROL,
+    CONF_COVER,
+    COVER_SOLAR_THRESHOLD_KW,
     CONF_VALVE,
     CONF_ENERGY,
     CONF_SCHEDULE,
@@ -664,6 +666,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             comfort_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
             valve_opening = valve_opening_pct(statistics.median(valve_rooms), comfort_target)
         result["valve_opening_pct"] = valve_opening
+        cover_id = self.entry.data.get(CONF_COVER)
+        solar = self._solar_gain()
+        cover_state = self.hass.states.get(cover_id) if cover_id else None
+        if solar is not None and cover_state is not None and cover_state.state not in ("unavailable", "unknown"):
+            action = cover_action(solar, COVER_SOLAR_THRESHOLD_KW, cover_state.state == "open")
+            result["cover_action"] = action
+            await self._drive_cover(action)
         heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
@@ -706,6 +715,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current is not None and abs(current - opening) <= 1.0:
             return
         await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
+
+    async def _drive_cover(self, action: str) -> None:
+        """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""
+        cover_id = self.entry.data.get(CONF_COVER)
+        if action not in ("close", "open") or not cover_id or not self.entry.data.get(CONF_CONTROL):
+            return
+        if not lock_allows_control(self._locked):
+            return
+        if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            return
+        await self.hass.services.async_call(
+            "cover", "close_cover" if action == "close" else "open_cover", {"entity_id": cover_id}, blocking=True
+        )
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
