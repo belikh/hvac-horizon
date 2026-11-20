@@ -1080,23 +1080,25 @@ async def test_tpi_duty_drives_the_heater_switch(hass, enable_custom_integration
     assert coordinator.data["tpi_output_pct"] == pytest.approx(expected, abs=1.0)
     assert coordinator._pwm_output_pct == pytest.approx(expected, abs=1.0)
     assert "heater_pid_output" not in coordinator.data
+    assert "turn_on" in calls
     # The fake switch service does not change state, so mark the switch on to match the turn_on it received.
     hass.states.async_set(HEATER, "on")
     calls.clear()
-    freezer.tick(timedelta(minutes=5.5))
+    # The off edge falls at 59 % of the window: 5.9 minutes. The window must not end before 5.8 and must end by 6.0.
+    freezer.tick(timedelta(minutes=5.8))
     await coordinator._pwm_timer(dt_util.utcnow())
     await hass.async_block_till_done()
     assert "turn_off" not in calls
-    freezer.tick(timedelta(minutes=0.5))
+    freezer.tick(timedelta(minutes=0.2))
     await coordinator._pwm_timer(dt_util.utcnow())
     await hass.async_block_till_done()
     # At least one turn_off: a real timer may fire too, because the freezer moves the loop clock.
     assert "turn_off" in calls
 
 
-async def test_pid_algorithm_is_the_default_and_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
-    # Same inputs as the TPI test. Without heater_algorithm the PID sets the output and tpi_output_pct stays unset.
-    extra = {"comfort_c": 24.0}
+async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
+    # Same inputs as the TPI test. With heater_algorithm "pid" the PID sets the output and tpi_output_pct stays unset.
+    extra = {"comfort_c": 24.0, "heater_algorithm": "pid"}
     entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra=extra)
     coordinator = entry.runtime_data
     await refresh(hass, entry)
@@ -1135,6 +1137,15 @@ async def test_accuracy_pairs_and_forecast_error_follow_the_backtest(hass, enabl
     assert state.attributes["accuracy_pairs"] == expected
     assert float(state.state) == pytest.approx(8.0)
     assert statistics.median(abs(p["error_min"]) for p in state.attributes["accuracy_pairs"]) == float(state.state)
+
+
+async def test_heater_algorithm_defaults_to_pid_when_the_key_is_absent(hass, enable_custom_integrations, config_data):
+    # An entry stored before heater_algorithm existed has no key. It runs the PID.
+    entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra={"comfort_c": 24.0})
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    assert "tpi_output_pct" not in coordinator.data
+    assert "heater_pid_output" in coordinator.data
 
 
 async def test_version_1_default_eco_of_25_is_dropped_on_migration(hass, enable_custom_integrations, config_data, freezer):
