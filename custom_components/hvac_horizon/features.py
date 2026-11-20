@@ -574,13 +574,14 @@ def trv_offset(trv_c: list[float], room_c: list[float], max_abs_k: float = 5.0) 
 
 
 def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
-    """Setpoint to send to a TRV: setpoint_c minus the learned offset, so a TRV reading high gets a lower setpoint.
+    """Valve target for the room: setpoint_c plus the learned TRV offset.
 
-    Returns setpoint_c unchanged when offset_k is None. Pure logic with no caller yet (no TRV in the house).
+    A TRV that reads warmer than the room closes its valve early, so the room stays cold. A positive offset
+    raises the target, which opens the valve more. Returns setpoint_c unchanged when offset_k is None.
     """
     if offset_k is None:
         return setpoint_c
-    return setpoint_c - offset_k
+    return setpoint_c + offset_k
 
 
 

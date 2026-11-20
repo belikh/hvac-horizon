@@ -930,10 +930,11 @@ class TrvOffsetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             trv_offset([21.0], [20.0, 20.0])
 
-    def test_corrected_setpoint_subtracts_offset_or_keeps_setpoint(self):
+    def test_corrected_setpoint_adds_offset_or_keeps_setpoint(self):
         from custom_components.hvac_horizon.features import corrected_setpoint
 
-        self.assertEqual(corrected_setpoint(21.0, 1.5), 19.5)
+        # A TRV reading 1.5 K warmer raises the valve target, so the valve opens more.
+        self.assertEqual(corrected_setpoint(21.0, 1.5), 22.5)
         self.assertEqual(corrected_setpoint(21.0, None), 21.0)
 
 

@@ -2003,7 +2003,7 @@ async def test_idle_valve_is_stepped_after_a_week_still(hass, enable_custom_inte
 
 
 async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrations, config_data):
-    # The TRV reads 1 K above the room median (26.1 C), so the valve aims at 24 - 1 = 23 C.
+    # The TRV reads 1 K above the room median (26.1 C), so the valve aims at 24 + 1 = 25 C.
     set_inputs(hass)
     _register_climate_fakes(hass)
     hass.states.async_set("number.test_valve", "0")
@@ -2019,11 +2019,11 @@ async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrat
     assert coordinator.data["trv_offset_k"] == pytest.approx(1.0, abs=0.01)
     from custom_components.hvac_horizon.features import valve_opening_pct
 
-    assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 23.0))
+    assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 25.0))
 
 
-async def _setup_valve(hass, config_data, room: str, trv: str | None):
-    """A control-on entry with a valve. The TRV sensor is set only when trv is given."""
+async def _setup_valve(hass, config_data, room: str, trv: str | None, on_value=None):
+    """A control-on entry with a valve. The TRV sensor is set only when trv is given. on_value records number.set_value calls."""
     set_inputs(hass)
     _register_climate_fakes(hass)
     hass.states.async_set("number.test_valve", "0")
@@ -2033,7 +2033,7 @@ async def _setup_valve(hass, config_data, room: str, trv: str | None):
     if trv is not None:
         hass.states.async_set("sensor.test_trv", trv, {"unit_of_measurement": "°C", "device_class": "temperature"})
         data["trv_temperature"] = "sensor.test_trv"
-    hass.services.async_register("number", "set_value", lambda call: None)
+    hass.services.async_register("number", "set_value", on_value or (lambda call: None))
     data.pop(CONF_PRICE)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
@@ -2042,23 +2042,25 @@ async def _setup_valve(hass, config_data, room: str, trv: str | None):
     return entry
 
 
-async def test_trv_offset_of_one_kelvin_moves_the_valve_by_100_points(hass, enable_custom_integrations, config_data):
-    # Room 23 C, comfort 24 C. Without a TRV the valve is fully open. A TRV at 24 C gives offset +1 K,
-    # so the target drops to 23 C and the room is at target: the valve closes. That is a 100 point move.
-    without_trv = await _setup_valve(hass, config_data, room="23.0", trv=None)
-    assert without_trv.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
-    with_trv = await _setup_valve(hass, dict(config_data, comfort_c=24.0), room="23.0", trv="24.0")
+async def test_trv_reading_one_kelvin_warmer_opens_the_valve_by_100_points(hass, enable_custom_integrations, config_data):
+    # Room 24 C at comfort 24 C: without a TRV the valve stays closed. A TRV at 25 C gives offset +1 K, so the
+    # target rises to 25 C, the error is 1 K, and the valve command goes to 100. The valve must open more.
+    sent_without, sent_with = [], []
+    without_trv = await _setup_valve(hass, dict(config_data, comfort_c=24.0), room="24.0", trv=None, on_value=lambda call: sent_without.append(call.data["value"]))
+    assert without_trv.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
+    assert all(value == 0.0 for value in sent_without)
+    with_trv = await _setup_valve(hass, dict(config_data, comfort_c=24.0), room="24.0", trv="25.0", on_value=lambda call: sent_with.append(call.data["value"]))
     assert with_trv.runtime_data.data["trv_offset_k"] == pytest.approx(1.0, abs=0.01)
-    assert with_trv.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
+    assert sent_with and sent_with[-1] == pytest.approx(100.0)
 
 
 async def test_trv_offset_keeps_the_valve_between_0_and_100(hass, enable_custom_integrations, config_data):
-    # Room 18 C with a TRV at 19 C: the target moves to 23 C, the error is 5 K, and the opening clamps to 100.
+    # Room 18 C with a TRV at 19 C: the target moves to 25 C, the error is 7 K, and the opening clamps to 100.
     low = await _setup_valve(hass, config_data, room="18.0", trv="19.0")
     assert low.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
-    # Room 23 C with a TRV at 27 C: offset +4 K, the target drops to 20 C, and the opening clamps to 0.
-    # Offsets above 5 K are dropped as outliers by trv_offset, so 7 K would give 100 here.
-    high = await _setup_valve(hass, config_data, room="23.0", trv="27.0")
+    # Room 26 C with a TRV at 22 C: offset -4 K, the target drops to 20 C, and the opening clamps to 0.
+    # Offsets above 5 K in size are dropped as outliers by trv_offset.
+    high = await _setup_valve(hass, config_data, room="26.0", trv="22.0")
     assert high.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
 
 

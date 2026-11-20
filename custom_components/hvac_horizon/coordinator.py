@@ -1098,9 +1098,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             trv_c = _float(self._optional(CONF_TRV_TEMPERATURE))
             if self.entry.data.get(CONF_VALVE) and trv_c is not None:
                 self._trv_pairs = (self._trv_pairs + [(trv_c, room_for_valve)])[-TRV_HISTORY:]
-            # With a valve and a TRV sensor, the valve command aims at the setpoint corrected by the learned offset.
-            # Scale: the offset shifts the target in kelvin, and valve_opening_pct turns the shift into points.
-            # 1 K of offset moves the opening by 100 / VALVE_BAND_C points (100 at the 1 K band), clamped to 0 to 100.
+            # With a valve and a TRV sensor, the valve command aims at the setpoint plus the learned offset.
+            # The offset is TRV minus room. A TRV that reads warmer closes its valve early, so the target rises
+            # and the valve opens more. Scale: the offset shifts the target in kelvin, and valve_opening_pct turns
+            # the shift into points. 1 K of offset moves the opening by 100 / VALVE_BAND_C points (100 at the 1 K band),
+            # clamped to 0 to 100.
             offset = trv_offset([t for t, _ in self._trv_pairs], [r for _, r in self._trv_pairs]) if self._trv_pairs else None
             if self.entry.data.get(CONF_VALVE):
                 result["trv_offset_k"] = None if offset is None else round(offset, 2)
