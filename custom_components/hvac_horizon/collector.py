@@ -113,6 +113,17 @@ MIN_CYCLE_SAMPLES = 36  # three hours of 5-minute samples per state
 MIN_CYCLES = 3  # distinct AC-on runs
 
 
+def entries_to_csv(entries: list[Entry]) -> str:
+    """CSV text of the stored readings, in the layout the backfill tool reads: time, room_c, outdoor_c, power_w.
+
+    Times are Unix seconds. Ported from the history export in Versatile Thermostat (recorder export).
+    """
+    lines = ["time,room_c,outdoor_c,power_w"]
+    for e in sorted(entries, key=lambda x: x.t):
+        lines.append(f"{e.t:.0f},{e.room_c:.2f},{e.outdoor_c:.2f},{e.power_w:.0f}")
+    return "\n".join(lines) + "\n"
+
+
 def has_enough_cycles(samples: list[Sample]) -> bool:
     """True when the data has enough AC-on and AC-off time, and enough separate runs, to fit safely."""
     on = [s.power_kw > 0 for s in samples]

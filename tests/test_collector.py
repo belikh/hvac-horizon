@@ -8,6 +8,33 @@ from custom_components.hvac_horizon.collector import (
 )
 
 
+class CsvExportTests(unittest.TestCase):
+    def test_csv_has_header_and_sorted_rows(self):
+        from custom_components.hvac_horizon.collector import entries_to_csv
+
+        entries = [Entry(600, 25.8, 30.0, 0), Entry(0, 26.0, 30.0, 1000)]
+        text = entries_to_csv(entries)
+        lines = text.strip().splitlines()
+        self.assertEqual(lines[0], "time,room_c,outdoor_c,power_w")
+        self.assertEqual(lines[1], "0,26.00,30.00,1000")
+        self.assertEqual(lines[2], "600,25.80,30.00,0")
+
+    def test_csv_round_trips_through_backfill_reader(self):
+        import tempfile
+        from pathlib import Path
+
+        from custom_components.hvac_horizon.backfill import read_rows
+        from custom_components.hvac_horizon.collector import entries_to_csv
+
+        entries = [Entry(0, 26.0, 30.0, 1000), Entry(300, 25.9, 30.0, 0)]
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "h.csv"
+            path.write_text(entries_to_csv(entries))
+            rows = read_rows(path)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0].power_w, 1000.0)
+
+
 class CollectorTests(unittest.TestCase):
     def test_samples_pair_readings_one_step_apart(self):
         entries = [Entry(0, 26.0, 30.0, 1000), Entry(300, 25.9, 30.0, 1000), Entry(600, 25.8, 30.0, 0)]
