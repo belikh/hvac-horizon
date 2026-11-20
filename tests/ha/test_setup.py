@@ -17,9 +17,10 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 
 from homeassistant.util import dt as dt_util
 
+from custom_components.hvac_horizon.devices import forecast_fit
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
-from custom_components.hvac_horizon.collector import Entry
+from custom_components.hvac_horizon.collector import Entry, running_power_kw
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.tpi import GAIN_MAX, TpiFit
@@ -2180,6 +2181,58 @@ async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_i
     assert fit["ac_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
     assert fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
     assert fit["samples"] > 0
+
+
+async def test_heater_intervals_give_a_heater_coefficient_and_the_forecast_uses_the_three_term_fit(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    data = dict(config_data, climate_2="climate.test_ac2", power_2="sensor.test_ac2_power", heater_switch="switch.test_heater")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    # Synthetic history, 5-minute steps. Cooling: first AC 1.4 K/h per kW, second AC 0.9 K/h per kW. Heater: 2.0 K/h while on.
+    # The heater runs in 11-step blocks, one block in three, so its on periods are not the AC's.
+    now = dt_util.utcnow().timestamp()
+    temp, entries = 24.0, []
+    for i in range(800):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac1 = 1.0 if (i // 6) % 2 == 0 else 0.0
+        ac2 = 1.0 if (i // 17) % 2 == 1 else 0.0
+        heat = 1.0 if (i // 11) % 3 == 1 else 0.0
+        entries.append(
+            Entry(
+                t=now - (800 - i) * 300,
+                room_c=temp,
+                outdoor_c=outdoor,
+                power_w=1000 * ac1,
+                power_2_w=1000 * ac2,
+                heat_pct=100.0 * heat,
+            )
+        )
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac1 - 0.9 * ac2 + 2.0 * heat) * (5 / 60)
+    coordinator._entries = entries
+    coordinator._refit()
+    await refresh(hass, entry)
+    fit = entry.runtime_data.data["room_fit"]
+    assert fit["heater_k_per_h_on"] == pytest.approx(2.0, abs=0.1)
+    assert fit["ac_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
+    assert fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
+    # The forecast model is the three-term fit: its cooling terms come from the room model, and the heater is left out.
+    room = coordinator._room_model
+    assert room is not None and room.coef["heater"] > 0
+    means = {
+        "ac": running_power_kw(entries, now) or 0.0,
+        "ac_2": running_power_kw(entries, now, field="power_2_w") or 0.0,
+    }
+    expected, total = forecast_fit(room, means)
+    model, power = coordinator._forecast_model(coordinator._active_fit(), 1.0, now)
+    assert model.k == pytest.approx(expected.k)
+    assert model.c == pytest.approx(expected.c)
+    assert model.g == pytest.approx(expected.g)
+    assert power == pytest.approx(total)
 
 
 async def test_forecast_day_counts_are_published_as_content(hass, enable_custom_integrations, config_data):

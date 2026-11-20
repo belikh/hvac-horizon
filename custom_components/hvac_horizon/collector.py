@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .forecast import PriceSlot
-from .devices import RoomSample
+from .devices import HEATER, RoomSample
 from .model import Sample
 
 STEP_S = 300  # collector interval, seconds
@@ -86,7 +86,10 @@ def heat_pairs_from_entries(entries: list[Entry]) -> list[tuple[Sample, float]]:
 
 
 def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
-    """Two-device samples from consecutive readings one step apart. The first AC is "ac", the second is "ac_2"."""
+    """Two-device samples from consecutive readings one step apart. The first AC is "ac", the second is "ac_2".
+
+    The heater is "heater", 1 when the heater output was above 0 during the interval, else 0.
+    """
     ordered = sorted(entries, key=lambda e: e.t)
     out: list[RoomSample] = []
     for a, b in zip(ordered, ordered[1:]):
@@ -94,13 +97,14 @@ def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
         if abs(gap - STEP_S) > TOLERANCE_S:
             continue
         second = _running_kw(a.power_2_w) if a.power_2_w is not None else 0.0
+        heater_on = 1.0 if (a.heat_pct or 0.0) > 0 else 0.0
         out.append(
             RoomSample(
                 minutes=gap / 60.0,
                 temp_c=a.room_c,
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
-                device_kw={"ac": _interval_power_kw(a, b), "ac_2": second},
+                device_kw={"ac": _interval_power_kw(a, b), "ac_2": second, HEATER: heater_on},
             )
         )
     return out

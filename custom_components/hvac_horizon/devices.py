@@ -17,6 +17,7 @@ from .model import MIN_OUTDOOR_SPREAD_K, MIN_SAMPLES, Fit, NotEnoughData, _least
 
 COOL = "cool"
 HEAT = "heat"
+HEATER = "heater"  # device id of the room heater; its sample is 1 while the heater runs, so its coefficient is K/h while on
 
 
 @dataclass(frozen=True)
@@ -90,10 +91,12 @@ def forecast_fit(room: RoomFit, device_kw: dict[str, float]) -> tuple[Fit, float
     """The two-device model as one Fit, and the total running power in kW.
 
     The forecast runs the AC at constant power. The combined cooling coefficient weights each device's coefficient
-    by its share of the running power. Returns None when no device runs.
+    by its share of the running power. The heater coefficient is left out: a cooling forecast has the heater off.
+    Returns None when no cooling device runs.
     """
-    total = sum(device_kw.get(dev, 0.0) for dev in room.coef)
+    cooling = {dev: coef for dev, coef in room.coef.items() if dev != HEATER}
+    total = sum(device_kw.get(dev, 0.0) for dev in cooling)
     if total <= 0:
         return None
-    c = sum(coef * device_kw.get(dev, 0.0) for dev, coef in room.coef.items()) / total
+    c = sum(coef * device_kw.get(dev, 0.0) for dev, coef in cooling.items()) / total
     return Fit(k=room.k, c=c, g=room.g, samples=room.samples), total

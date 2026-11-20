@@ -29,7 +29,7 @@ from custom_components.hvac_horizon.collector import (
     running_power_kw,
     samples_from_entries,
 )
-from custom_components.hvac_horizon.devices import COOL, RoomFit, fit_room, forecast_fit
+from custom_components.hvac_horizon.devices import COOL, HEAT, HEATER, RoomFit, fit_room, forecast_fit
 from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
@@ -515,13 +515,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._store.async_save(self._save_payload())
 
     def _refit_room_model(self) -> None:
-        """Fit one coefficient per AC from the readings, when a second power sensor is set. The forecast keeps the single-device fit."""
+        """Fit one coefficient per AC, and one for the heater when a heater switch is set, from the readings.
+
+        Runs only when a second AC and its power sensor are set. Without a heater switch the fit has the two AC terms only.
+        """
         self._room_fit = None
         self._room_model = None
         if not (self.entry.data.get(CONF_CLIMATE_2) and self.entry.data.get(CONF_POWER_2)):
             return
+        kinds = {"ac": COOL, "ac_2": COOL}
+        if self.entry.data.get(CONF_HEATER_SWITCH):
+            kinds[HEATER] = HEAT
         try:
-            found = fit_room(room_samples_from_entries(self._entries), {"ac": COOL, "ac_2": COOL})
+            found = fit_room(room_samples_from_entries(self._entries), kinds)
         except NotEnoughData as err:
             self._room_fit = {"reason": str(err)}
             return
@@ -533,6 +539,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ac_2_k_per_h_per_kw": round(found.coef["ac_2"], 4),
             "samples": found.samples,
         }
+        if HEATER in kinds:
+            self._room_fit["heater_k_per_h_on"] = round(found.coef[HEATER], 4)
 
     def _active_fit(self) -> Fit | None:
         """The room model for the forecast: the fitted rates with the online cooling gain, else the single-device fit."""
