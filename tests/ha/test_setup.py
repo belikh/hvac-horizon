@@ -307,6 +307,25 @@ async def test_stalled_sensors_are_reported(hass, enable_custom_integrations, co
     assert set(stalled) >= {ROOM_A, ROOM_B, OUTDOOR}
 
 
+async def test_motion_sensor_publishes_home_preset(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("binary_sensor.test_motion", "on")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, motion="binary_sensor.test_motion")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["motion_preset"] == "home"
+
+
 async def test_fan_follows_air_quality(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     hass.states.async_set("switch.test_fan", "off")

@@ -35,6 +35,7 @@ from custom_components.hvac_horizon.features import (
     economizer_phase,
     heat_source,
     mpc_plan,
+    motion_preset,
     forecast_highs,
     natural_ventilation_window,
     daily_briefing,
@@ -77,6 +78,7 @@ from custom_components.hvac_horizon.autotune import RelayTuner
 from .const import (
     PWM_WINDOW_MIN,
     CONF_AWAY_C,
+    CONF_MOTION,
     CONF_CLIMATE,
     CONF_CLIMATE_2,
     CONF_AWAY_DELAY_MIN,
@@ -187,6 +189,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._last_motion_at: float | None = None
         self._last_start_min: dict[str, float] = {}
         self._minutes_in_open: float = 0.0
         self._last_economizer_t: float | None = None
@@ -725,6 +728,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         step_min=MPC_STEP_MIN,
                     )
                 ]
+        # Motion preset is published only; it does not yet drive the setpoint preset.
+        motion_state = self._optional(CONF_MOTION)
+        motion_on: bool | None = None
+        if motion_state is not None and motion_state.state in ("on", "off"):
+            motion_on = motion_state.state == "on"
+        if motion_on:
+            self._last_motion_at = now
+        minutes_since = (now - self._last_motion_at) / 60.0 if self._last_motion_at is not None else 1e9
+        result["motion_preset"] = motion_preset(motion_on, minutes_since)
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None

@@ -12,6 +12,7 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_BOOST_C,
     CONF_COVER,
+    CONF_MOTION,
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
     CONF_WHOLE_HOUSE_POWER,
@@ -87,6 +88,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor", device_class="pm25")
             ),
             key(CONF_SCHEDULE): selector.EntitySelector(selector.EntitySelectorConfig(domain=["schedule", "sensor", "input_datetime"])),
+            key(CONF_MOTION): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor", device_class="motion")
+            ),
             key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
             key(CONF_VALVE): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_WHOLE_HOUSE_POWER): selector.EntitySelector(

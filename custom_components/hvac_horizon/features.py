@@ -36,6 +36,20 @@ def heat_source(outdoor_c: float, boiler_below_c: float = 5.0) -> str:
     return "boiler" if outdoor_c <= boiler_below_c else "ac"
 
 
+def motion_preset(motion_on: bool | None, minutes_since_motion: float, away_delay_min: float = 30.0) -> str | None:
+    """Preset from a motion sensor: "home" while motion is on or recent, "away" after `away_delay_min` without motion.
+
+    Returns None when there is no sensor (`motion_on` is None). Raises ValueError if `away_delay_min` <= 0.
+    """
+    if away_delay_min <= 0:
+        raise ValueError("away_delay_min must be positive")
+    if motion_on is None:
+        return None
+    if motion_on:
+        return "home"
+    return "away" if minutes_since_motion >= away_delay_min else "home"
+
+
 def boiler_demand(room_c: float, comfort_low_c: float, source: str) -> bool:
     """True when the boiler is the chosen source and the room is below the low edge of the comfort band."""
     return source == "boiler" and room_c < comfort_low_c

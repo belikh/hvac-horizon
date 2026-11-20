@@ -11,6 +11,7 @@ from custom_components.hvac_horizon.features import (
     humidity_action,
     minimum_time_ok,
     mpc_plan,
+    motion_preset,
     mode_disagrees,
     outdoor_allows,
     pwm_on,
@@ -734,3 +735,21 @@ class MpcPlanTests(unittest.TestCase):
     def test_nonpositive_step_raises(self):
         with self.assertRaises(ValueError):
             mpc_plan(room_c=26.0, prices=[0.1], step_min=0.0, **self.ARGS)
+
+
+class MotionPresetTests(unittest.TestCase):
+    def test_motion_on_gives_home(self):
+        self.assertEqual(motion_preset(True, 999.0), "home")
+
+    def test_no_sensor_gives_none(self):
+        self.assertIsNone(motion_preset(None, 999.0))
+
+    def test_motion_off_long_enough_gives_away(self):
+        self.assertEqual(motion_preset(False, 30.0), "away")
+
+    def test_motion_off_recent_gives_home(self):
+        self.assertEqual(motion_preset(False, 5.0), "home")
+
+    def test_zero_delay_raises(self):
+        with self.assertRaises(ValueError):
+            motion_preset(True, 1.0, away_delay_min=0.0)

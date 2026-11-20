@@ -21,6 +21,7 @@ STORE_VERSION = 2  # 2 adds setpoint, mode, rooms, humidity, price and energy fi
 CONF_CONTROL = "control"  # False by default: observe only
 CONF_WINDOW = "window"
 CONF_PRESENCE = "presence"
+CONF_MOTION = "motion"  # optional binary_sensor for motion
 CONF_AWAY_C = "away_c"
 CONF_WINDOW_DELAY_MIN = "window_delay_min"
 DEFAULT_AWAY_C = 27.0
