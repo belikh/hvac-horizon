@@ -27,6 +27,8 @@ from custom_components.hvac_horizon.features import (
     learning_suggestion,
     band_action,
     comfort_band,
+    mould_risk,
+    surface_humidity,
     presence_mode,
     sun_heat_gain,
     vacation_target,
@@ -211,6 +213,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
 
+    def _mould_risk(self) -> bool:
+        """Mould risk from the room humidity and the outdoor temperature as a cold-surface proxy.
+
+        Needs the room humidity sensor. Without it the risk is reported as not present.
+        """
+        room_rh = _float(self._optional(CONF_HUMIDITY))
+        rooms = self._rooms()
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if room_rh is None or not rooms or outdoor is None:
+            return False
+        surface = surface_humidity(room_rh, statistics.median(rooms), outdoor)
+        return mould_risk(surface)
+
     def _solar_gain(self) -> float | None:
         """Solar gain from the optional irradiance sensor and window area. None when either is not configured."""
         irradiance = _float(self._optional(CONF_IRRADIANCE))
@@ -353,6 +368,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
+        result["mould_risk"] = self._mould_risk()
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
