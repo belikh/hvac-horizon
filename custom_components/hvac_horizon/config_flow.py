@@ -19,7 +19,6 @@ from .const import (
     CONF_HEATER_KD,
     CONF_HEATER_KI,
     CONF_TPI_COEF_EXT,
-    CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
     CONF_TPI_THRESHOLD_LOW,
     CONF_MAX_ON_PERCENT,
@@ -222,7 +221,6 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_TPI_THRESHOLD_LOW): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=5, step=0.1, unit_of_measurement="°C")
             ),
-            key(CONF_TPI_COOL, default=defaults.get(CONF_TPI_COOL, False)): selector.BooleanSelector(),
             key(CONF_MAX_ON_PERCENT): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),

@@ -171,16 +171,6 @@ def tpi_on_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: f
     return pct if max_pct is None else min(pct, max_pct)
 
 
-def tpi_cool_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: float, coef_ext: float) -> float:
-    """Cool on-percent: coef_int * (room - target) + coef_ext * (outdoor - target), 0 to 100.
-
-    The same rule as tpi_on_percent with the sign of the room and outdoor gaps turned around. A room at or below
-    the target gives 0 from the room term. A hot outdoor air adds to the cool percent through the outdoor term.
-    """
-    raw = coef_int * (room_c - target_c) + coef_ext * (outdoor_c - target_c)
-    return min(100.0, max(0.0, 100.0 * raw))
-
-
 def tpi_threshold_forced_off(room_c: float, target_c: float, slope: float | None, high_k: float, low_k: float) -> bool:
     """True when the activation thresholds force the TPI output to 0.
 

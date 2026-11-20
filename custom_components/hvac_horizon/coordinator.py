@@ -31,7 +31,7 @@ from custom_components.hvac_horizon.collector import (
 )
 from custom_components.hvac_horizon.devices import COOL, HEAT, HEATER, RoomFit, fit_room, forecast_fit
 from custom_components.hvac_horizon.forecast import forecast, price_at
-from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, cool_gate, decide
+from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     weather_day_summary,
@@ -89,7 +89,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates, tpi_cool_percent, tpi_on_percent, tpi_threshold_forced_off
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates, tpi_on_percent, tpi_threshold_forced_off
 from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -123,7 +123,6 @@ from .const import (
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_ECONOMIZER_FAN,
-    CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
     CONF_TPI_THRESHOLD_LOW,
     DEFAULT_TPI_COEF_EXT,
@@ -1592,7 +1591,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     action = Action(Mode.OFF, None, "night hold: AC does not start")
                 else:
                     action = Action(Mode.COOL, comfort_c, "night hold: setpoint holds comfort")
-        action = self._tpi_cool(action, result, rooms, outdoor, window_open_min, window_delay_min, stalled, night)
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
         # Without a plan (no fit or no price slots) the decision stands.
@@ -1706,41 +1704,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # The fan follows the room gap while the AC was already cooling before this cycle.
             if self.entry.data.get(CONF_AUTO_FAN, False):
                 await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
-
-    def _tpi_cool(
-        self,
-        action: Action,
-        result: dict[str, Any],
-        rooms: list[float],
-        outdoor: float | None,
-        window_open_min: float,
-        window_delay_min: float,
-        stalled: bool,
-        night: str | None,
-    ) -> Action:
-        """TPI cool branch. With tpi_cool on and heater_algorithm tpi, publishes tpi_cool_pct.
-
-        When decide() chose OFF, the room is above the cool threshold and no gate applies, it cools at the threshold.
-        The window, the outdoor limit, a stalled sensor and the night hold still stop it.
-        """
-        if not self.entry.data.get(CONF_TPI_COOL, False) or self.entry.data.get(CONF_HEATER_ALGORITHM) != HEATER_ALGORITHM_TPI:
-            return action
-        if not rooms or outdoor is None:
-            return action
-        room = statistics.median(rooms)
-        pct = tpi_cool_percent(
-            self._cool_above_c,
-            room,
-            outdoor,
-            float(self.entry.data.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
-            float(self.entry.data.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
-        )
-        result["tpi_cool_pct"] = round(pct, 2)
-        if action.mode is not Mode.OFF or stalled or night == "hold" or pct <= 0 or room <= self._cool_above_c:
-            return action
-        if cool_gate(window_open_min, window_delay_min, outdoor) is not None:
-            return action
-        return Action(Mode.COOL, self._cool_above_c, f"tpi cool: {pct:.0f} percent")
 
     async def _write_fan_mode(self, climate_id: str, climate: State, gap_c: float) -> None:
         """Set the AC fan mode from the room gap. Sends only when the device lists the mode and it differs from the current one."""

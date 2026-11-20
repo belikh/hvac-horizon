@@ -75,7 +75,7 @@ class Action:
     reason: str
 
 
-def cool_gate(window_open_min: float, window_delay_min: float, outdoor_c: float | None) -> str | None:
+def _cool_gate(window_open_min: float, window_delay_min: float, outdoor_c: float | None) -> str | None:
     """Reason the AC may not cool, or None when no gate applies: a window open past its delay, or outdoors below the limit."""
     if window_open_min >= window_delay_min:
         return f"window open {window_open_min:.0f} min"
@@ -85,7 +85,7 @@ def cool_gate(window_open_min: float, window_delay_min: float, outdoor_c: float 
 
 
 def decide(state: RoomState, settings: Settings) -> Action:
-    gate = cool_gate(state.window_open_min, settings.window_delay_min, state.outdoor_c)
+    gate = _cool_gate(state.window_open_min, settings.window_delay_min, state.outdoor_c)
     if gate is not None:
         return Action(Mode.OFF, None, gate)
     if state.night_precool_c is not None and state.room_c > state.night_precool_c:
