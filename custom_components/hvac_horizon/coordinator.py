@@ -225,6 +225,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
+        self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
         self._heater_on_min: float = 0.0
         self._heater_check_t: float | None = None
         self._heater_gated = False
@@ -1530,8 +1531,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # The first AC is in the queue ahead of the second while it is about to start cooling.
                 wanting = ["climate_2"] if first is not None and first.state == "cool" else ["climate_1", "climate_2"]
                 if stagger_allowed("climate_2", wanting, self._last_start_min, now / 60.0):
+                    if not self._second_minimum_ok(second.state, now):
+                        result["second_ac"] = "waiting for minimum time"
+                        return
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
                     self._last_start_min["climate_2"] = now / 60.0
+                    self._second_changed_at = now
                     result["second_ac"] = "driven"
                 else:
                     result["second_ac"] = "waiting to stagger"
@@ -1542,8 +1547,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 result["second_ac"] = "driven"
         elif action.mode is Mode.OFF and second.state != "off":
+            if not self._second_minimum_ok(second.state, now):
+                result["second_ac"] = "waiting for minimum time"
+                return
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
+            self._second_changed_at = now
             result["second_ac"] = "driven"
+
+    def _second_minimum_ok(self, state: str, now: float) -> bool:
+        """True when the second AC may change mode now. It uses the same minimum on and off times as the first AC."""
+        since_min = (now - self._second_changed_at) / 60.0 if self._second_changed_at is not None else 1e9
+        return minimum_time_ok(
+            state in ("cool", "heat"),
+            since_min,
+            self.entry.data.get(CONF_MIN_ON_MIN, 5.0),
+            self.entry.data.get(CONF_MIN_OFF_MIN, 3.0),
+        )
 
     def _precool_start(self, now: float, rooms: list[float]) -> float | None:
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""

@@ -2275,3 +2275,41 @@ async def test_target_uses_the_last_good_price_when_the_price_sensor_drops(hass,
     await refresh(hass, entry)
     assert entry.runtime_data.data["price_used_per_kwh"] is None
     assert entry.runtime_data.data["target_c"] == 24.0
+
+
+async def test_second_ac_stop_inside_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
+    # The second AC starts at 10:00. A stop at 10:02 is inside the 5 minute minimum on time, so it waits until 10:06.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)  # outdoor 30 C, so cooling is allowed
+    second = "climate.test_ac_2"
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    hass.states.async_set(second, "off", {"temperature": 22.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append((call.data["entity_id"], call.data["hvac_mode"]))
+        state = hass.states.get(call.data["entity_id"])
+        hass.states.async_set(call.data["entity_id"], call.data["hvac_mode"], dict(state.attributes))
+
+    async def record_temp(call):
+        state = hass.states.get(call.data["entity_id"])
+        hass.states.async_set(call.data["entity_id"], state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, climate_2=second), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (second, "cool") in modes
+
+    freezer.tick(timedelta(minutes=2))
+    _set_ac_rooms(hass, "22.0")  # below the 24 C comfort target, so the decision is off
+    await refresh(hass, entry)
+    assert (second, "off") not in modes
+    assert entry.runtime_data.data["second_ac"] == "waiting for minimum time"
+
+    freezer.tick(timedelta(minutes=4))
+    _set_ac_rooms(hass, "22.0")
+    await refresh(hass, entry)
+    assert (second, "off") in modes
