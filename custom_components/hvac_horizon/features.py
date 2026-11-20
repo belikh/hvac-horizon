@@ -721,3 +721,12 @@ def learned_solar_scale(modelled_kw: list[float], measured_kw: list[float], min_
     if not ratios:
         return None
     return max(0.1, min(10.0, statistics.median(ratios)))
+
+
+def effective_home(room_home: bool, house_mode: str) -> bool:
+    """Return False when the house mode is "away", otherwise the room's own presence."""
+    if house_mode not in ("home", "away"):
+        raise ValueError(f"unknown house mode: {house_mode!r}")
+    if house_mode == "away":
+        return False
+    return room_home

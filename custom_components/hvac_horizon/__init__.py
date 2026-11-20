@@ -25,6 +25,11 @@ SERVICE_EXPORT_CSV = "export_csv"
 SERVICE_LOCK = "set_lock"
 SERVICE_TIMED = "start_timed_preset"
 SERVICE_RESPOND = "respond_suggestion"
+SERVICE_HOUSE_MODE = "set_house_mode"
+
+
+def house_mode(hass: HomeAssistant) -> str:
+    return hass.data.get(DOMAIN, {}).get("house_mode", "home")
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -69,6 +74,15 @@ def _register_services(hass: HomeAssistant) -> None:
             str(call.data["preset"]), float(call.data["minutes"]), dt_util.utcnow().timestamp() / 60.0
         )
 
+    async def set_house_mode(call):
+        mode = call.data["mode"]
+        if mode not in ("home", "away"):
+            raise ValueError("house mode must be home or away")
+        hass.data.setdefault(DOMAIN, {})["house_mode"] = mode
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if hasattr(entry, "runtime_data"):
+                await entry.runtime_data.async_request_refresh()
+
     from homeassistant.core import SupportsResponse
 
     hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
@@ -79,6 +93,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
     hass.services.async_register(DOMAIN, SERVICE_RESPOND, respond)
+    hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

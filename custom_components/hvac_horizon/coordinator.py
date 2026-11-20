@@ -30,6 +30,7 @@ from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
+    effective_home,
     classify_day,
     boiler_demand,
     outdoor_allows,
@@ -915,6 +916,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         presence = self._optional(CONF_PRESENCE)
         # A binary presence sensor reports "on" for home. A person or tracker reports "home".
         someone_home = presence is None or presence.state in ("on", "home")
+        someone_home = effective_home(someone_home, self.hass.data.get(DOMAIN, {}).get("house_mode", "home"))
         precool = self._precool_start(now, rooms)
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         state = RoomState(

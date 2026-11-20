@@ -7,6 +7,7 @@ from custom_components.hvac_horizon.features import (
     air_quality_ventilation,
     classify_day,
     economizer_phase,
+    effective_home,
     forecast_highs,
     boiler_demand,
     heat_source,
@@ -812,3 +813,16 @@ class OutputPolarityAndClampTests(unittest.TestCase):
 
     def test_solar_scale_clamped_high(self):
         self.assertEqual(learned_solar_scale([50.0], [0.1]), 10.0)
+
+
+class EffectiveHomeTests(unittest.TestCase):
+    def test_house_away_overrides_room_home(self):
+        self.assertFalse(effective_home(True, "away"))
+
+    def test_house_home_returns_room_home(self):
+        self.assertTrue(effective_home(True, "home"))
+        self.assertFalse(effective_home(False, "home"))
+
+    def test_unknown_mode_raises(self):
+        with self.assertRaises(ValueError):
+            effective_home(True, "vacation")

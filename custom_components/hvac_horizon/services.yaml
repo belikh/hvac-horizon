@@ -18,6 +18,18 @@ set_lock:
       selector:
         text:
           type: password
+set_house_mode:
+  name: Set house mode
+  description: Set home or away for every HVAC Horizon room. Away makes each room use its away setpoint.
+  fields:
+    mode:
+      name: Mode
+      required: true
+      selector:
+        select:
+          options:
+            - home
+            - away
 export_csv:
   name: Export CSV
   description: Return the stored readings as CSV text, in the layout the backfill tool reads.
