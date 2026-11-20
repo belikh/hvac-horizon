@@ -10,6 +10,18 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_AWAY_DELAY_MIN,
+    CONF_COIL_DRY,
+    CONF_HEATER_SWITCH,
+    CONF_HOUSE_SEALED,
+    CONF_LOCK_PIN,
+    CONF_MIN_OFF_MIN,
+    CONF_MIN_ON_MIN,
+    CONF_PRICE_CHEAP,
+    CONF_PRICE_EXPENSIVE,
+    CONF_VACATION,
+    CONF_VACATION_C,
+    CONF_WHOLE_HOUSE_FAN,
     CONF_BOOST_C,
     CONF_HEATER_INVERTED,
     CONF_OUTPUT_MIN,
@@ -102,6 +114,26 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_VALVE): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_WHOLE_HOUSE_POWER): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            key(CONF_VACATION): selector.EntitySelector(selector.EntitySelectorConfig(domain=["input_boolean", "switch"])),
+            vol.Optional(CONF_VACATION_C): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            key(CONF_HEATER_SWITCH): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            key(CONF_WHOLE_HOUSE_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            vol.Optional(CONF_LOCK_PIN): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+            vol.Optional(CONF_COIL_DRY, default=defaults.get(CONF_COIL_DRY, False)): selector.BooleanSelector(),
+            vol.Optional(CONF_HOUSE_SEALED, default=defaults.get(CONF_HOUSE_SEALED, False)): selector.BooleanSelector(),
+            vol.Optional(CONF_PRICE_CHEAP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
+            vol.Optional(CONF_PRICE_EXPENSIVE): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
+            vol.Optional(CONF_MIN_ON_MIN): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
+            ),
+            vol.Optional(CONF_MIN_OFF_MIN): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
+            ),
+            vol.Optional(CONF_AWAY_DELAY_MIN): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=240, step=1, unit_of_measurement="min")
             ),
             vol.Optional(CONF_SHED_MAX_W): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")

@@ -38,7 +38,19 @@
           "humidifier": "Humidifier switch (optional)",
           "boiler": "Boiler switch (optional)",
           "window_area_m2": "Window area, m² (optional, needed for solar gain)",
-          "irradiance": "Irradiance sensor on the window, W/m² (optional)"
+          "irradiance": "Irradiance sensor on the window, W/m² (optional)",
+          "vacation": "Vacation switch, on means vacation mode (optional)",
+          "vacation_c": "Vacation setpoint (°C)",
+          "heater_switch": "Heater switch (optional)",
+          "whole_house_fan": "Whole-house fan switch (optional)",
+          "lock_pin": "Lock PIN (optional)",
+          "coil_dry": "Dry the AC coil after cooling",
+          "house_sealed": "House is sealed (never run the whole-house fan)",
+          "price_cheap": "Cheap price threshold",
+          "price_expensive": "Expensive price threshold",
+          "min_on_min": "Minimum AC on time (min)",
+          "min_off_min": "Minimum AC off time (min)",
+          "away_delay_min": "Minutes without presence before away mode"
         }
       },
       "reconfigure": {
@@ -78,7 +90,19 @@
           "humidifier": "Humidifier switch (optional)",
           "boiler": "Boiler switch (optional)",
           "window_area_m2": "Window area, m² (optional, needed for solar gain)",
-          "irradiance": "Irradiance sensor on the window, W/m² (optional)"
+          "irradiance": "Irradiance sensor on the window, W/m² (optional)",
+          "vacation": "Vacation switch, on means vacation mode (optional)",
+          "vacation_c": "Vacation setpoint (°C)",
+          "heater_switch": "Heater switch (optional)",
+          "whole_house_fan": "Whole-house fan switch (optional)",
+          "lock_pin": "Lock PIN (optional)",
+          "coil_dry": "Dry the AC coil after cooling",
+          "house_sealed": "House is sealed (never run the whole-house fan)",
+          "price_cheap": "Cheap price threshold",
+          "price_expensive": "Expensive price threshold",
+          "min_on_min": "Minimum AC on time (min)",
+          "min_off_min": "Minimum AC off time (min)",
+          "away_delay_min": "Minutes without presence before away mode"
         }
       }
     },

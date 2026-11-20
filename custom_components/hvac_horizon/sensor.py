@@ -12,6 +12,49 @@ from .const import DOMAIN
 from .coordinator import HorizonCoordinator
 
 
+# Published keys shown as plain sensors. Each key is read from coordinator.data. Lists and dicts show their length.
+STATUS_KEYS: dict[str, str] = {
+    "day_type": "Day type",
+    "night_plan": "Night plan",
+    "daily_briefing": "Daily briefing",
+    "window_advice": "Window advice",
+    "ventilation": "Ventilation",
+    "ventilation_rate": "Ventilation rate",
+    "humidity": "Humidity action",
+    "drying_needed": "Drying needed",
+    "mould_risk": "Mould risk",
+    "compliance_pct": "Comfort compliance",
+    "heatwave": "Heatwave",
+    "fan_speed": "Fan speed",
+    "price_used_per_kwh": "Price used per kWh",
+    "occupancy": "Occupancy",
+    "solar_gain_kw": "Solar gain",
+    "band_action": "Band action",
+    "target_c": "Target temperature",
+    "preset": "Preset",
+    "heating_allowed": "Heating allowed",
+    "heater_feedback": "Heater feedback",
+    "heater_pwm_on": "Heater PWM on",
+    "valve_opening_pct": "Valve opening",
+    "cover_action": "Cover action",
+    "second_ac": "Second AC",
+    "learning_suggestion": "Learning suggestion",
+    "external_change": "External change",
+    "sensors_stalled": "Stalled sensors",
+    "safety_output_pct": "Safety output",
+    "economizer": "Economizer",
+    "motion_preset": "Motion preset",
+    "shed": "Loads shed",
+    "mpc_plan": "MPC plan steps",
+    "solar_scale": "Solar scale",
+    "vacation": "Vacation mode",
+    "heat_source": "Heat source",
+    "boiler_demand": "Boiler demand",
+    "whole_house_fan": "Whole-house fan",
+}
+STATUS_UNITS = {"target_c": "°C", "compliance_pct": "%", "safety_output_pct": "%", "valve_opening_pct": "%", "solar_gain_kw": "kW", "price_used_per_kwh": None}
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     coordinator: HorizonCoordinator = entry.runtime_data
     async_add_entities(
@@ -23,6 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             HorizonSensor(coordinator, entry, "samples", "Samples collected", None, SensorStateClass.MEASUREMENT),
             HorizonSensor(coordinator, entry, "forecast_error_min", "Forecast error", "min", SensorStateClass.MEASUREMENT),
         ]
+        + [HorizonStatusSensor(coordinator, entry, key, name) for key, name in STATUS_KEYS.items()]
     )
 
 
@@ -51,3 +95,30 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             return None
         key = {"minutes_to_setpoint": "minutes", "energy_kwh": "energy_kwh", "cost": "cost", "status": "status", "samples": "samples", "forecast_error_min": "forecast_error_min"}[self._key]
         return self.coordinator.data.get(key)
+
+
+class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
+    """Shows one published key. Returns None when the key is absent."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator, entry, key, name) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_name = name
+        self._attr_native_unit_of_measurement = STATUS_UNITS.get(key)
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+
+    @property
+    def native_value(self):
+        if self.coordinator.data is None:
+            return None
+        value = self.coordinator.data.get(self._key)
+        if isinstance(value, (list, tuple, set, dict)):
+            return len(value)
+        if isinstance(value, str):
+            return value[:255]
+        if isinstance(value, (bool, int, float)) or value is None:
+            return value
+        return str(value)[:255]

@@ -813,3 +813,37 @@ async def test_coil_dry_runs_after_cooling_stops(hass, enable_custom_integration
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "dry"}) in calls
+
+
+
+def test_every_conf_key_is_in_the_flow_schema():
+    import re
+    from pathlib import Path
+
+    from custom_components.hvac_horizon import config_flow
+
+    text = Path(config_flow.__file__).with_name("const.py").read_text()
+    # CONF_SCHEDULE_BLOCKS is edited through the schedule service, not the flow.
+    values = {
+        m.group(2)
+        for m in re.finditer(r'^(CONF_[A-Z0-9_]+)\s*=\s*"([^"]+)"', text, re.M)
+        if m.group(1) != "CONF_SCHEDULE_BLOCKS"
+    }
+    schema_keys = {str(k) for k in config_flow._schema({}).schema}
+    missing = sorted(values - schema_keys)
+    assert not missing, f"CONF_* keys with no config flow field: {missing}"
+
+
+async def test_status_sensors_exist_with_control_off(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    for key in ("target_c", "preset", "day_type", "band_action"):
+        eid = registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_{key}")
+        assert eid is not None, key
+        assert eid.startswith("sensor.hvac_horizon_"), eid

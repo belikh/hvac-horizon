@@ -66,6 +66,7 @@ COVER_SOLAR_THRESHOLD_KW = 0.5
 CONF_ECO_C = "eco_c"
 CONF_BOOST_C = "boost_c"
 CONF_WHOLE_HOUSE_FAN = "whole_house_fan"  # optional switch for a whole-house fan
+CONF_COIL_DRY = "coil_dry"  # bool, default False; run the AC in dry mode after cooling to dry the coil
 CONF_HOUSE_SEALED = "house_sealed"  # bool: a sealed house never runs the whole-house fan
 PWM_WINDOW_MIN = 10.0  # heater PWM window in minutes
 CONF_SHED_MAX_W = "shed_max_w"  # optional whole-house maximum in watts
