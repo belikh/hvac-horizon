@@ -1442,11 +1442,16 @@ async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enabl
     assert coordinator._inhibit_until_min is not None
 
     # Inside the 30 minute window nothing is sent, not even the keep-alive.
+    # The sensors report at each step, so no stall stops the AC here.
     freezer.tick(timedelta(minutes=20))
+    set_room(hass, "26.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert sent == [24.0]
 
     freezer.tick(timedelta(minutes=11))
+    set_room(hass, "26.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert sent == [24.0, 24.0], "the coordinator should write its setpoint again after the inhibition"
 
@@ -1455,6 +1460,44 @@ async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enabl
     await refresh(hass, entry)
     assert sent == [24.0, 24.0]
     assert coordinator._inhibit_until_min > dt_util.utcnow().timestamp() / 60.0
+
+
+async def test_stalled_sensor_turns_the_ac_off_inside_the_inhibit_window(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    sent, modes = [], []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    async def record_temp(call):
+        sent.append(call.data["temperature"])
+        hass.states.async_set(CLIMATE, "cool", {"temperature": call.data["temperature"], "friendly_name": "Test AC", "target_temp_step": 0.5})
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    await refresh(hass, entry)
+    assert sent == [24.0]
+
+    # Manual change to 22 C starts the 30 minute inhibition.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
+    await refresh(hass, entry)
+    assert coordinator._inhibit_until_min is not None
+
+    # No sensor reports for 16 minutes. The inhibition still holds, and the stall must still switch the AC off.
+    freezer.tick(timedelta(minutes=16))
+    await refresh(hass, entry)
+    assert coordinator._inhibit_until_min > dt_util.utcnow().timestamp() / 60.0
+    assert ROOM_A in coordinator.data["sensors_stalled"]
+    assert "off" in modes
+    assert sent == [24.0], "the inhibit window must not send a setpoint"
 
 
 async def test_reconfigure_rejects_a_malformed_schedule_list(hass, enable_custom_integrations, config_data):

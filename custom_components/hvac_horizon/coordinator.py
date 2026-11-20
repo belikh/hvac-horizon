@@ -1166,13 +1166,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._inhibited_for_setpoint = manual
         else:
             self._inhibited_for_setpoint = None
-        if inhibited(now_min, self._inhibit_until_min):
+        # A stalled sensor stops the AC even inside the inhibit window. The window sends nothing else.
+        stalled = bool(result.get("sensors_stalled"))
+        inhibit_on = inhibited(now_min, self._inhibit_until_min)
+        if inhibit_on and not stalled:
             result["action"] = "inhibited after a manual change"
             return
         # Keep-alive: resend the last setpoint when the device has not been written to for KEEP_ALIVE_MIN.
         keep_alive_climate = self.hass.states.get(climate_id)
         if (
-            keep_alive_due(self._last_sent_min, now_min, KEEP_ALIVE_MIN)
+            not inhibit_on
+            and keep_alive_due(self._last_sent_min, now_min, KEEP_ALIVE_MIN)
             and self._last_written_setpoint is not None
             and keep_alive_climate is not None
             and keep_alive_climate.state not in ("unavailable", "unknown")
@@ -1183,7 +1187,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now_min
             self._inhibited_for_setpoint = None  # the resend answers the manual change
         rooms = self._rooms()
-        stalled = bool(result.get("sensors_stalled"))
         if not rooms and not stalled:
             return
         window = self._optional(CONF_WINDOW)
@@ -1260,10 +1263,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF:
-            if await self._drive_coil_dry(climate_id, climate, now):
+            # A stall means the AC goes off. Dry mode would keep it running, so it is skipped then.
+            if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
-            if humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
+            if not stalled and humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"
