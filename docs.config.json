@@ -33,6 +33,12 @@
       "title": "Develop",
       "summary": "Architecture, tests and release.",
       "icon": "settings"
+    },
+    {
+      "id": "reference",
+      "title": "Reference",
+      "summary": "Every setting, sensor and attribute, in tables with defaults.",
+      "icon": "filter"
     }
   ]
 }

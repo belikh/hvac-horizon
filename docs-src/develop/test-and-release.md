@@ -87,9 +87,10 @@ The repository has no release workflow. Release by hand with these steps.
 
 1. Set `version` in `custom_components/hvac_horizon/manifest.json`.
 2. Set `version` in `docs.config.json` to the same value. No test checks that the two match. At this commit both files read `0.2.0`.
-3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports.
+3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports. At this commit it reads `2026.11.0`, and `requirements-test.txt` pins the test harness to Home Assistant `2026.10.4`. The tests run on `2026.10.4`. Make the two match before a release, either by raising the pin or by lowering `hacs.json`.
 4. Run the suite with `scripts/check.sh`.
 5. Commit the version change, then push it.
+6. Tag the commit as `v<version>` and publish a GitHub release for the tag. HACS offers the newest release to users. A release gives each install a fixed version.
 
 :::see-also
 - [[develop/architecture]]: the modules and the tick that the tests cover.
