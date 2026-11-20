@@ -31,7 +31,6 @@ class RoomState:
     current_setpoint_c: float | None = None
     outdoor_c: float | None = None  # None means unknown: the outdoor limit is not applied
     night_precool_c: float | None = None  # set when the night plan says pre-cool: cool to this target, away or home
-    mpc_start: bool = False  # the MPC plan's first step says run and mpc_start is on; decide() accepts it past the cool gates
 
 
 class Preset(str, Enum):
@@ -91,10 +90,6 @@ def decide(state: RoomState, settings: Settings) -> Action:
         return Action(Mode.OFF, None, gate)
     if state.night_precool_c is not None and state.room_c > state.night_precool_c:
         return Action(Mode.COOL, state.night_precool_c, "night pre-cool")
-    if state.mpc_start:
-        threshold = cool_above_c(settings, state.someone_home)
-        if state.room_c > threshold + MPC_DEADBAND_C:
-            return Action(Mode.COOL, threshold, "mpc start")
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
         away_target = cool_above_c(settings, False)

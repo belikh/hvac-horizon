@@ -123,7 +123,6 @@ from .const import (
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_ECONOMIZER_FAN,
-    CONF_MPC_START,
     CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
     CONF_TPI_THRESHOLD_LOW,
@@ -1577,7 +1576,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             action = Action(Mode.OFF, None, "sensor stalled" if result.get("sensors_stalled") else "no room reading")
         else:
             # The plan's first step is a request. decide() accepts it only when no cool gate applies.
-            plan_now = result.get("mpc_plan")
             state = RoomState(
                 room_c=statistics.median(rooms),
                 window_open_min=window_open_min,
@@ -1585,7 +1583,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 precool_start_in_min=precool,
                 outdoor_c=outdoor,
                 night_precool_c=comfort_c if night == "pre-cool" else None,
-                mpc_start=bool(self.entry.data.get(CONF_MPC_START, False) and plan_now and plan_now[0]),
             )
             action = decide(state, self._settings)
             if night == "hold" and action.mode is Mode.COOL:

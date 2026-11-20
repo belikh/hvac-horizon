@@ -26,7 +26,6 @@ from .const import (
     CONF_NIGHT_PLAN_ACT,
     CONF_ACCURACY_PANEL,
     CONF_ECONOMIZER_FAN,
-    CONF_MPC_START,
     CONF_WINDOW_ACTUATOR,
     CONF_PEER_ENTRY,
     CONF_PEER_SETPOINT_MODE,
@@ -224,7 +223,6 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=5, step=0.1, unit_of_measurement="°C")
             ),
             key(CONF_TPI_COOL, default=defaults.get(CONF_TPI_COOL, False)): selector.BooleanSelector(),
-            key(CONF_MPC_START, default=defaults.get(CONF_MPC_START, False)): selector.BooleanSelector(),
             key(CONF_MAX_ON_PERCENT): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
