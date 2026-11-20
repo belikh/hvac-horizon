@@ -257,3 +257,16 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert {"entity_id": CLIMATE, "hvac_mode": "dry"} in calls
+
+
+async def test_diagnostics_redacts_entity_ids(hass, enable_custom_integrations, config_data):
+    from custom_components.hvac_horizon.diagnostics import async_get_config_entry_diagnostics
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    assert diag["config"]["climate"] != CLIMATE
+    assert "samples" in diag
