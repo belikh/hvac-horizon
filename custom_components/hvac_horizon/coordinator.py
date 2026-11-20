@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -105,6 +105,8 @@ from .const import (
     DEFAULT_RESIDUAL_PEAK_K,
     RESIDUAL_TAU_MIN,
     CONF_ECO_C,
+    CONF_HEAT_BOOST_C,
+    CONF_HEAT_ECO_C,
     CONF_HEATER_KP,
     CONF_HEATER_KI,
     CONF_HEATER_KD,
@@ -1276,10 +1278,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now_min = now / 60.0
         # Home when any presence source is home. Away only after every source has been away for the away delay.
         someone_home = self._occupancy_mode(now) == "home"
+        # Motion idle past its delay is away for cooling and gets the eco heat setpoint. Presence away and house away get the frost floor.
+        motion_idle = result.get("motion_preset") == "away"
         if result.get("motion_preset") is not None:
             # With a motion sensor, motion decides: on or recent is home, idle past the delay is away.
             someone_home = result["motion_preset"] == "home"
-        someone_home = effective_home(someone_home, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
+        house_mode = house_mode_from_store(self.hass.data.get(DOMAIN, {}))
+        house_away = not effective_home(True, house_mode)
+        someone_home = effective_home(someone_home, house_mode)
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.
         energy_weight = float(self.entry.data.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
@@ -1322,15 +1328,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._settings = settings
         self._someone_home = someone_home
         self._cool_above_c = cool_above_c(settings, someone_home)
-        # One heat target per tick. Nobody home, vacation and the away preset heat only to the frost floor.
-        # Boost heats to its own setpoint. Every other preset heats to the configured comfort setpoint,
-        # never to the eco or away cooling setpoint.
-        if vacation_on or not someone_home or preset_name == Preset.AWAY.value:
+        # One heat target per tick. Vacation, house away, presence away and the away preset heat only to the frost floor.
+        # Otherwise the heat setpoint follows the preset (heat_setpoint). It never uses the eco or away cooling setpoint.
+        if vacation_on or house_away or preset_name == Preset.AWAY.value or (not someone_home and not motion_idle):
             heat_target_c = FROST_FLOOR_C
-        elif preset_name == Preset.BOOST.value and settings.boost_c is not None:
-            heat_target_c = settings.boost_c
         else:
-            heat_target_c = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            heat_target_c = heat_setpoint(
+                preset_name,
+                float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+                _optional_float(self.entry.data.get(CONF_HEAT_ECO_C)),
+                _optional_float(self.entry.data.get(CONF_HEAT_BOOST_C)),
+                motion_idle,
+            )
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)

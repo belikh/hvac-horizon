@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from custom_components.hvac_horizon.const import CONF_CLIMATE, CONF_CLIMATE_2, CONF_HEATER_SWITCH, CONF_VALVE
+from custom_components.hvac_horizon.const import CONF_CLIMATE, CONF_CLIMATE_2, CONF_HEATER_SWITCH, CONF_VALVE, HEAT_BOOST_OFFSET_C, HEAT_ECO_OFFSET_C
 
 
 class DayType(str, Enum):
@@ -175,6 +175,19 @@ def heating_failed(minutes_on: float, rise_c: float, window_min: float = 60.0, m
     Ported from the heating failure detection in Versatile Thermostat. Only meaningful while the heater is commanded on.
     """
     return minutes_on >= window_min and rise_c < min_rise_c
+
+
+def heat_setpoint(preset: str, comfort_c: float, heat_eco_c: float | None, heat_boost_c: float | None, motion_idle: bool) -> float:
+    """Heat target for an occupied house. Boost uses its heat setpoint. Eco and motion idle use the eco heat setpoint.
+
+    An unset heat setpoint falls back to comfort minus HEAT_ECO_OFFSET_C (eco) or comfort plus HEAT_BOOST_OFFSET_C (boost).
+    Every other preset heats to comfort.
+    """
+    if preset == "boost":
+        return heat_boost_c if heat_boost_c is not None else comfort_c + HEAT_BOOST_OFFSET_C
+    if preset == "eco" or motion_idle:
+        return heat_eco_c if heat_eco_c is not None else comfort_c - HEAT_ECO_OFFSET_C
+    return comfort_c
 
 
 def heat_on_below(target_c: float, deadband_c: float) -> float:

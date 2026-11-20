@@ -25,6 +25,8 @@ from custom_components.hvac_horizon.const import (
     CONF_HEATER_INVERTED,
     CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
+    CONF_HEAT_BOOST_C,
+    CONF_HEAT_ECO_C,
     CONF_CLIMATE,
     CONF_LOCK_PIN,
     CONF_SCHEDULE_BLOCKS,
@@ -1407,15 +1409,17 @@ async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrat
 
 
 # The AC cools above these values. Eco and boost use the setpoints set in the entry; comfort is 24 C.
-COOL_ABOVE_BY_PRESET = {"comfort": 24.0, "eco": 26.0, "boost": 22.0, "away": 27.0, "vacation": 27.0}
-# Heat threshold per preset: heat target minus the 0.5 K deadband. Boost heats to its own setpoint (22 C here).
-# Away and vacation heat only to the 16 C frost floor. Eco at home heats to comfort, not to its 26 C cooling setpoint.
-HEAT_ON_BY_PRESET = {"comfort": 23.5, "eco": 23.5, "boost": 21.5, "away": 15.5, "vacation": 15.5}
+COOL_ABOVE_BY_PRESET = {"comfort": 24.0, "eco": 26.0, "boost": 27.0, "away": 27.0, "vacation": 27.0}
+# Heat threshold per preset: heat target minus the 0.5 K deadband. Eco heats to comfort minus 1 (23 C) when heat_eco_c
+# is unset. Boost heats to comfort plus 1 (25 C) when heat_boost_c is unset.
+# Away and vacation heat only to the 16 C frost floor. Eco at home never heats to its 26 C cooling setpoint.
+HEAT_ON_BY_PRESET = {"comfort": 23.5, "eco": 22.5, "boost": 24.5, "away": 15.5, "vacation": 15.5}
 
 
 @pytest.mark.parametrize("scenario", ["comfort", "eco", "boost", "away", "vacation"])
 async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enable_custom_integrations, config_data, scenario):
-    extra = {CONF_ECO_C: 26.0, CONF_BOOST_C: 22.0}
+    # Boost cools above 27 C here. Its default heat setpoint is 25 C, so the heat threshold stays below the cool threshold.
+    extra = {CONF_ECO_C: 26.0, CONF_BOOST_C: 27.0}
     if scenario == "vacation":
         extra[CONF_VACATION] = "input_boolean.vacation"
     entry, _ = await setup_heater(hass, config_data, extra=extra)
@@ -2951,3 +2955,65 @@ async def test_a_high_priority_load_too_big_to_return_does_not_block_a_smaller_o
     await refresh(hass, entry)
     assert calls[2:] == [("on", "switch.test_low")]
     assert entry.runtime_data.data["restored"] == "switch.test_low"
+
+
+async def test_eco_heats_to_the_eco_heat_setpoint(hass, enable_custom_integrations, config_data):
+    # Eco at home: heat_eco_c 23.0 gives an on threshold of 22.5 C. A 22.0 C room turns the heater on.
+    entry, calls = await setup_heater(hass, config_data, room="22.0", extra={CONF_ECO_C: 26.0, CONF_HEAT_ECO_C: 23.0})
+    calls.clear()
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(22.5)
+    assert "turn_on" in calls
+
+
+async def test_eco_without_heat_eco_c_heats_to_comfort_minus_one(hass, enable_custom_integrations, config_data):
+    # Unset heat_eco_c: eco heats to 23.0 C, so the on threshold is 22.5 C. A 23.0 C room leaves the heater off.
+    # Comfort at the same 23.0 C room has a threshold of 23.5 C and turns the heater on.
+    entry, calls = await setup_heater(hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0})
+    calls.clear()
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(22.5)
+    assert "turn_on" not in calls
+    assert entry.runtime_data.data["heater_pwm_on"] is False
+
+
+async def test_comfort_at_the_same_room_turns_the_heater_on(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0})
+    calls.clear()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(23.5)
+    assert "turn_on" in calls
+
+
+async def test_boost_heats_to_the_boost_heat_setpoint(hass, enable_custom_integrations, config_data):
+    # Boost cools above its 27 C setpoint, so a 23.0 C room is not cooled. Heat threshold 24.5 C from heat_boost_c 25.0.
+    extra = {CONF_BOOST_C: 27.0, CONF_HEAT_BOOST_C: 25.0}
+    entry, calls = await setup_heater(hass, config_data, room="23.0", extra=extra)
+    calls.clear()
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(24.5)
+    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(27.0)
+    assert "turn_on" in calls
+
+
+async def test_motion_idle_past_the_delay_heats_to_the_eco_heat_setpoint(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data, heat_eco_c=23.0)
+    hass.states.async_set(MOTION, "off")
+    freezer.tick(timedelta(minutes=31))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["motion_preset"] == "away"
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(22.5)
+
+
+async def test_presence_away_keeps_the_frost_floor_with_heat_eco_c_set(hass, enable_custom_integrations, config_data):
+    hass.states.async_set(PRESENCE, "off")
+    entry, _ = await setup_heater(
+        hass, config_data, room="20.0", extra={CONF_PRESENCE: [PRESENCE], CONF_AWAY_DELAY_MIN: 0, CONF_HEAT_ECO_C: 23.0}
+    )
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(15.5)
+

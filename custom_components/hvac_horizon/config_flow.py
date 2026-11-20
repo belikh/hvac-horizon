@@ -42,6 +42,8 @@ from .const import (
     CONF_AI_CONVERSATION,
     CONF_AI_BUDGET,
     CONF_ECO_C,
+    CONF_HEAT_BOOST_C,
+    CONF_HEAT_ECO_C,
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_BOILER,
     CONF_DEHUMIDIFIER,
@@ -209,6 +211,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_COMFORT_ENERGY_WEIGHT): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="slider")
+            ),
+            key(CONF_HEAT_ECO_C): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            key(CONF_HEAT_BOOST_C): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=10, max=30, step=0.5, unit_of_measurement="°C")
             ),
             key(CONF_BOOST_C, default=defaults.get(CONF_BOOST_C, DEFAULT_COMFORT_C - 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
