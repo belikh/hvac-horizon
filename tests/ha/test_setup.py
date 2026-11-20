@@ -14,11 +14,14 @@ from homeassistant.core import SupportsResponse
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.hvac_horizon.features import pwm_on, room_devices
+from homeassistant.util import dt as dt_util
+
+from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon.const import (
     CONF_HEATER_SWITCH,
     CONF_CLIMATE,
     CONF_OUTDOOR,
+    CONF_VACATION,
     CONF_POWER,
     CONF_PRICE,
     CONF_ROOM_SENSORS,
@@ -1105,21 +1108,6 @@ async def test_heater_feedback_is_set_after_one_driven_tick(hass, enable_custom_
     assert entry.runtime_data._heater_commanded_on is True
 
 
-async def test_pwm_window_gives_zero_fifty_or_hundred_percent(hass, enable_custom_integrations, config_data):
-    entry, _ = await setup_heater(hass, config_data)
-    coordinator = entry.runtime_data
-    start = 6000.0 * 60
-    seen = {}
-    for pct in (0.0, 50.0, 100.0):
-        coordinator._pwm_window_start_min = start / 60.0
-        pattern = [pwm_on(pct, 10.0, coordinator._pwm_elapsed_min(start + 300.0 * tick)) for tick in range(4)]
-        seen[pct] = pattern
-    assert seen[0.0] == [False, False, False, False]
-    assert seen[50.0] == [True, False, True, False]
-    assert seen[100.0] == [True, True, True, True]
-    assert coordinator._pwm_window_start_min == (start + 600.0) / 60.0
-
-
 async def test_heating_failure_publishes_and_raises_repair(hass, enable_custom_integrations, config_data):
     from homeassistant.helpers import issue_registry as ir
 
@@ -1145,3 +1133,112 @@ def test_reconfigure_schema_keeps_heater_inverted():
         schema = _schema({"heater_inverted": stored})
         key = next(k for k in schema.schema if k == "heater_inverted")
         assert key.default() is stored
+
+
+async def test_unload_turns_off_the_switch_it_drove_after_reconfigure(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert entry.runtime_data._heater_commanded_on is True
+    hass.states.async_set(HEATER, "on")
+    # Reconfigure with control off and no heater switch. Unload must still undo the last command.
+    data = {k: v for k, v in entry.data.items() if k not in ("control", CONF_HEATER_SWITCH)}
+    hass.config_entries.async_update_entry(entry, data=data)
+    await hass.async_block_till_done()
+    calls.clear()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == ["turn_off"]
+
+
+async def test_pwm_edges_follow_the_duty_between_ticks(hass, enable_custom_integrations, config_data, freezer):
+    # 50 % of a 10 minute window: on at the window start, off after 5 minutes, next window at 10 minutes.
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    events = []
+
+    async def record_on(call):
+        events.append("on")
+        hass.states.async_set(HEATER, "on")
+
+    async def record_off(call):
+        events.append("off")
+        hass.states.async_set(HEATER, "off")
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    coordinator._heater_gated = False
+    coordinator._pwm_pct_now = 50.0
+    coordinator._pwm_step(dt_util.utcnow().timestamp())
+    await coordinator._drive_heater_switch()
+    await hass.async_block_till_done()
+    assert events == ["on"]
+
+    async def advance(seconds):
+        freezer.tick(timedelta(seconds=seconds))
+        async_fire_time_changed(hass, dt_util.utcnow())
+        await hass.async_block_till_done()
+
+    await advance(299)
+    assert events == ["on"]
+    await advance(1)
+    assert events == ["on", "off"]
+    await advance(299)
+    assert events == ["on", "off"]
+    await advance(1)
+    assert events == ["on", "off", "on"]
+
+
+async def test_pwm_gate_and_zero_output_cancel_the_timers(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    now = dt_util.utcnow().timestamp()
+    coordinator._heater_gated = False
+    coordinator._pwm_pct_now = 50.0
+    coordinator._pwm_step(now)
+    assert len(coordinator._pwm_cancel) == 2
+    coordinator._heater_gated = True
+    coordinator._pwm_step(now + 10)
+    assert coordinator._pwm_cancel == []
+    assert coordinator._pwm_on_now is False
+    coordinator._heater_gated = False
+    coordinator._pwm_pct_now = 100.0
+    coordinator._pwm_step(now + 20)
+    assert coordinator._pwm_cancel == []
+    assert coordinator._pwm_on_now is True
+
+
+async def test_stale_heater_output_is_zeroed_when_outdoor_is_missing(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator.set_heater_output(40.0)
+    hass.states.async_set(OUTDOOR, "unavailable")
+    await refresh(hass, entry)
+    assert coordinator._pwm_output_pct == 0.0
+
+
+async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator.set_heater_output(40.0)
+    coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 60.0
+    await refresh(hass, entry)
+    assert coordinator._pwm_output_pct == 40.0
+
+
+@pytest.mark.parametrize("scenario", ["comfort", "eco", "boost", "away", "vacation"])
+async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enable_custom_integrations, config_data, scenario):
+    extra = {CONF_VACATION: "input_boolean.vacation"} if scenario == "vacation" else None
+    entry, _ = await setup_heater(hass, config_data, extra=extra)
+    if scenario == "vacation":
+        hass.states.async_set("input_boolean.vacation", "on")
+    elif scenario != "comfort":
+        await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": scenario, "minutes": 60})
+    await refresh(hass, entry)
+    heat_on = entry.runtime_data.data["heat_on_below_c"]
+    cool_on = entry.runtime_data.data["cool_on_above_c"]
+    assert heat_on < cool_on
+    assert cool_on - heat_on == pytest.approx(0.5)
+

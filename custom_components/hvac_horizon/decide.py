@@ -48,6 +48,13 @@ class Settings:
     preset: Preset = Preset.COMFORT
 
 
+def cool_above_c(settings: Settings, someone_home: bool) -> float:
+    """Room temperature above which decide() cools. Away uses eco when set, else the away setback."""
+    if not someone_home:
+        return settings.eco_c if settings.eco_c is not None else settings.away_c
+    return preset_setpoint(settings)
+
+
 def preset_setpoint(settings: Settings) -> float:
     """The setpoint the active preset asks for. Eco and boost fall back to comfort when unset."""
     if settings.preset is Preset.ECO:
@@ -73,14 +80,14 @@ def decide(state: RoomState, settings: Settings) -> Action:
         return Action(Mode.OFF, None, f"outdoor {state.outdoor_c:.0f} C below cooling limit")
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
-        away_target = settings.eco_c if settings.eco_c is not None else settings.away_c
+        away_target = cool_above_c(settings, False)
         if state.room_c > away_target:
             reason = "eco when unoccupied" if settings.eco_c is not None else "away setback"
             return Action(Mode.COOL, away_target, reason)
         return Action(Mode.OFF, None, "away, room within setback")
     if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
-    target = preset_setpoint(settings)
+    target = cool_above_c(settings, True)
     if state.room_c > target:
         return Action(Mode.COOL, target, f"above {settings.preset.value} target")
     return Action(Mode.OFF, None, f"at or below {settings.preset.value} target")

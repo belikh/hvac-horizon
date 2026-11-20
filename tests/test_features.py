@@ -153,13 +153,13 @@ class SafetyAndBriefingTests(unittest.TestCase):
         self.assertFalse(heating_failed(60.0, 0.5))
         self.assertFalse(heating_failed(59.9, 0.0))
 
-    def test_heat_target_is_comfort_plus_and_minus_deadband(self):
-        from custom_components.hvac_horizon.features import heat_target
+    def test_heat_on_below_is_target_minus_deadband(self):
+        from custom_components.hvac_horizon.features import heat_on_below
 
-        self.assertEqual(heat_target(24.0, 0.5), (23.5, 24.5))
-        self.assertEqual(heat_target(21.0, 0.0), (21.0, 21.0))
+        self.assertEqual(heat_on_below(24.0, 0.5), 23.5)
+        self.assertEqual(heat_on_below(21.0, 0.0), 21.0)
         with self.assertRaises(ValueError):
-            heat_target(24.0, -0.1)
+            heat_on_below(24.0, -0.1)
 
     def test_sensor_stall(self):
         from custom_components.hvac_horizon.features import sensor_stalled
