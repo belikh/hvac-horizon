@@ -1117,7 +1117,7 @@ HEATER = "switch.test_heater"
 WINDOW = "binary_sensor.test_window"
 
 
-async def setup_heater(hass, config_data, *, heater_state="off", outdoor="10.0", room="20.0", extra=None, climate="off"):
+async def setup_heater(hass, config_data, *, heater_state="off", outdoor="10.0", room="20.0", extra=None, climate="off", temperature_handler=None):
     """Set up a control-on entry with a heater switch and a cold room. The switch and climate services are fakes that record calls."""
     set_inputs(hass)
     hass.states.async_set(CLIMATE, climate, {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
@@ -1139,7 +1139,7 @@ async def setup_heater(hass, config_data, *, heater_state="off", outdoor="10.0",
     hass.services.async_register("switch", "turn_on", record_on)
     hass.services.async_register("switch", "turn_off", record_off)
     hass.services.async_register("climate", "set_hvac_mode", ignore)
-    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.services.async_register("climate", "set_temperature", temperature_handler or ignore)
     data = {**config_data, CONF_HEATER_SWITCH: HEATER, "control": True, **(extra or {})}
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
@@ -1372,6 +1372,9 @@ async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrat
 
 # The AC cools above these values. Eco and boost use the setpoints set in the entry; comfort is 24 C.
 COOL_ABOVE_BY_PRESET = {"comfort": 24.0, "eco": 26.0, "boost": 22.0, "away": 27.0, "vacation": 27.0}
+# Heat threshold per preset: heat target minus the 0.5 K deadband. Boost heats to its own setpoint (22 C here).
+# Away and vacation heat only to the 16 C frost floor. Eco at home heats to comfort, not to its 26 C cooling setpoint.
+HEAT_ON_BY_PRESET = {"comfort": 23.5, "eco": 23.5, "boost": 21.5, "away": 15.5, "vacation": 15.5}
 
 
 @pytest.mark.parametrize("scenario", ["comfort", "eco", "boost", "away", "vacation"])
@@ -1391,10 +1394,48 @@ async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enab
     cool_on = entry.runtime_data.data["cool_on_above_c"]
     assert heat_on < cool_on
     assert cool_on == pytest.approx(COOL_ABOVE_BY_PRESET[scenario])
-    # Heating stops at comfort minus the deadband on every preset. Eco, away and vacation cool to
-    # warmer setpoints, and the heater must not heat the house up to them.
-    assert heat_on == pytest.approx(min(COOL_ABOVE_BY_PRESET[scenario], 24.0) - 0.5)
+    assert heat_on == pytest.approx(HEAT_ON_BY_PRESET[scenario])
 
+
+async def test_eco_at_home_never_sends_the_eco_setpoint_as_heat(hass, enable_custom_integrations, config_data, freezer):
+    # Eco at home cools above 26 C, but a 23 C room heats the AC to the heat threshold (23.5 C), never to 26 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    sent = []
+
+    async def record_temperature(call):
+        # The fake AC reports the setpoint it received, so the next tick does not read our write as a manual change.
+        sent.append(call.data["temperature"])
+        hass.states.async_set(CLIMATE, "off", {"temperature": call.data["temperature"], "target_temp_step": 1.0, "friendly_name": "Test AC"})
+
+    entry, _ = await setup_heater(
+        hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0, CONF_HEATER_SWITCH: None}, temperature_handler=record_temperature
+    )
+    await refresh(hass, entry)
+    sent.clear()
+    freezer.tick(timedelta(minutes=10))  # the minimum off time after the first tick has passed
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60})
+    await refresh(hass, entry)
+    # The AC ends on a heat setpoint near 23.5 C. Old code left it on the 26 C eco cooling setpoint.
+    assert all(temperature < 25.0 for temperature in sent)
+    assert hass.states.get(CLIMATE).attributes["temperature"] < 25.0
+
+
+async def test_empty_house_heater_stays_off_above_the_frost_floor(hass, enable_custom_integrations, config_data):
+    # Nobody home: the heat target is the 16 C frost floor, so a 20 C room does not start the heater.
+    hass.states.async_set(PRESENCE, "off")
+    entry, calls = await setup_heater(hass, config_data, room="20.0", extra={CONF_PRESENCE: [PRESENCE], CONF_AWAY_DELAY_MIN: 0})
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+
+
+async def test_empty_house_heater_runs_below_the_frost_floor(hass, enable_custom_integrations, config_data):
+    # Nobody home and a 15 C room: below the 15.5 C frost threshold, so the heater switch turns on.
+    hass.states.async_set(PRESENCE, "off")
+    entry, calls = await setup_heater(hass, config_data, room="15.0", extra={CONF_PRESENCE: [PRESENCE], CONF_AWAY_DELAY_MIN: 0})
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_on" in calls
 
 
 async def test_boost_drives_heater_output_to_100(hass, enable_custom_integrations, config_data):

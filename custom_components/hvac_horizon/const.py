@@ -63,6 +63,7 @@ DEFAULT_HEATER_KP = 20.0
 DEFAULT_HEATER_KI = 60.0
 DEFAULT_HEATER_KD = 0.5
 DEFAULT_HEATER_DEADBAND_C = 0.5  # heater heats below comfort minus this; the AC cools above comfort plus this
+FROST_FLOOR_C = 16.0  # heat target for an empty or vacation house: only keeps the pipes and walls from freezing
 CONF_OUTPUT_MIN = "output_min"  # percent, default 0.0
 CONF_OUTPUT_MAX = "output_max"  # percent, default 100.0
 CONF_FAN = "fan"  # optional switch for the room fan

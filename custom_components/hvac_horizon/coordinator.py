@@ -111,6 +111,7 @@ from .const import (
     DEFAULT_HEATER_KI,
     DEFAULT_HEATER_KD,
     DEFAULT_HEATER_DEADBAND_C,
+    FROST_FLOOR_C,
     PWM_WINDOW_MIN,
     FAN_PWM_WINDOW_MIN,
     CONF_AWAY_C,
@@ -280,6 +281,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._someone_home = True
         self._preset_now: str | None = None
         self._cool_above_c: float = DEFAULT_COMFORT_C
+        self._heat_target_c: float = DEFAULT_COMFORT_C
         self._heat_on_below_c: float = DEFAULT_COMFORT_C - DEFAULT_HEATER_DEADBAND_C
         self._pwm_window_start_s: float | None = None
         self._pwm_on_now = False
@@ -1080,7 +1082,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # so the positive error of that time does not wind it up.
             forced_off = pid_room >= self._heat_on_below_c or (climate_now is not None and climate_now.state == "cool")
             pid_out = self._heater_pid.update(
-                self._cool_above_c, pid_room, SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor, freeze_integral=forced_off
+                self._heat_target_c, pid_room, SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor, freeze_integral=forced_off
             )
             self.set_heater_output(boost_output(self._preset_now or "", pid_out))
             result["heater_pid_output"] = round(pid_out, 2)
@@ -1237,8 +1239,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _plan_control(self, now: float, result: dict[str, Any]) -> None:
         """Work out the preset and the one effective target for this tick.
 
-        The AC cools above `_cool_above_c` (decide) and the heater PID aims at it. The heater heats below
-        `_heat_on_below_c`, one deadband lower. Both come from the same settings, so they never disagree.
+        The AC cools above `_cool_above_c` (decide). The heater PID aims at `_heat_target_c`, and the heater
+        and the AC heat setpoint use `_heat_on_below_c`, one deadband lower. All three come from one planned target.
         """
         now_min = now / 60.0
         # Home when any presence source is home. Away only after every source has been away for the away delay.
@@ -1289,10 +1291,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._settings = settings
         self._someone_home = someone_home
         self._cool_above_c = cool_above_c(settings, someone_home)
-        # The heater never heats past the configured comfort setpoint, so eco and away (warm cooling
-        # setpoints) and vacation do not heat the house. Boost, below comfort, lowers the heat threshold.
-        heat_base_c = min(self._cool_above_c, float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
-        self._heat_on_below_c = heat_on_below(heat_base_c, DEFAULT_HEATER_DEADBAND_C)
+        # One heat target per tick. Nobody home, vacation and the away preset heat only to the frost floor.
+        # Boost heats to its own setpoint. Every other preset heats to the configured comfort setpoint,
+        # never to the eco or away cooling setpoint.
+        if vacation_on or not someone_home or preset_name == Preset.AWAY.value:
+            heat_target_c = FROST_FLOOR_C
+        elif preset_name == Preset.BOOST.value and settings.boost_c is not None:
+            heat_target_c = settings.boost_c
+        else:
+            heat_target_c = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        self._heat_target_c = heat_target_c
+        self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 
@@ -1554,7 +1563,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state_changed_at = now
             self._last_sent_min = now / 60.0
             self._last_written_mode = "heat"
-        await self._write_setpoint(climate_id, climate, self._cool_above_c, now)
+        await self._write_setpoint(climate_id, climate, self._heat_on_below_c, now)
         return False
 
     async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:
