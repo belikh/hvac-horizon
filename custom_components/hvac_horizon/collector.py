@@ -103,3 +103,16 @@ def price_slots(forecast: list[tuple[float, float]], now: float, default_step_s:
             continue
         slots.append(PriceSlot(start_min=(start - now) / 60.0, duration_min=length / 60.0, price_per_kwh=value))
     return slots
+
+
+MIN_CYCLE_SAMPLES = 36  # three hours of 5-minute samples per state
+MIN_CYCLES = 3  # distinct AC-on runs
+
+
+def has_enough_cycles(samples: list[Sample]) -> bool:
+    """True when the data has enough AC-on and AC-off time, and enough separate runs, to fit safely."""
+    on = [s.power_kw > 0 for s in samples]
+    if sum(on) < MIN_CYCLE_SAMPLES or len(on) - sum(on) < MIN_CYCLE_SAMPLES:
+        return False
+    runs = sum(1 for prev, cur in zip([False] + on, on) if cur and not prev)
+    return runs >= MIN_CYCLES

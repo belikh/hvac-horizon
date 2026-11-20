@@ -21,6 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             HorizonSensor(coordinator, entry, "cost", "Cost to setpoint", None, SensorStateClass.MEASUREMENT),
             HorizonSensor(coordinator, entry, "status", "Status", None, None),
             HorizonSensor(coordinator, entry, "samples", "Samples collected", None, SensorStateClass.MEASUREMENT),
+            HorizonSensor(coordinator, entry, "forecast_error_min", "Forecast error", "min", SensorStateClass.MEASUREMENT),
         ]
     )
 
@@ -48,5 +49,5 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
     def native_value(self):
         if self.coordinator.data is None:
             return None
-        key = {"minutes_to_setpoint": "minutes", "energy_kwh": "energy_kwh", "cost": "cost", "status": "status", "samples": "samples"}[self._key]
+        key = {"minutes_to_setpoint": "minutes", "energy_kwh": "energy_kwh", "cost": "cost", "status": "status", "samples": "samples", "forecast_error_min": "forecast_error_min"}[self._key]
         return self.coordinator.data.get(key)

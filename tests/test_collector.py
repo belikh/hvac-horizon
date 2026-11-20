@@ -75,3 +75,29 @@ class CollectorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CycleGuardTests(unittest.TestCase):
+    def _samples(self, on_steps, off_steps, runs):
+        from custom_components.hvac_horizon.model import Sample
+
+        out = []
+        for _ in range(runs):
+            out += [Sample(5.0, 26.0, 25.9, 30.0, 1.0)] * on_steps
+            out += [Sample(5.0, 25.9, 25.9, 30.0, 0.0)] * off_steps
+        return out
+
+    def test_guard_rejects_too_little_off_time(self):
+        from custom_components.hvac_horizon.collector import has_enough_cycles
+
+        self.assertFalse(has_enough_cycles(self._samples(40, 5, 5)))  # 25 off-samples, under 36
+
+    def test_guard_rejects_too_few_runs(self):
+        from custom_components.hvac_horizon.collector import has_enough_cycles
+
+        self.assertFalse(has_enough_cycles(self._samples(20, 20, 2)))
+
+    def test_guard_accepts_enough_on_off_and_runs(self):
+        from custom_components.hvac_horizon.collector import has_enough_cycles
+
+        self.assertTrue(has_enough_cycles(self._samples(20, 20, 4)))

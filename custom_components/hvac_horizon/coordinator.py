@@ -14,7 +14,8 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.collector import Entry, price_slots, running_power_kw, samples_from_entries
+from custom_components.hvac_horizon.backfill import backtest, median_abs_error
+from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
@@ -81,6 +82,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fit_reason = "not enough data"
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
+        self._backtest_runs: list = []
+        self._forecast_error_min: float | None = None
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
@@ -94,12 +97,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._store.async_save(self._save_payload())
 
     def _refit(self) -> None:
+        samples = samples_from_entries(self._entries)
+        self._backtest_runs = []
+        if not has_enough_cycles(samples):
+            self._fit = None
+            self._fit_reason = "need at least 3 hours of AC on and off time over 3 runs"
+            return
         try:
-            self._fit = fit(samples_from_entries(self._entries))
+            self._fit = fit(samples)
             self._fit_reason = "fitted"
         except NotEnoughData as err:
             self._fit = None
             self._fit_reason = str(err)
+            return
+        target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
+        self._forecast_error_min = median_abs_error(self._backtest_runs)
 
     def _rooms(self) -> list[float]:
         states = (self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS])
@@ -153,7 +166,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._samples_since_fit >= FIT_EVERY_N_SAMPLES or self._fit is None:
                 self._refit()
                 self._samples_since_fit = 0
-            self._store.async_delay_save(self._save_payload, 60)
+            self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result = self._forecast(now)
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
@@ -208,6 +221,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "k": None,
             "c": None,
             "g": None,
+            "forecast_error_min": self._forecast_error_min,
+            "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
         }
         if self._fit is None:
             return result
