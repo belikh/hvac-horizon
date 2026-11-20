@@ -150,8 +150,20 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._forecast_error_min = median_abs_error(self._backtest_runs)
 
     def _rooms(self) -> list[float]:
-        states = (self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS])
-        return [v for v in (_float(s) for s in states) if v is not None]
+        """Room readings for the median: the room sensors, plus the AC's own temperature when it reports one.
+
+        The AC reports whole degrees, so it has a coarser reading than the room sensors.
+        """
+        states = [self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS]]
+        values = [v for v in (_float(s) for s in states) if v is not None]
+        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        own = climate.attributes.get("current_temperature") if climate else None
+        if own is not None:
+            try:
+                values.append(float(own))
+            except (TypeError, ValueError):
+                pass
+        return values
 
     def _optional(self, key: str) -> State | None:
         entity = self.entry.data.get(key)
