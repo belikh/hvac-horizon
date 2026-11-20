@@ -215,3 +215,26 @@ class PresenceModeTests(unittest.TestCase):
         from custom_components.hvac_horizon.features import presence_mode
 
         self.assertEqual(presence_mode([], 30.0, 999.0), "home")
+
+
+class SolarAndCoverTests(unittest.TestCase):
+    def test_sun_heat_gain_in_kw(self):
+        from custom_components.hvac_horizon.features import sun_heat_gain
+
+        self.assertAlmostEqual(sun_heat_gain(800.0, 2.0, 0.6), 0.96)
+
+    def test_sun_heat_gain_rejects_bad_inputs(self):
+        from custom_components.hvac_horizon.features import sun_heat_gain
+
+        with self.assertRaises(ValueError):
+            sun_heat_gain(-1.0, 2.0)
+        with self.assertRaises(ValueError):
+            sun_heat_gain(100.0, 2.0, shgc=1.5)
+
+    def test_cover_actions(self):
+        from custom_components.hvac_horizon.features import cover_action
+
+        self.assertEqual(cover_action(1.5, 1.0, cover_open=True), "close")
+        self.assertEqual(cover_action(0.5, 1.0, cover_open=False), "open")
+        self.assertEqual(cover_action(1.5, 1.0, cover_open=False), "hold")
+        self.assertEqual(cover_action(0.5, 1.0, cover_open=True), "hold")

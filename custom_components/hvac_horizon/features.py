@@ -208,3 +208,25 @@ def presence_mode(home_states: list[bool], away_delay_min: float, minutes_since_
     if not home_states or any(home_states):
         return "home"
     return "away" if minutes_since_last_home >= away_delay_min else "home"
+
+
+def sun_heat_gain(irradiance_w_m2: float, window_area_m2: float, shgc: float = 0.6) -> float:
+    """Solar heat gain through a window, in kW: irradiance times area times solar heat gain coefficient.
+
+    Ported from the solar gain estimate in RoomMind. Irradiance is the measured or modelled value on the window.
+    """
+    if irradiance_w_m2 < 0 or window_area_m2 < 0 or not 0.0 <= shgc <= 1.0:
+        raise ValueError("irradiance and area must be non-negative, shgc in [0, 1]")
+    return irradiance_w_m2 * window_area_m2 * shgc / 1000.0
+
+
+def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) -> str:
+    """'close' when solar gain is above the threshold and the cover is open, 'open' when it is below and the cover is closed, else 'hold'.
+
+    Ported from RoomMind's cover control. Covers only cut solar gain, so the decision uses the threshold.
+    """
+    if solar_gain_kw > threshold_kw and cover_open:
+        return "close"
+    if solar_gain_kw <= threshold_kw and not cover_open:
+        return "open"
+    return "hold"
