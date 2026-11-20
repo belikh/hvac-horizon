@@ -106,7 +106,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Drying decision (no cooling needed) | CA | published |
 | Mould risk from surface humidity | RM | published |
 | Mould prevention raises target | RM | drives (control target raised by 1 C while mould risk is present) |
-| AC coil drying after heating | RM | missing |
+| AC coil drying after heating | RM | drives (AC dry mode for 20 minutes after cooling, when the AC supports dry) |
 | Auto fan speed from temperature gap | VT | published |
 
 ## Valves, radiators and multi-device
