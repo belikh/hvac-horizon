@@ -2500,3 +2500,58 @@ async def test_fan_stays_off_at_zero_rate(hass, enable_custom_integrations, conf
 async def test_pm25_still_forces_the_fan_on_during_the_off_half(hass, enable_custom_integrations, config_data, freezer):
     commands = await _fan_run(hass, config_data, freezer, co2="1000", minutes_between_ticks=5, ticks=2, pm25="30")
     assert commands == ["turn_on"]
+
+
+async def _fan_mode_run(hass, config_data, *, state="cool", room="27.0", fan_mode="auto", control=True):
+    """Set up the AC with fan modes and return the set_fan_mode commands. The target is 24.04 C, so a 27 C room is a gap of about 3 K."""
+    set_inputs(hass)
+    _set_ac_rooms(hass, room)
+    hass.states.async_set(
+        CLIMATE,
+        state,
+        {
+            "temperature": 24.0,
+            "friendly_name": "Test AC",
+            "target_temp_step": 1.0,
+            "fan_modes": ["auto", "low", "high"],
+            "fan_mode": fan_mode,
+        },
+    )
+    commands = []
+
+    async def record_fan(call):
+        commands.append(call.data["fan_mode"])
+        current = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, current.state, {**current.attributes, "fan_mode": call.data["fan_mode"]})
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_fan_mode", record_fan)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=control), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return commands
+
+
+async def test_fan_goes_high_when_the_room_is_more_than_2_k_above_the_target(hass, enable_custom_integrations, config_data):
+    assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto") == ["high"]
+
+
+async def test_fan_goes_auto_when_the_room_is_within_half_a_kelvin_of_the_target(hass, enable_custom_integrations, config_data):
+    assert await _fan_mode_run(hass, config_data, room="24.2", fan_mode="high") == ["auto"]
+
+
+async def test_fan_keeps_its_mode_between_half_a_kelvin_and_2_k(hass, enable_custom_integrations, config_data):
+    assert await _fan_mode_run(hass, config_data, room="24.8", fan_mode="low") == []
+
+
+async def test_fan_is_left_alone_when_the_ac_is_not_cooling(hass, enable_custom_integrations, config_data):
+    assert await _fan_mode_run(hass, config_data, state="off", room="27.0", fan_mode="auto") == []
+
+
+async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integrations, config_data):
+    assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []

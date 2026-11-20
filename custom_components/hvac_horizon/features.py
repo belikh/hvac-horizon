@@ -466,6 +466,22 @@ def fan_speed_from_gap(room_c: float, target_c: float, max_gap_c: float = 3.0) -
     return min(3, 1 + int(2 * gap / max_gap_c))
 
 
+def fan_mode_for_gap(gap_c: float, available: list[str] | None, high_above_c: float = 2.0, low_below_c: float = 0.5) -> str | None:
+    """Climate fan mode for the room's gap above the target: "high" above `high_above_c`, "auto" (or "low") below `low_below_c`.
+
+    Returns None between the two limits. Returns None too when the device lists no fan modes, or does not list the mode to send.
+    """
+    if high_above_c <= low_below_c:
+        raise ValueError("high_above_c must be above low_below_c")
+    if not available:
+        return None
+    if gap_c > high_above_c:
+        return "high" if "high" in available else None
+    if gap_c < low_below_c:
+        return next((mode for mode in ("auto", "low") if mode in available), None)
+    return None
+
+
 def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:
     """True when the room is above the humidity band and no cooling is needed (cool gap at or below zero).
 

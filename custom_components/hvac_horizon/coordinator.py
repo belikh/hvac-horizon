@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -1433,6 +1433,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
         await self._write_setpoint(climate_id, climate, action.setpoint_c, now)
+        if climate.state == "cool" and rooms:
+            # The fan follows the room gap while the AC was already cooling before this cycle.
+            await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
+
+    async def _write_fan_mode(self, climate_id: str, climate: State, gap_c: float) -> None:
+        """Set the AC fan mode from the room gap. Sends only when the device lists the mode and it differs from the current one."""
+        mode = fan_mode_for_gap(gap_c, climate.attributes.get("fan_modes"))
+        if mode is None or climate.attributes.get("fan_mode") == mode:
+            return
+        await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": climate_id, "fan_mode": mode}, blocking=True)
 
     async def _publish_investigation(self, now: float, result: dict[str, Any]) -> None:
         """Explain the AC action from its inputs. Ask the conversation agent when the mode changes, within the daily budget."""
