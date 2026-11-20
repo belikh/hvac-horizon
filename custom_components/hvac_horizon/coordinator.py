@@ -26,6 +26,7 @@ from custom_components.hvac_horizon.features import (
     heating_failure,
     learning_suggestion,
     presence_mode,
+    sun_heat_gain,
     vacation_target,
     night_plan,
     safety_output,
@@ -41,6 +42,8 @@ from .const import (
     CONF_CLIMATE,
     CONF_AWAY_DELAY_MIN,
     CONF_CO2,
+    CONF_IRRADIANCE,
+    CONF_WINDOW_AREA_M2,
     DEFAULT_AWAY_DELAY_MIN,
     CONF_VACATION,
     CONF_VACATION_C,
@@ -206,6 +209,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
 
+    def _solar_gain(self) -> float | None:
+        """Solar gain from the optional irradiance sensor and window area. None when either is not configured."""
+        irradiance = _float(self._optional(CONF_IRRADIANCE))
+        area = self.entry.data.get(CONF_WINDOW_AREA_M2)
+        if irradiance is None or area is None:
+            return None
+        return round(sun_heat_gain(irradiance, float(area)), 3)
+
     def _occupancy_mode(self, now: float) -> str:
         """Home or away from the optional presence sources. Tracks the last time any source was home."""
         sources = [self._optional(CONF_PRESENCE)] if self.entry.data.get(CONF_PRESENCE) else []
@@ -336,6 +347,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)
+        result["solar_gain_kw"] = self._solar_gain()
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):

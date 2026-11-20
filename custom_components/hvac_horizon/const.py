@@ -44,3 +44,5 @@ CONF_VACATION_C = "vacation_c"
 DEFAULT_VACATION_C = 16.0
 CONF_AWAY_DELAY_MIN = "away_delay_min"
 DEFAULT_AWAY_DELAY_MIN = 30.0
+CONF_IRRADIANCE = "irradiance"  # optional sensor, W/m2, on the window
+CONF_WINDOW_AREA_M2 = "window_area_m2"
