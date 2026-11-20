@@ -25,6 +25,8 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     heating_failure,
     learning_suggestion,
+    band_action,
+    comfort_band,
     presence_mode,
     sun_heat_gain,
     vacation_target,
@@ -348,6 +350,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
+        low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
+        rooms_now = self._rooms()
+        result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
