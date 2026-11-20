@@ -783,3 +783,30 @@ def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
     if offset_k is None:
         return setpoint_c
     return setpoint_c - offset_k
+
+
+def residual_rise(peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0) -> float:
+    """Extra room temperature rise in kelvin still to come after a heater stops.
+
+    The rise decays exponentially: peak_rise_k * exp(-minutes_since_off / tau_min).
+    Ported from RoomMind's radiator and underfloor residual heat model.
+    Raises ValueError when minutes_since_off < 0, tau_min <= 0 or peak_rise_k < 0.
+    Pure logic with no caller yet: the house has no radiators or underfloor heating.
+    """
+    if minutes_since_off < 0:
+        raise ValueError("minutes_since_off must be >= 0")
+    if tau_min <= 0:
+        raise ValueError("tau_min must be > 0")
+    if peak_rise_k < 0:
+        raise ValueError("peak_rise_k must be >= 0")
+    return peak_rise_k * math.exp(-minutes_since_off / tau_min)
+
+
+def residual_correction(
+    room_c: float, peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0
+) -> float:
+    """Room temperature minus the residual rise, so a still-warm room reads cooler and avoids overshoot.
+
+    Pure logic with no caller yet: the house has no radiators or underfloor heating.
+    """
+    return room_c - residual_rise(peak_rise_k, minutes_since_off, tau_min)

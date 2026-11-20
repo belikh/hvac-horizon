@@ -1,3 +1,4 @@
+import math
 import unittest
 
 from custom_components.hvac_horizon.features import (
@@ -23,6 +24,8 @@ from custom_components.hvac_horizon.features import (
     mode_disagrees,
     outdoor_allows,
     pwm_on,
+    residual_correction,
+    residual_rise,
     shed_plan,
     stagger_allowed,
     switch_feedback,
@@ -884,3 +887,30 @@ class TrvOffsetTests(unittest.TestCase):
 
     def test_corrected_setpoint_none_unchanged(self):
         self.assertEqual(corrected_setpoint(21.0, None), 21.0)
+
+
+class ResidualHeatTests(unittest.TestCase):
+    def test_rise_at_zero_minutes_equals_peak(self):
+        self.assertEqual(residual_rise(3.0, 0.0), 3.0)
+
+    def test_rise_after_one_tau_is_peak_times_exp_minus_one(self):
+        self.assertAlmostEqual(residual_rise(3.0, 20.0, 20.0), 3.0 * math.exp(-1))
+
+    def test_correction_subtracts_rise(self):
+        self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 19.0)
+
+    def test_negative_minutes_raises(self):
+        with self.assertRaises(ValueError):
+            residual_rise(2.0, -1.0)
+
+    def test_zero_tau_raises(self):
+        with self.assertRaises(ValueError):
+            residual_rise(2.0, 5.0, 0.0)
+
+    def test_negative_tau_raises(self):
+        with self.assertRaises(ValueError):
+            residual_rise(2.0, 5.0, -5.0)
+
+    def test_negative_peak_raises(self):
+        with self.assertRaises(ValueError):
+            residual_rise(-1.0, 5.0)
