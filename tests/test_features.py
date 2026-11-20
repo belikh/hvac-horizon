@@ -6,6 +6,8 @@ from custom_components.hvac_horizon.features import (
     classify_day,
     economizer_phase,
     forecast_highs,
+    boiler_demand,
+    heat_source,
     humidity_action,
     minimum_time_ok,
     mode_disagrees,
@@ -670,3 +672,23 @@ class TestEconomizerPhase(unittest.TestCase):
     def test_zero_fan_after_raises(self):
         with self.assertRaises(ValueError):
             economizer_phase(18.0, 26.0, 24.0, 0.0, fan_after_min=0.0)
+
+
+class HeatSourceTests(unittest.TestCase):
+    def test_cold_outdoors_picks_boiler(self):
+        self.assertEqual(heat_source(0.0), "boiler")
+
+    def test_mild_outdoors_picks_ac(self):
+        self.assertEqual(heat_source(12.0), "ac")
+
+    def test_boundary_picks_boiler(self):
+        self.assertEqual(heat_source(5.0), "boiler")
+
+    def test_demand_true_when_cold_and_below_low_edge(self):
+        self.assertTrue(boiler_demand(20.0, 23.0, "boiler"))
+
+    def test_demand_false_at_low_edge(self):
+        self.assertFalse(boiler_demand(23.0, 23.0, "boiler"))
+
+    def test_demand_false_when_source_is_ac(self):
+        self.assertFalse(boiler_demand(20.0, 23.0, "ac"))

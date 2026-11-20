@@ -31,6 +31,16 @@ def classify_day(forecast_high_c: float) -> DayType:
     return DayType.COLD
 
 
+def heat_source(outdoor_c: float, boiler_below_c: float = 5.0) -> str:
+    """Heat source for a room that needs heat: "boiler" at or below `boiler_below_c` outdoors, otherwise "ac"."""
+    return "boiler" if outdoor_c <= boiler_below_c else "ac"
+
+
+def boiler_demand(room_c: float, comfort_low_c: float, source: str) -> bool:
+    """True when the boiler is the chosen source and the room is below the low edge of the comfort band."""
+    return source == "boiler" and room_c < comfort_low_c
+
+
 def outdoor_allows(mode: str, outdoor_c: float, cool_min_c: float = 16.0, heat_max_c: float = 22.0) -> bool:
     """Cooling is blocked below `cool_min_c` outdoors. Heating is blocked above `heat_max_c` outdoors."""
     if mode == "cool":

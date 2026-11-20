@@ -29,7 +29,8 @@
           "whole_house_power": "Whole-house power sensor (optional)",
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
-          "humidifier": "Humidifier switch (optional)"
+          "humidifier": "Humidifier switch (optional)",
+          "boiler": "Boiler switch (optional)"
         }
       },
       "reconfigure": {
@@ -60,7 +61,8 @@
           "whole_house_power": "Whole-house power sensor (optional)",
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
-          "humidifier": "Humidifier switch (optional)"
+          "humidifier": "Humidifier switch (optional)",
+          "boiler": "Boiler switch (optional)"
         }
       }
     },

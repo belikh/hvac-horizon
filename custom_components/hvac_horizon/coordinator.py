@@ -31,7 +31,9 @@ from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Setti
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
+    boiler_demand,
     economizer_phase,
+    heat_source,
     forecast_highs,
     natural_ventilation_window,
     daily_briefing,
@@ -86,6 +88,8 @@ from .const import (
     CONF_VACATION,
     CONF_VACATION_C,
     DEFAULT_VACATION_C,
+    BOILER_BELOW_C,
+    CONF_BOILER,
     CONF_DEHUMIDIFIER,
     CONF_HUMIDIFIER,
     CONF_FAN,
@@ -687,6 +691,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._minutes_in_open += (now - self._last_economizer_t) / 60.0
             self._last_economizer_t = now
             result["economizer"] = phase
+            source = heat_source(outdoor_now, BOILER_BELOW_C)
+            low_edge = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)) - 1.0
+            result["heat_source"] = source
+            result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
@@ -900,6 +908,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
+        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")))
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
