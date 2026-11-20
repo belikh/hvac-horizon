@@ -1714,6 +1714,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Returns True when the minimum time holds the start.
         """
+        modes = climate.attributes.get("hvac_modes")
+        if modes is not None and "heat" not in modes:
+            # The device has no heat mode, so the AC cannot heat. Do not send a mode it does not list.
+            return False
         if climate.state != "heat":
             since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
             running = climate.state in ("cool", "heat")

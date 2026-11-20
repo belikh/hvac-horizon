@@ -3371,3 +3371,13 @@ async def test_compressor_group_staggers_heat_starts_across_entries(hass, enable
     freezer.tick(timedelta(minutes=1))
     await refresh(hass, waiting_entry)
     assert [entity for entity, mode in calls if mode == "heat"] == starts + [waiting_entry.data["climate"]]
+
+
+async def test_boost_with_stored_defaults_heats_only_below_the_cool_threshold(hass, enable_custom_integrations, config_data):
+    """Stored defaults: boost cools to 23 C, so the heat threshold sits at 22.5 C. A 22.0 C room gets heat, a 23.2 C room does not."""
+    entry, calls = await setup_heater(hass, config_data, room="22.0", extra={"boost_c": 23.0})
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(23.0)
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(22.5)
+    assert "turn_on" in calls
