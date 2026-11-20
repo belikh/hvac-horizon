@@ -121,6 +121,9 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "investigation_ai": d.get("investigation_ai"),  # conversation agent answer, when a flow field sets one
             "investigation_ai_mode": d.get("investigation_ai_mode"),  # the AC mode that answer explains; None with no answer
             "ai_calls_today": d.get("ai_calls_today"),
+            "investigation_report": d.get("investigation_report"),  # 24-hour report from generate_investigation_report; None until run
+            "investigation_report_source": d.get("investigation_report_source"),  # "model" when the agent answered, else "rule"
+            "investigation_report_at": d.get("investigation_report_at"),  # ISO time the report was stored
             "room_rate_coefficients": d.get("room_rate_coefficients"),  # k, g from AC-off, c from AC-on; None until fitted
             "auto_tpi_gains": d.get("auto_tpi_gains"),  # online cool gain on c, clamped to 0.5 to 1.5; 1.0 until it moves
         }

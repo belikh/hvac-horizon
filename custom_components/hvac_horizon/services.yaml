@@ -170,3 +170,14 @@ respond_suggestion:
       required: true
       selector:
         boolean:
+
+generate_investigation_report:
+  name: Generate investigation report
+  description: Build a report on the AC from the last 24 hours of readings. Uses the conversation agent when one is set and the daily model budget allows; otherwise stores the rule-based report.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon

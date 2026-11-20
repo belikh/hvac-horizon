@@ -1,7 +1,8 @@
-"""Rule-based answer to "why did the AC run or not run", and a per-day budget for model calls.
+"""Rule-based answers to "why did the AC run or not run", and a per-day budget for model calls.
 
 Everything here is pure logic. The answer comes from the last decision and the recent actions. No model is
-involved. The coordinator calls a conversation agent only when a flow field sets one, and CallBudget caps those calls.
+involved. The 24-hour report builds its text from the stored readings. The coordinator calls a conversation agent
+only when a flow field sets one, and CallBudget caps those calls.
 """
 
 from __future__ import annotations
@@ -10,6 +11,12 @@ from dataclasses import dataclass
 from datetime import date
 
 RECENT_LIMIT = 5  # actions listed with each answer
+REPORT_WINDOW_MIN = 24 * 60.0  # the on-demand report covers the last 24 hours
+MAX_CHANGES_LISTED = 50  # mode changes listed in the model prompt, newest kept
+REPORT_INSTRUCTION = (
+    "Write a short report on this AC for the last 24 hours. Cover the activity, anything in the readings that "
+    "does not fit, and the likely cause. Label each claim as fact or inference. Use plain text with no headings."
+)
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,49 @@ def investigate(
         answer = " ".join(parts)
     recent = [record.text for record in history[-RECENT_LIMIT:]]
     return {"answer": answer, "recent": recent}
+
+
+@dataclass(frozen=True)
+class DayReading:
+    minutes: float  # time of the reading, minutes since the Unix epoch
+    room_c: float  # room temperature at the reading
+    outdoor_c: float  # outdoor temperature at the reading
+    mode: str | None  # AC mode at the reading, for example "cool", "heat" or "off"
+
+
+def _mode_changes(readings: list[DayReading]) -> list[DayReading]:
+    """Readings whose AC mode differs from the reading before. Input must be sorted by time."""
+    return [current for previous, current in zip(readings, readings[1:]) if current.mode != previous.mode]
+
+
+def day_summary(readings: list[DayReading], now_min: float) -> str:
+    """Rule-based report over the readings. Used when no model answers."""
+    if not readings:
+        return "No readings in the last 24 hours."
+    ordered = sorted(readings, key=lambda r: r.minutes)
+    rooms = [r.room_c for r in ordered]
+    outdoor = [r.outdoor_c for r in ordered]
+    running = sum(1 for r in ordered if r.mode in ("cool", "heat"))
+    changes = _mode_changes(ordered)
+    lines = [
+        f"Last 24 hours: {len(ordered)} readings, {len(changes)} mode changes.",
+        f"Room {min(rooms):.1f} to {max(rooms):.1f} C, last {rooms[-1]:.1f} C.",
+        f"Outdoor {min(outdoor):.1f} to {max(outdoor):.1f} C.",
+        f"AC in cool or heat mode for {100 * running / len(ordered):.0f} % of readings.",
+    ]
+    if changes:
+        last = changes[-1]
+        lines.append(f"Last mode change: {last.mode}, {now_min - last.minutes:.0f} min ago.")
+    return "\n".join(lines)
+
+
+def day_context(readings: list[DayReading], now_min: float) -> str:
+    """The rule-based summary, then the mode changes oldest first, as the model prompt body."""
+    body = [day_summary(readings, now_min)]
+    listed = [f"{now_min - c.minutes:.0f} min ago: {c.mode}" for c in _mode_changes(sorted(readings, key=lambda r: r.minutes))[-MAX_CHANGES_LISTED:]]
+    if listed:
+        body += ["Mode changes, oldest first:", *listed]
+    return "\n".join(body)
 
 
 class CallBudget:

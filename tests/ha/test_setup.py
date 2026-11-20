@@ -2410,6 +2410,116 @@ async def test_a_blocked_model_call_clears_the_answer_for_the_old_mode(hass, ena
     assert attributes["investigation_ai_mode"] is None
 
 
+def _report_readings(now):
+    from custom_components.hvac_horizon.collector import Entry
+
+    day = [Entry(t=now - (3 - i) * 3600, room_c=25.0 + i, outdoor_c=30.0, power_w=1000.0, mode="cool") for i in range(3)]
+    old = Entry(t=now - 25 * 3600, room_c=40.0, outdoor_c=30.0, power_w=0.0, mode="off")  # outside the 24 hour window
+    return [old] + day
+
+
+def _report_attributes(hass, entry):
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    return hass.states.get(entity_id).attributes
+
+
+async def _generate_report(hass, entry):
+    await hass.services.async_call(DOMAIN, "generate_investigation_report", {"entry_id": entry.entry_id}, blocking=True)
+    await hass.async_block_till_done()
+
+
+async def test_report_without_an_agent_is_rule_based_over_24_hours(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data._entries = _report_readings(dt_util.utcnow().timestamp())
+    await _generate_report(hass, entry)
+    attributes = _report_attributes(hass, entry)
+    assert attributes["investigation_report_source"] == "rule"
+    assert "Room 25.0 to 27.0 C, last 27.0 C." in attributes["investigation_report"]  # the 40 C reading is 25 h old
+    assert attributes["investigation_report_at"] is not None
+
+
+async def test_report_with_an_agent_stores_the_model_answer(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    calls = []
+
+    async def fake_agent(call):
+        calls.append(call.data["text"])
+        return {"response": {"speech": {"plain": {"speech": "Model report."}}}}
+
+    hass.services.async_register("conversation", "process", fake_agent, supports_response=SupportsResponse.ONLY)
+    data = dict(config_data, ai_conversation="conversation.test_agent", ai_budget_per_day=2)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data._entries = _report_readings(dt_util.utcnow().timestamp())
+    before = len(calls)
+    await _generate_report(hass, entry)
+    assert len(calls) == before + 1
+    assert calls[-1].startswith("Write a short report on this AC")
+    attributes = _report_attributes(hass, entry)
+    assert attributes["investigation_report"] == "Model report."
+    assert attributes["investigation_report_source"] == "model"
+
+
+async def test_report_with_a_zero_budget_does_not_call_the_agent(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    calls = []
+
+    async def fake_agent(call):
+        calls.append(call.data["text"])
+        return {"response": {"speech": {"plain": {"speech": "Model report."}}}}
+
+    hass.services.async_register("conversation", "process", fake_agent, supports_response=SupportsResponse.ONLY)
+    data = dict(config_data, ai_conversation="conversation.test_agent", ai_budget_per_day=0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data._entries = _report_readings(dt_util.utcnow().timestamp())
+    before = len(calls)
+    await _generate_report(hass, entry)
+    assert len(calls) == before
+    attributes = _report_attributes(hass, entry)
+    assert attributes["investigation_report_source"] == "rule"
+
+
+async def test_report_has_its_own_budget_after_the_mode_change_budget_is_spent(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)  # room 26 C, outdoor 30 C, comfort 24 C: the first setup call switches the AC to cool
+    _register_climate_fakes(hass)
+    calls = []
+
+    async def fake_agent(call):
+        calls.append(call.data["text"])
+        speech = "Model report." if call.data["text"].startswith("Write a short report") else "The room is above the comfort target."
+        return {"response": {"speech": {"plain": {"speech": speech}}}}
+
+    hass.services.async_register("conversation", "process", fake_agent, supports_response=SupportsResponse.ONLY)
+    data = dict(config_data, control=True, ai_conversation="conversation.test_agent", ai_budget_per_day=1)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["ai_calls_today"] == 1  # the mode-change budget is now spent
+    before = len(calls)
+    await _generate_report(hass, entry)
+    assert len(calls) == before + 1
+    attributes = _report_attributes(hass, entry)
+    assert attributes["investigation_report"] == "Model report."
+    assert attributes["investigation_report_source"] == "model"
+    assert attributes["ai_calls_today"] == 1  # the report did not use the mode-change counter
+
+
 async def test_target_uses_the_last_good_price_when_the_price_sensor_drops(hass, enable_custom_integrations, config_data, freezer):
     # 0.50 $/kWh is above the 0.40 band top, so the target shifts by the full 1 K: 24.0 to 25.0 C.
     entry, _, _ = await _setup_ac_only(hass, config_data, room="26.0")

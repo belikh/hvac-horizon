@@ -26,6 +26,7 @@ SERVICE_LOCK = "set_lock"
 SERVICE_TIMED = "start_timed_preset"
 SERVICE_RESPOND = "respond_suggestion"
 SERVICE_HOUSE_MODE = "set_house_mode"
+SERVICE_INVESTIGATION_REPORT = "generate_investigation_report"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -70,6 +71,9 @@ def _register_services(hass: HomeAssistant) -> None:
             str(call.data["preset"]), float(call.data["minutes"]), dt_util.utcnow().timestamp() / 60.0
         )
 
+    async def investigation_report(call):
+        await _coordinator(call).async_generate_investigation_report()
+
     async def set_house_mode(call):
         mode = call.data["mode"]
         if mode not in ("home", "away"):
@@ -90,6 +94,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
     hass.services.async_register(DOMAIN, SERVICE_RESPOND, respond)
     hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
+    hass.services.async_register(DOMAIN, SERVICE_INVESTIGATION_REPORT, investigation_report)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

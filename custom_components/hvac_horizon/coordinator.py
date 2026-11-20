@@ -89,7 +89,7 @@ from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, learn_room_rates
-from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget, investigate
+from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
@@ -265,6 +265,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_ai_mode: str | None = None
         self._ai_answer: str | None = None
         self._ai_answer_mode: str | None = None  # the AC mode the stored answer explains
+        self._report_budget = CallBudget()  # on-demand report calls per day; separate from the mode-change budget
+        self._report: dict[str, Any] = {"investigation_report": None, "investigation_report_source": None, "investigation_report_at": None}
         self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
@@ -1515,7 +1517,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["investigation"] = investigation
         mode_now = action_text.partition(":")[0] if action_text else None
         if mode_now and mode_now != self._last_ai_mode and self.entry.data.get(CONF_AI_CONVERSATION):
-            answer = await self._ask_model(f"In one sentence, explain why the AC is {mode_now}. {investigation['answer']}")
+            answer = await self._ask_model(f"In one sentence, explain why the AC is {mode_now}. {investigation['answer']}", self._budget)
             # A failed or budget-blocked call clears the stored answer, so it never shows under a different mode.
             # The mode is recorded only after a reply, so the next tick asks again while the budget allows.
             self._ai_answer = answer or None
@@ -1525,12 +1527,35 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["investigation_ai"] = self._ai_answer
         result["investigation_ai_mode"] = self._ai_answer_mode
         result["ai_calls_today"] = self._budget.used(dt_util.now().date())
+        result.update(self._report)
 
-    async def _ask_model(self, text: str) -> str | None:
-        """One call to the conversation agent, if the budget allows. Returns the reply text, or None."""
+    def _day_readings(self, now_min: float) -> list[DayReading]:
+        """Stored readings from the last 24 hours."""
+        cutoff = now_min - REPORT_WINDOW_MIN
+        return [DayReading(e.t / 60.0, e.room_c, e.outdoor_c, e.mode) for e in self._entries if e.t / 60.0 >= cutoff]
+
+    async def async_generate_investigation_report(self) -> None:
+        """Build the 24-hour report. Ask the conversation agent when one is set and the on-demand budget allows.
+
+        Otherwise, or when the agent gives no answer, the report is the rule-based summary and its source is "rule".
+        """
+        now_min = dt_util.utcnow().timestamp() / 60.0
+        readings = self._day_readings(now_min)
+        text, source = day_summary(readings, now_min), "rule"
+        if readings and self.entry.data.get(CONF_AI_CONVERSATION):
+            answer = await self._ask_model(f"{REPORT_INSTRUCTION}\n\n{day_context(readings, now_min)}", self._report_budget)
+            if answer:
+                text, source = answer, "model"
+        self._report = {"investigation_report": text, "investigation_report_source": source, "investigation_report_at": dt_util.now().isoformat()}
+        if self.data is not None:
+            self.data.update(self._report)
+        self.async_update_listeners()
+
+    async def _ask_model(self, text: str, budget: CallBudget) -> str | None:
+        """One call to the conversation agent, if `budget` allows. Returns the reply text, or None."""
         agent = self.entry.data.get(CONF_AI_CONVERSATION)
         limit = int(self.entry.data.get(CONF_AI_BUDGET) or 0)
-        if not agent or not self._budget.try_take(dt_util.now().date(), limit):
+        if not agent or not budget.try_take(dt_util.now().date(), limit):
             return None
         try:
             response = await self.hass.services.async_call(
