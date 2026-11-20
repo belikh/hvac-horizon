@@ -3,6 +3,7 @@
 DOMAIN = "hvac_horizon"
 
 CONF_CLIMATE = "climate"
+CONF_CLIMATE_2 = "climate_2"  # optional climate entity id for a second AC in the same room
 CONF_POWER = "power"
 CONF_ROOM_SENSORS = "room_sensors"
 CONF_OUTDOOR = "outdoor"

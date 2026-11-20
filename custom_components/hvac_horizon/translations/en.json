@@ -6,6 +6,7 @@
         "description": "Pick the AC, its power sensor, the room and outdoor temperature sensors. Price, humidity and energy are optional.",
         "data": {
           "climate": "AC climate entity",
+          "climate_2": "Second AC in the same room (optional)",
           "power": "AC power sensor (W)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor",
@@ -38,6 +39,7 @@
         "description": "Change sensors without losing the stored samples.",
         "data": {
           "climate": "AC climate entity",
+          "climate_2": "Second AC in the same room (optional)",
           "power": "AC power sensor (W)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor",

@@ -77,6 +77,7 @@ from .const import (
     PWM_WINDOW_MIN,
     CONF_AWAY_C,
     CONF_CLIMATE,
+    CONF_CLIMATE_2,
     CONF_AWAY_DELAY_MIN,
     CONF_CO2,
     CONF_LOCK_PIN,
@@ -919,6 +920,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
+        # The first AC's block below returns early on several paths, so the second AC is driven before it.
+        await self._drive_second_ac(action, result)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
@@ -955,6 +958,29 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._last_written_setpoint = float(action.setpoint_c)
             self._last_sent_min = now / 60.0
+
+    async def _drive_second_ac(self, action: Any, result: dict[str, Any]) -> None:
+        """Send the first AC's cool or off decision to the optional second AC. Called only on the control path."""
+        result["second_ac"] = "idle"
+        climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
+        if not climate_2_id:
+            return
+        second = self.hass.states.get(climate_2_id)
+        if second is None or second.state in ("unavailable", "unknown"):
+            return
+        if action.mode is Mode.COOL:
+            if second.state != "cool":
+                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
+                result["second_ac"] = "driven"
+            current = second.attributes.get("temperature")
+            if current is None or float(current) != float(action.setpoint_c):
+                await self.hass.services.async_call(
+                    "climate", "set_temperature", {"entity_id": climate_2_id, "temperature": action.setpoint_c}, blocking=True
+                )
+                result["second_ac"] = "driven"
+        elif action.mode is Mode.OFF and second.state != "off":
+            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
+            result["second_ac"] = "driven"
 
     def _precool_start(self, now: float, rooms: list[float]) -> float | None:
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""

@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_COMFORT_C,
     DEFAULT_WINDOW_DELAY_MIN,
     CONF_CLIMATE,
+    CONF_CLIMATE_2,
     CONF_ENERGY,
     CONF_HUMIDITY,
     CONF_OUTDOOR,
@@ -64,6 +65,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_OUTDOOR, True): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
+            key(CONF_CLIMATE_2): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
             key(CONF_WEATHER): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             key(CONF_PRICE): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             key(CONF_HUMIDITY): selector.EntitySelector(
