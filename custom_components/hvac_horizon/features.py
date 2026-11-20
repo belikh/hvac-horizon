@@ -533,11 +533,6 @@ def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c:
     return not plan_run_now and room_c < cool_above_c - deadband_c
 
 
-def mpc_heat_start(plan_run_now: bool, room_c: float, heat_on_below_c: float, deadband_c: float) -> bool:
-    """True when the plan's next step runs and the room is more than `deadband_c` below the heat threshold."""
-    return plan_run_now and room_c < heat_on_below_c - deadband_c
-
-
 def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:
     """True when the room is above the humidity band and no cooling is needed (cool gap at or below zero).
 

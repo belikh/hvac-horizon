@@ -4009,44 +4009,6 @@ async def test_mpc_start_does_not_pass_the_outdoor_limit(hass, enable_custom_int
     assert entry.runtime_data.data["action"] == "off: outdoor 10 C below cooling limit"
 
 
-async def test_mpc_heat_starts_ac_heat_when_the_plan_runs_below_the_heat_threshold(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
-    # No ac_heat flag. The plan's step runs and the room (22.0 C) is more than 0.5 K below the heat threshold (23.5 C).
-    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="22.0", plan=[True] * 16, outdoor="10.0", precool_now=False, extra={"mpc_heat": True})
-    assert "mpc_plan" in entry.runtime_data.data
-    assert entry.runtime_data.data["heat_source"] == "ac"
-    assert "heat" in modes
-    assert entry.runtime_data.data["action"] == "heat: mpc start"
-
-
-async def test_mpc_heat_off_sends_no_ac_heat_for_the_same_inputs(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
-    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="22.0", plan=[True] * 16, outdoor="10.0", precool_now=False)
-    assert "mpc_plan" in entry.runtime_data.data
-    assert entry.runtime_data.data["heat_source"] == "ac"
-    assert "heat" not in modes
-
-
-async def test_mpc_heat_sends_no_ac_heat_when_heating_is_not_allowed(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
-    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="22.0", plan=[True] * 16, outdoor="25.0", precool_now=False, extra={"mpc_heat": True})
-    assert "mpc_plan" in entry.runtime_data.data
-    assert entry.runtime_data.data["heating_allowed"] is False
-    assert "heat" not in modes
-
-
-async def test_mpc_heat_leaves_heat_to_the_heater_switch(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
-    async def ignore(call):
-        return None
-
-    hass.states.async_set(HEATER, "off")
-    hass.services.async_register("switch", "turn_on", ignore)
-    hass.services.async_register("switch", "turn_off", ignore)
-    entry, modes = await _mpc_run(
-        hass, config_data, monkeypatch, freezer, room="22.0", plan=[True] * 16, outdoor="10.0", precool_now=False, extra={"mpc_heat": True, CONF_HEATER_SWITCH: HEATER}
-    )
-    assert "mpc_plan" in entry.runtime_data.data
-    assert "heat" not in modes
-    assert entry.runtime_data.data["action"] != "heat: mpc start"
-
-
 async def test_warmer_room_lowers_the_peer_setpoint_by_one_kelvin_in_setpoint_mode(hass, enable_custom_integrations, config_data, freezer):
     # Requester room 26 C, peer room 24 C: 2 K warmer. The peer's cool setpoint is its comfort 24 C, so the write is 23 C.
     freezer.move_to("2026-11-20T10:00:00+00:00")
