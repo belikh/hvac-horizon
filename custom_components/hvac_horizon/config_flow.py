@@ -48,6 +48,7 @@ from .const import (
     CONF_COMFORT_C,
     CONF_CONTROL,
     CONF_VALVE,
+    CONF_TRV_TEMPERATURE,
     CONF_PRESENCE,
     CONF_WINDOW,
     CONF_WINDOW_AZIMUTH,
@@ -150,6 +151,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
             key(CONF_VALVE): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
+            key(CONF_TRV_TEMPERATURE): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+            ),
             key(CONF_WHOLE_HOUSE_POWER): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),

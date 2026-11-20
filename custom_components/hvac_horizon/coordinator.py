@@ -79,7 +79,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -89,6 +89,8 @@ from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, sol
 from .const import (
     CONF_BOOST_C,
     CONF_COMFORT_ENERGY_WEIGHT,
+    CONF_TRV_TEMPERATURE,
+    TRV_HISTORY,
     CONF_ECO_C,
     CONF_HEATER_KP,
     CONF_HEATER_KI,
@@ -235,6 +237,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._minutes_in_open: float = 0.0
         self._last_economizer_t: float | None = None
         self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
+        self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
         self._forecast_highs: list[float] = []
         self._weather_checked_min: float | None = None
         self._pwm_output_pct: float = 0.0
@@ -1001,7 +1004,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         valve_opening = None
         if valve_rooms:
             comfort_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
-            valve_opening = valve_opening_pct(statistics.median(valve_rooms), comfort_target)
+            room_for_valve = statistics.median(valve_rooms)
+            trv_c = _float(self._optional(CONF_TRV_TEMPERATURE))
+            if self.entry.data.get(CONF_VALVE) and trv_c is not None:
+                self._trv_pairs = (self._trv_pairs + [(trv_c, room_for_valve)])[-TRV_HISTORY:]
+            # With a valve and a TRV sensor, the valve command aims at the setpoint corrected by the learned offset.
+            offset = trv_offset([t for t, _ in self._trv_pairs], [r for _, r in self._trv_pairs]) if self._trv_pairs else None
+            if self.entry.data.get(CONF_VALVE):
+                result["trv_offset_k"] = None if offset is None else round(offset, 2)
+                comfort_target = corrected_setpoint(comfort_target, offset)
+            valve_opening = valve_opening_pct(room_for_valve, comfort_target)
         result["valve_opening_pct"] = valve_opening
         try:
             cover_id = self.entry.data.get(CONF_COVER)

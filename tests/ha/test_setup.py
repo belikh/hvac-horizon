@@ -1777,3 +1777,23 @@ async def test_idle_valve_is_stepped_after_a_week_still(hass, enable_custom_inte
     await refresh(hass, entry)
     assert len(calls) == 1
     assert calls[0] != opening and abs(calls[0] - opening) == 10.0
+
+
+async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrations, config_data):
+    # The TRV reads 1 K above the room median (26.1 C), so the valve aims at 24 - 1 = 23 C.
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    hass.states.async_set("number.test_valve", "0")
+    hass.states.async_set("sensor.test_trv", "27.1", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.services.async_register("number", "set_value", lambda call: None)
+    data = dict(config_data, control=True, valve="number.test_valve", trv_temperature="sensor.test_trv")
+    data.pop(CONF_PRICE)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator.data["trv_offset_k"] == pytest.approx(1.0, abs=0.01)
+    from custom_components.hvac_horizon.features import valve_opening_pct
+
+    assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 23.0))

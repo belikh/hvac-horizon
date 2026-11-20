@@ -59,6 +59,7 @@ STATUS_KEYS: dict[str, str] = {
     "cool_on_above_c": "Cool above",
     "heat_on_below_c": "Heat below",
     "backtest_runs": "Backtest runs",
+    "trv_offset_k": "TRV offset",
 }
 STATUS_UNITS = {
     "target_c": "°C",
@@ -69,6 +70,7 @@ STATUS_UNITS = {
     "valve_opening_pct": "%",
     "heater_pid_output": "%",
     "solar_gain_kw": "kW",
+    "trv_offset_k": "K",
     "price_used_per_kwh": None,
 }
 

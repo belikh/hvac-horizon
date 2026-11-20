@@ -906,3 +906,32 @@ class ValveExerciseTests(unittest.TestCase):
 
         self.assertFalse(valve_exercise_due(3.0))
         self.assertTrue(valve_exercise_due(7.0))
+
+
+class TrvOffsetTests(unittest.TestCase):
+    def test_median_of_paired_differences(self):
+        from custom_components.hvac_horizon.features import trv_offset
+
+        self.assertEqual(trv_offset([21.0, 22.0, 23.0], [20.0, 21.0, 22.0]), 1.0)
+
+    def test_outlier_difference_is_dropped(self):
+        from custom_components.hvac_horizon.features import trv_offset
+
+        self.assertEqual(trv_offset([21.0, 21.0, 40.0], [20.0, 20.0, 20.0]), 1.0)
+
+    def test_no_pairs_gives_none(self):
+        from custom_components.hvac_horizon.features import trv_offset
+
+        self.assertIsNone(trv_offset([], []))
+
+    def test_unequal_lengths_raise(self):
+        from custom_components.hvac_horizon.features import trv_offset
+
+        with self.assertRaises(ValueError):
+            trv_offset([21.0], [20.0, 20.0])
+
+    def test_corrected_setpoint_subtracts_offset_or_keeps_setpoint(self):
+        from custom_components.hvac_horizon.features import corrected_setpoint
+
+        self.assertEqual(corrected_setpoint(21.0, 1.5), 19.5)
+        self.assertEqual(corrected_setpoint(21.0, None), 21.0)

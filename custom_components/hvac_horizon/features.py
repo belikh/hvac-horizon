@@ -515,6 +515,33 @@ def valve_exercise_due(last_moved_days: float, interval_days: float = 7.0) -> bo
     return last_moved_days >= interval_days
 
 
+def trv_offset(trv_c: list[float], room_c: list[float], max_abs_k: float = 5.0) -> float | None:
+    """Median of (TRV reading minus room reading) over paired samples. Ported from RoomMind's head offset tracker.
+
+    A TRV's own sensor sits on the radiator and reads differently from the room sensor. Differences larger than
+    max_abs_k in absolute value are dropped as outliers. Returns None when no differences remain.
+    Raises ValueError when the lists differ in length.
+    """
+    if len(trv_c) != len(room_c):
+        raise ValueError("trv_c and room_c must have the same length")
+    diffs = [t - r for t, r in zip(trv_c, room_c)]
+    kept = [d for d in diffs if abs(d) <= max_abs_k]
+    if not kept:
+        return None
+    return statistics.median(kept)
+
+
+def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
+    """Setpoint to send to a TRV: setpoint_c minus the learned offset, so a TRV reading high gets a lower setpoint.
+
+    Returns setpoint_c unchanged when offset_k is None. Pure logic with no caller yet (no TRV in the house).
+    """
+    if offset_k is None:
+        return setpoint_c
+    return setpoint_c - offset_k
+
+
+
 def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0) -> bool:
     """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
     the house must not be sealed, and the AC must not be running.
