@@ -1529,3 +1529,59 @@ async def test_stalled_sensor_turns_the_ac_off(hass, enable_custom_integrations,
     await refresh(hass, entry)
     assert "off" in modes
     assert "cool" not in modes
+
+
+async def _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0"):
+    """A control-on entry with no heater switch, so the AC is the only heat source.
+
+    The fake climate services record each call and report the new mode and setpoint on the entity,
+    as a real AC does. Without that, the integration reads its own write as a manual change.
+    """
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    hass.states.async_set(ROOM_A, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    modes, temps = [], []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def record_temp(call):
+        temps.append(call.data)
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, modes, temps
+
+
+async def test_ac_heat_source_sends_heat_mode_below_the_heat_threshold(hass, enable_custom_integrations, config_data, freezer):
+    entry, modes, temps = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
+    assert entry.runtime_data.data["heat_source"] == "ac"
+    assert modes == ["heat"]
+    assert temps == [{"entity_id": CLIMATE, "temperature": 24.0}]
+    # The AC now reports heat at 24 C. The next tick writes nothing.
+    freezer.tick(timedelta(minutes=10))
+    await refresh(hass, entry)
+    assert modes == ["heat"]
+    assert temps == [{"entity_id": CLIMATE, "temperature": 24.0}]
+
+
+async def test_ac_does_not_heat_when_a_heater_switch_is_set(hass, enable_custom_integrations, config_data):
+    # With a heater switch the switch is the heat source, so the AC must not heat as well.
+    entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0", climate="off")
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    await refresh(hass, entry)
+    assert "heat" not in modes

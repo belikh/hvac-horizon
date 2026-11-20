@@ -1233,6 +1233,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
+        if rooms and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min)):
+            result["action"] = "heat: room below heat threshold"
+            if await self._drive_ac_heat(climate_id, climate, now):
+                result["action"] = "heat: waiting for minimum time"
+            return
         # Minimum on and off times: do not change state until the current state has lasted long enough.
         wanted_on = action.mode is Mode.COOL
         is_on = climate.state == "cool"
@@ -1264,6 +1269,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
+        await self._write_setpoint(climate_id, climate, action.setpoint_c, now)
+
+    async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> None:
+        """Send `target_c` to the AC when it differs from the device setpoint. Rounds to the device's step when it reports one."""
         current = climate.attributes.get("temperature")
         # Round to the device's own step only when it reports one. A device without a step gets the raw setpoint.
         raw_step = climate.attributes.get("target_temp_step")
@@ -1271,7 +1280,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             step = float(raw_step) if raw_step is not None else 0.0
         except (TypeError, ValueError):
             step = 0.0
-        setpoint = round_to_step(action.setpoint_c, step) if step > 0 else float(action.setpoint_c)
+        setpoint = round_to_step(target_c, step) if step > 0 else float(target_c)
         if current is None or float(current) != setpoint:
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": setpoint}, blocking=True
@@ -1279,6 +1288,40 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_setpoint = setpoint
             self._last_sent_min = now / 60.0
             self._inhibited_for_setpoint = None  # our write answers the manual change
+
+    def _ac_heat_wanted(self, action: Action, result: dict[str, Any], room_c: float, window_paused: bool) -> bool:
+        """True when the AC heats this tick.
+
+        The AC heats only when the heat source is the AC, no heater switch is set and someone is home.
+        A stalled sensor, a paused window and a closed heating window (outdoor limit) also stop it.
+        """
+        return (
+            action.mode is Mode.OFF
+            and result.get("heat_source") == "ac"
+            and self._heater_switch() is None
+            and self._someone_home
+            and bool(result.get("heating_allowed", True))
+            and not result.get("sensors_stalled")
+            and not window_paused
+            and room_c < self._heat_on_below_c
+        )
+
+    async def _drive_ac_heat(self, climate_id: str, climate: State, now: float) -> bool:
+        """Heat with the AC: hvac_mode heat, then the heat setpoint. Starting heat waits for the minimum time.
+
+        Returns True when the minimum time holds the start.
+        """
+        if climate.state != "heat":
+            since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
+            running = climate.state in ("cool", "heat")
+            if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
+                return True
+            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "heat"}, blocking=True)
+            self._state_changed_at = now
+            self._last_sent_min = now / 60.0
+            self._last_written_mode = "heat"
+        await self._write_setpoint(climate_id, climate, self._cool_above_c, now)
+        return False
 
     async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:
         """Run the AC in dry mode for 20 minutes after cooling stops. Returns True when it handled the cycle.
