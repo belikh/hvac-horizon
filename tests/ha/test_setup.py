@@ -349,7 +349,7 @@ async def test_missing_or_unavailable_sensor_is_not_a_stall(hass, enable_custom_
 
 
 async def test_no_room_data_leaves_the_ac_alone(hass, enable_custom_integrations, config_data, freezer):
-    # With no room reading and no stall, _async_control returns without a climate action. The AC keeps its state.
+    # Inside the 900 s no-data window, _async_control returns without a climate action. The AC keeps its state.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data, room="unavailable", outdoor="30.0", climate="cool")
     modes = []
@@ -358,11 +358,47 @@ async def test_no_room_data_leaves_the_ac_alone(hass, enable_custom_integrations
         modes.append(call.data["hvac_mode"])
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
-    freezer.tick(timedelta(minutes=30))
+    freezer.tick(timedelta(minutes=10))
     # Keep the outdoor sensor fresh, so only the room readings are missing.
     hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert modes == []
+
+
+async def test_all_rooms_unavailable_for_16_minutes_turns_the_ac_off(hass, enable_custom_integrations, config_data, freezer):
+    # No room has reported a valid reading for longer than the 900 s stall window. The AC must stop.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="unavailable", outdoor="30.0", climate="cool")
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    freezer.tick(timedelta(minutes=16))
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert "off" in modes
+    assert "cool" not in modes
+
+
+async def test_one_valid_room_keeps_the_ac_running(hass, enable_custom_integrations, config_data, freezer):
+    # Room A reports a hot reading at each step. Room B stays unavailable. The no-data clock never starts.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="26.0", outdoor="30.0", climate="cool")
+    hass.states.async_set(ROOM_B, "unavailable", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    for _ in range(4):
+        freezer.tick(timedelta(minutes=5))
+        hass.states.async_set(ROOM_A, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert "off" not in modes
 
 
 async def test_motion_sensor_publishes_home_preset(hass, enable_custom_integrations, config_data):

@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -238,6 +238,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_good_price: float | None = None
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
+        # Time of the last cycle with a valid room reading. Starts at the first cycle, so a setup with no room data counts from then.
+        self._last_room_data_s: float | None = None
         self._locked = False
         self._heater_pid: Pid | None = None
         self._heater_gains: dict[str, float] | None = None  # kp, ki, kd from the last relay test; stored, used before the options
@@ -865,6 +867,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 stalled.append(name)
         return stalled
 
+    def _no_room_data_stop(self, now: float) -> bool:
+        """True when no room has had a valid reading for SENSOR_STALL_S. The AC then stops."""
+        return self._last_room_data_s is not None and now - self._last_room_data_s >= SENSOR_STALL_S
+
     def _rooms(self) -> list[float]:
         """Room readings for the median: the room sensors only.
 
@@ -933,6 +939,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = self._forecast(now)
         result["sensors_stalled"] = self._stalled_sensors(now)
         self._report_stalls(result["sensors_stalled"])
+        if self._rooms() or self._last_room_data_s is None:
+            self._last_room_data_s = now
         result["external_change"] = self._external_change()
         result["day_type"] = self._day_type()
         result["forecast_days"] = weather_day_summary(self._forecast_highs) if self._forecast_highs else None
@@ -1252,7 +1260,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._inhibited_for_setpoint = None
         # A stalled sensor stops the AC even inside the inhibit window. The window sends nothing else.
-        stalled = bool(result.get("sensors_stalled"))
+        stalled = bool(result.get("sensors_stalled")) or self._no_room_data_stop(now)
         inhibit_on = inhibited(now_min, self._inhibit_until_min)
         if inhibit_on and not stalled:
             result["action"] = "inhibited after a manual change"
@@ -1289,7 +1297,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if stalled:
             # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
-            action = Action(Mode.OFF, None, "sensor stalled")
+            # No valid room reading for SENSOR_STALL_S stops the AC the same way.
+            action = Action(Mode.OFF, None, "sensor stalled" if result.get("sensors_stalled") else "no room reading")
         else:
             state = RoomState(
                 room_c=statistics.median(rooms),

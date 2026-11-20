@@ -202,7 +202,11 @@ def switch_feedback(commanded_on: bool | None, actual_state: str | None) -> str:
     return "mismatch"
 
 
-def sensor_stalled(last_update_s: float | None, now_s: float, stall_s: float = 900.0) -> bool:
+# Seconds without a report before a sensor counts as stalled. Also how long no room may lack a valid reading before the AC stops.
+SENSOR_STALL_S = 900.0
+
+
+def sensor_stalled(last_update_s: float | None, now_s: float, stall_s: float = SENSOR_STALL_S) -> bool:
     """True when a sensor has not updated for `stall_s` seconds, or has never updated."""
     if last_update_s is None:
         return True
