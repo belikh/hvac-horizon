@@ -11,6 +11,9 @@ from homeassistant.helpers import selector
 
 from .const import (
     CONF_BOOST_C,
+    CONF_HEATER_INVERTED,
+    CONF_OUTPUT_MIN,
+    CONF_OUTPUT_MAX,
     CONF_COVER,
     CONF_MOTION,
     CONF_SHED_LOADS,
@@ -116,6 +119,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
             ),
             vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
+            vol.Optional(CONF_HEATER_INVERTED, default=False): selector.BooleanSelector(),
+            vol.Optional(CONF_OUTPUT_MIN): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
+            ),
+            vol.Optional(CONF_OUTPUT_MAX): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
+            ),
         }
     )
 

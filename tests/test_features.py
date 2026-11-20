@@ -1,6 +1,8 @@
 import unittest
 
 from custom_components.hvac_horizon.features import (
+    apply_polarity,
+    clamp_output,
     DayType,
     air_quality_ventilation,
     classify_day,
@@ -769,3 +771,24 @@ class MouldTargetTests(unittest.TestCase):
     def test_negative_bump_raises(self):
         with self.assertRaises(ValueError):
             mould_target(21.0, True, bump_c=-1.0)
+
+
+class OutputPolarityAndClampTests(unittest.TestCase):
+    def test_polarity_inverts_when_inverted(self):
+        self.assertFalse(apply_polarity(True, True))
+
+    def test_polarity_unchanged_when_not_inverted(self):
+        self.assertTrue(apply_polarity(True, False))
+
+    def test_clamp_below_lo_returns_lo(self):
+        self.assertEqual(clamp_output(5.0, 10.0, 90.0), 10.0)
+
+    def test_clamp_above_hi_returns_hi(self):
+        self.assertEqual(clamp_output(95.0, 10.0, 90.0), 90.0)
+
+    def test_clamp_inside_returns_value(self):
+        self.assertEqual(clamp_output(50.0, 10.0, 90.0), 50.0)
+
+    def test_clamp_lo_above_hi_raises(self):
+        with self.assertRaises(ValueError):
+            clamp_output(50.0, 90.0, 10.0)

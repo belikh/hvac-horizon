@@ -43,6 +43,8 @@ from custom_components.hvac_horizon.features import (
     check_pin,
     heating_failure,
     pwm_on,
+    apply_polarity,
+    clamp_output,
     switch_feedback,
     inhibited,
     mode_disagrees,
@@ -100,6 +102,9 @@ from .const import (
     CONF_HUMIDIFIER,
     CONF_FAN,
     CONF_HEATER_SWITCH,
+    CONF_HEATER_INVERTED,
+    CONF_OUTPUT_MIN,
+    CONF_OUTPUT_MAX,
     CONF_SCHEDULE_BLOCKS,
     CONF_PRICE_CHEAP,
     CONF_PRICE_EXPENSIVE,
@@ -370,9 +375,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._tuner = None
         switch = self.entry.data.get(CONF_HEATER_SWITCH)
         if switch and self._tuner is not None:
-            self._heater_commanded_on = bool(want_on)
+            command_on = apply_polarity(bool(want_on), bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
+            self._heater_commanded_on = command_on
             self.hass.async_create_task(
-                self.hass.services.async_call("switch", "turn_on" if want_on else "turn_off", {"entity_id": switch}, blocking=True)
+                self.hass.services.async_call("switch", "turn_on" if command_on else "turn_off", {"entity_id": switch}, blocking=True)
             )
 
     def _save_payload(self) -> dict[str, Any]:
@@ -501,7 +507,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return learning_suggestion(self._baseline_k, self._fit.k)
 
     def set_heater_output(self, pct: float) -> None:
-        self._pwm_output_pct = max(0.0, min(100.0, pct))
+        self._pwm_output_pct = clamp_output(
+            pct,
+            float(self.entry.data.get(CONF_OUTPUT_MIN, 0.0)),
+            float(self.entry.data.get(CONF_OUTPUT_MAX, 100.0)),
+        )
 
     def respond_suggestion(self, accept: bool) -> None:
         """Accept adopts the learned heat gain as the baseline; dismiss hides the suggestion until the gain drifts."""

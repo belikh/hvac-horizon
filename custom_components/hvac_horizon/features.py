@@ -695,3 +695,15 @@ def mpc_plan(
         plan.append(action)
         state = nxt_on[state] if action else nxt_off[state]
     return plan
+
+
+def apply_polarity(wanted_on: bool, inverted: bool) -> bool:
+    """Return the state to command. An inverted switch is wired so that on means off."""
+    return not wanted_on if inverted else wanted_on
+
+
+def clamp_output(pct: float, lo: float = 0.0, hi: float = 100.0) -> float:
+    """Limit an output percentage to [lo, hi]. Raises ValueError when lo is above hi."""
+    if lo > hi:
+        raise ValueError("lo must not exceed hi")
+    return max(lo, min(hi, pct))
