@@ -802,7 +802,10 @@ async def test_coil_dry_runs_after_cooling_stops(hass, enable_custom_integration
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", record_temp)
-    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    # coil_dry is opt-in: the AC's dry mode produces a lot of water, so the test turns it on explicitly.
+    entry = MockConfigEntry(
+        domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, coil_dry=True), unique_id=CLIMATE
+    )
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

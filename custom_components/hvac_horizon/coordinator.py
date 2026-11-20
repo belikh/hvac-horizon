@@ -1036,7 +1036,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Run the AC in dry mode for 20 minutes after cooling stops. Returns True when it handled the cycle.
 
         Called on the control path after the lock and inhibit checks, and only when the AC lists a dry mode.
+        Off by default: the AC's dry mode is a dehumidifier that produces a lot of water, so it runs only
+        when the user sets the coil_dry option.
         """
+        if not self.entry.data.get("coil_dry", False):
+            return False
         now_cooling = climate.state == "cool"
         modes = climate.attributes.get("hvac_modes")
         has_dry = modes is None or "dry" in modes
