@@ -79,7 +79,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -234,6 +234,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_start_min: dict[str, float] = {}
         self._minutes_in_open: float = 0.0
         self._last_economizer_t: float | None = None
+        self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
         self._forecast_highs: list[float] = []
         self._weather_checked_min: float | None = None
         self._pwm_output_pct: float = 0.0
@@ -1069,10 +1070,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(valve)
         if state is None or state.state in ("unavailable", "unknown"):
             return
+        now_min = dt_util.utcnow().timestamp() / 60.0
+        if self._valve_moved_min is None:
+            self._valve_moved_min = now_min
         current = _float(state)
         if current is not None and abs(current - opening) <= 1.0:
+            # An idle valve can seize. After a week still, step it 10 points for one cycle, then the normal command returns it.
+            if valve_exercise_due((now_min - self._valve_moved_min) / (24 * 60.0)):
+                step = opening - 10.0 if opening > 90.0 else opening + 10.0
+                await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": step}, blocking=True)
+                self._valve_moved_min = now_min
             return
         await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
+        self._valve_moved_min = now_min
 
     async def _drive_shed(self, to_shed: list[str]) -> None:
         """Switch off the planned loads. Runs only with control on, unlocked and not inhibited."""

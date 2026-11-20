@@ -1750,3 +1750,30 @@ async def test_comfort_energy_weight_off_keeps_comfort_target(hass, enable_custo
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data._settings.comfort_c == 24.0
+
+
+async def test_idle_valve_is_stepped_after_a_week_still(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    calls = []
+
+    async def record_valve(call):
+        calls.append(call.data["value"])
+
+    hass.services.async_register("number", "set_value", record_valve)
+    data = dict(config_data, control=True, valve="number.test_valve")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    opening = coordinator.data["valve_opening_pct"]
+    hass.states.async_set("number.test_valve", str(opening))
+    await refresh(hass, entry)
+    assert calls == []  # the valve is already at its command, and it has not been still for a week
+
+    freezer.tick(timedelta(days=7, minutes=1))
+    await refresh(hass, entry)
+    assert len(calls) == 1
+    assert calls[0] != opening and abs(calls[0] - opening) == 10.0

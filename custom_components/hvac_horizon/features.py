@@ -507,6 +507,14 @@ def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: fl
     return now_min - last_sent_min >= interval_min
 
 
+def valve_exercise_due(last_moved_days: float, interval_days: float = 7.0) -> bool:
+    """True when an idle valve has not moved for `interval_days`, so it should be cycled to stop seizing.
+
+    Ported from RoomMind's TRV valve protection.
+    """
+    return last_moved_days >= interval_days
+
+
 def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0) -> bool:
     """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
     the house must not be sealed, and the AC must not be running.

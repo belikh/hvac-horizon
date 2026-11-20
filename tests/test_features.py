@@ -898,3 +898,11 @@ class ComfortEnergyBlendTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             comfort_energy_setpoint(24.0, 26.0, 1.5)
+
+
+class ValveExerciseTests(unittest.TestCase):
+    def test_due_after_seven_days_still(self):
+        from custom_components.hvac_horizon.features import valve_exercise_due
+
+        self.assertFalse(valve_exercise_due(3.0))
+        self.assertTrue(valve_exercise_due(7.0))
