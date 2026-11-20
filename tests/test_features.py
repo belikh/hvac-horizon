@@ -14,6 +14,7 @@ from custom_components.hvac_horizon.features import (
     outdoor_allows,
     pwm_on,
     shed_plan,
+    stagger_allowed,
     switch_feedback,
     timed_preset_active,
     timed_preset_name,
@@ -692,3 +693,21 @@ class HeatSourceTests(unittest.TestCase):
 
     def test_demand_false_when_source_is_ac(self):
         self.assertFalse(boiler_demand(20.0, 23.0, "ac"))
+
+
+class StaggerAllowedTests(unittest.TestCase):
+    def test_first_wanting_device_allowed_with_no_recent_start(self):
+        self.assertTrue(stagger_allowed("a", ["a", "b"], {}, 100.0))
+
+    def test_second_wanting_device_blocked_after_first_started_2_min_ago(self):
+        self.assertFalse(stagger_allowed("b", ["a", "b"], {"a": 98.0}, 100.0))
+
+    def test_second_device_allowed_6_min_after_first_start(self):
+        self.assertTrue(stagger_allowed("b", ["b"], {"a": 94.0}, 100.0))
+
+    def test_device_not_wanting_is_false(self):
+        self.assertFalse(stagger_allowed("c", ["a", "b"], {}, 100.0))
+
+    def test_negative_gap_raises(self):
+        with self.assertRaises(ValueError):
+            stagger_allowed("a", ["a"], {}, 100.0, -1.0)

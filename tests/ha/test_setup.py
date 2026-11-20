@@ -223,7 +223,7 @@ async def test_second_ac_gets_the_cool_decision(hass, enable_custom_integrations
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", record_temp)
-    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC"})
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC"})
     hass.states.async_set("climate.test_ac_2", "off", {"temperature": 22.0})
     data = dict(config_data, control=True, climate_2="climate.test_ac_2")
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
@@ -234,6 +234,29 @@ async def test_second_ac_gets_the_cool_decision(hass, enable_custom_integrations
     # (the fake handlers leave the state unchanged), read it as a manual change and inhibit control.
     assert entry.runtime_data.data["second_ac"] == "driven"
     assert ("mode", {"entity_id": "climate.test_ac_2", "hvac_mode": "cool"}) in calls
+
+
+async def test_second_ac_waits_when_first_starts_in_the_same_cycle(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)  # room 26.0 C, so the decision is cool
+    calls = []
+
+    async def record_mode(call):
+        calls.append(("mode", dict(call.data)))
+
+    async def record_temp(call):
+        calls.append(("temp", dict(call.data)))
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC"})
+    hass.states.async_set("climate.test_ac_2", "off", {"temperature": 22.0})
+    data = dict(config_data, control=True, climate_2="climate.test_ac_2")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "cool"}) in calls
+    assert ("mode", {"entity_id": "climate.test_ac_2", "hvac_mode": "cool"}) not in calls
 
 
 async def test_keep_alive_resends_last_setpoint(hass, enable_custom_integrations, config_data):

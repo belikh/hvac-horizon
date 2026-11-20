@@ -68,7 +68,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -182,6 +182,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._last_start_min: dict[str, float] = {}
         self._minutes_in_open: float = 0.0
         self._last_economizer_t: float | None = None
         self._forecast_highs: list[float] = []
@@ -921,7 +922,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
         # The first AC's block below returns early on several paths, so the second AC is driven before it.
-        await self._drive_second_ac(action, result)
+        await self._drive_second_ac(action, result, now, climate)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
@@ -951,6 +952,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
+            self._last_start_min["climate_1"] = now / 60.0
         current = climate.attributes.get("temperature")
         if current is None or float(current) != float(action.setpoint_c):
             await self.hass.services.async_call(
@@ -959,7 +961,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_setpoint = float(action.setpoint_c)
             self._last_sent_min = now / 60.0
 
-    async def _drive_second_ac(self, action: Any, result: dict[str, Any]) -> None:
+    async def _drive_second_ac(self, action: Any, result: dict[str, Any], now: float, first: State | None) -> None:
         """Send the first AC's cool or off decision to the optional second AC. Called only on the control path."""
         result["second_ac"] = "idle"
         climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
@@ -970,8 +972,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if action.mode is Mode.COOL:
             if second.state != "cool":
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
-                result["second_ac"] = "driven"
+                # The first AC is in the queue ahead of the second while it is about to start cooling.
+                wanting = ["climate_2"] if first is not None and first.state == "cool" else ["climate_1", "climate_2"]
+                if stagger_allowed("climate_2", wanting, self._last_start_min, now / 60.0):
+                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
+                    self._last_start_min["climate_2"] = now / 60.0
+                    result["second_ac"] = "driven"
+                else:
+                    result["second_ac"] = "waiting to stagger"
             current = second.attributes.get("temperature")
             if current is None or float(current) != float(action.setpoint_c):
                 await self.hass.services.async_call(

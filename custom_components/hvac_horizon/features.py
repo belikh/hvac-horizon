@@ -573,3 +573,26 @@ def shed_plan(
         shed.append(entity_id)
         freed += watts
     return shed
+
+
+def stagger_allowed(
+    device: str,
+    wanting: list[str],
+    last_start_min: dict[str, float],
+    now_min: float,
+    min_gap_min: float = 5.0,
+) -> bool:
+    """True when `device` may start its compressor now.
+
+    `wanting` lists the devices that want to start, earliest first. Another device that started
+    less than `min_gap_min` minutes before `now_min` blocks the start, and only the first device
+    in `wanting` may start in a cycle. Ported from RoomMind's compressor group manager.
+    """
+    if min_gap_min < 0:
+        raise ValueError("min_gap_min must not be negative")
+    if device not in wanting:
+        return False
+    for other, started in last_start_min.items():
+        if other != device and now_min - started < min_gap_min:
+            return False
+    return wanting[0] == device
