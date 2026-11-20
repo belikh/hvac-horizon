@@ -80,3 +80,37 @@ class PriceShiftTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             price_shifted_target(24.0, 0.2, 0.40, 0.15)
+
+
+class ScheduleTests(unittest.TestCase):
+    def test_block_inside_the_day(self):
+        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+
+        blocks = [ScheduleBlock(7.0, 9.0, "boost")]
+        self.assertEqual(scheduled_preset(8.0, blocks), "boost")
+        self.assertEqual(scheduled_preset(9.0, blocks), "comfort")  # end is exclusive
+
+    def test_block_crossing_midnight(self):
+        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+
+        blocks = [ScheduleBlock(22.0, 6.0, "eco")]
+        self.assertEqual(scheduled_preset(23.5, blocks), "eco")
+        self.assertEqual(scheduled_preset(5.0, blocks), "eco")
+        self.assertEqual(scheduled_preset(12.0, blocks), "comfort")
+
+    def test_first_matching_block_wins(self):
+        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+
+        blocks = [ScheduleBlock(6.0, 12.0, "boost"), ScheduleBlock(6.0, 8.0, "eco")]
+        self.assertEqual(scheduled_preset(7.0, blocks), "boost")
+
+    def test_default_when_nothing_matches(self):
+        from custom_components.hvac_horizon.features import scheduled_preset
+
+        self.assertEqual(scheduled_preset(3.0, [], default="away"), "away")
+
+    def test_rejects_out_of_range_hour(self):
+        from custom_components.hvac_horizon.features import scheduled_preset
+
+        with self.assertRaises(ValueError):
+            scheduled_preset(24.0, [])

@@ -101,3 +101,26 @@ def price_shifted_target(comfort_c: float, price_per_kwh: float | None, cheap_pe
         return comfort_c + max_shift_c
     fraction = (price_per_kwh - cheap_per_kwh) / (expensive_per_kwh - cheap_per_kwh)
     return comfort_c - max_shift_c + 2.0 * max_shift_c * fraction
+
+
+@dataclass(frozen=True)
+class ScheduleBlock:
+    start_h: float  # hour of day, 0 to 24
+    end_h: float  # hour of day, 0 to 24; may be less than start_h for a block that crosses midnight
+    preset: str
+
+
+def scheduled_preset(now_h: float, blocks: list[ScheduleBlock], default: str = "comfort") -> str:
+    """The preset of the first block that covers `now_h`, or `default` when none does.
+
+    A block covers [start_h, end_h). A block whose end is before its start wraps past midnight.
+    """
+    if not 0.0 <= now_h < 24.0:
+        raise ValueError("now_h must be in [0, 24)")
+    for block in blocks:
+        if block.start_h <= block.end_h:
+            if block.start_h <= now_h < block.end_h:
+                return block.preset
+        elif now_h >= block.start_h or now_h < block.end_h:
+            return block.preset
+    return default
