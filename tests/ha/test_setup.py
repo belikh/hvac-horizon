@@ -1709,6 +1709,21 @@ async def test_tuned_gains_apply_when_the_gain_fields_are_at_defaults(hass, enab
     assert (pid.kp, pid.ki, pid.kd) == pytest.approx((7.0, 30.0, 0.2))
 
 
+async def test_finishing_a_tune_on_a_live_pid_keeps_the_user_kp(hass, enable_custom_integrations, config_data, freezer):
+    # Kp 12 is set in the flow. The tune finishes while the PID runs and reports kp 7. The live PID must keep 12.
+    import types
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, extra={CONF_HEATER_KP: 12.0})
+    coordinator = entry.runtime_data
+    assert coordinator._heater_pid is not None
+    coordinator._tuner = types.SimpleNamespace(result=lambda: types.SimpleNamespace(kp=7.0, ki=30.0, kd=0.2))
+    coordinator._finish_relay()
+    pid = coordinator._heater_pid
+    assert pid.kp == pytest.approx(12.0)
+    assert (pid.ki, pid.kd) == pytest.approx((30.0, 0.2))
+
+
 async def test_user_kp_after_a_tune_wins_over_the_tuned_kp(hass, enable_custom_integrations, config_data, freezer):
     # The tune stored kp 7. The user sets Kp 12 in reconfigure. Ki and Kd stay at their defaults, so the tuned values apply.
     freezer.move_to("2026-11-20T10:00:00+00:00")

@@ -461,8 +461,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if result is not None:
             self._heater_gains = {"kp": result.kp, "ki": result.ki, "kd": result.kd}
             if self._heater_pid is not None:
-                self._heater_pid.set_gains(kp=result.kp, ki=result.ki, kd=result.kd)
+                self._heater_pid.set_gains(*self._heater_gain_values())
             self._store.async_delay_save(self._save_payload, 0)
+
+    def _heater_gain_values(self) -> tuple[float, float, float]:
+        """kp, ki, kd for the heater PID. Each gain field the user set wins. A field at its default takes the tuned value."""
+        tuned = self._heater_gains or {}
+        return (
+            pid_gain(float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)), DEFAULT_HEATER_KP, tuned.get("kp")),
+            pid_gain(float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)), DEFAULT_HEATER_KI, tuned.get("ki")),
+            pid_gain(float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
+        )
 
     def _save_payload(self) -> dict[str, Any]:
         return {"entries": [asdict(e) for e in self._entries], "heater_gains": self._heater_gains}
@@ -1042,11 +1051,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._heater_pid.reset()
         elif heater_configured and pid_rooms and pid_outdoor is not None and not inhibit_active:
             if self._heater_pid is None:
-                tuned = self._heater_gains or {}
+                kp, ki, kd = self._heater_gain_values()
                 self._heater_pid = Pid(
-                    pid_gain(float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)), DEFAULT_HEATER_KP, tuned.get("kp")),
-                    pid_gain(float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)), DEFAULT_HEATER_KI, tuned.get("ki")),
-                    pid_gain(float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
+                    kp,
+                    ki,
+                    kd,
                     ke=0.0,
                     out_min=0.0,
                     out_max=100.0,
