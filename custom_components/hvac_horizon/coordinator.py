@@ -1288,7 +1288,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._settings = settings
         self._someone_home = someone_home
         self._cool_above_c = cool_above_c(settings, someone_home)
-        self._heat_on_below_c = heat_on_below(self._cool_above_c, DEFAULT_HEATER_DEADBAND_C)
+        # The heater never heats past the configured comfort setpoint, so eco and away (warm cooling
+        # setpoints) and vacation do not heat the house. Boost, below comfort, lowers the heat threshold.
+        heat_base_c = min(self._cool_above_c, float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
+        self._heat_on_below_c = heat_on_below(heat_base_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 

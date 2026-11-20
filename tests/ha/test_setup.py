@@ -1390,8 +1390,10 @@ async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enab
     heat_on = entry.runtime_data.data["heat_on_below_c"]
     cool_on = entry.runtime_data.data["cool_on_above_c"]
     assert heat_on < cool_on
-    assert cool_on - heat_on == pytest.approx(0.5)
     assert cool_on == pytest.approx(COOL_ABOVE_BY_PRESET[scenario])
+    # Heating stops at comfort minus the deadband on every preset. Eco, away and vacation cool to
+    # warmer setpoints, and the heater must not heat the house up to them.
+    assert heat_on == pytest.approx(min(COOL_ABOVE_BY_PRESET[scenario], 24.0) - 0.5)
 
 
 
