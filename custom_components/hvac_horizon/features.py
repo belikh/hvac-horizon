@@ -313,3 +313,16 @@ def hot_streak(highs_c: list[float], threshold_c: float = 30.0, min_days: int = 
         if run >= min_days:
             return True
     return False
+
+
+def fan_speed_from_gap(room_c: float, target_c: float, max_gap_c: float = 3.0) -> int:
+    """Fan speed 0 to 3 from the gap between the room and the target. Ported from Versatile Thermostat's auto fan mode.
+
+    Gap 0 or below is speed 0. The top speed is reached at `max_gap_c`.
+    """
+    if max_gap_c <= 0:
+        raise ValueError("max_gap_c must be positive")
+    gap = room_c - target_c
+    if gap <= 0:
+        return 0
+    return min(3, 1 + int(2 * gap / max_gap_c))

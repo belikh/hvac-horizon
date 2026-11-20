@@ -317,3 +317,23 @@ class WeatherSummaryTests(unittest.TestCase):
 
         self.assertTrue(hot_streak([31.0, 32.0, 30.5, 20.0]))
         self.assertFalse(hot_streak([31.0, 20.0, 31.0, 32.0]))
+
+
+class FanSpeedTests(unittest.TestCase):
+    def test_no_gap_no_fan(self):
+        from custom_components.hvac_horizon.features import fan_speed_from_gap
+
+        self.assertEqual(fan_speed_from_gap(23.0, 24.0), 0)
+
+    def test_speed_rises_with_gap(self):
+        from custom_components.hvac_horizon.features import fan_speed_from_gap
+
+        self.assertEqual(fan_speed_from_gap(24.5, 24.0), 1)
+        self.assertEqual(fan_speed_from_gap(25.5, 24.0), 2)
+        self.assertEqual(fan_speed_from_gap(30.0, 24.0), 3)
+
+    def test_rejects_bad_span(self):
+        from custom_components.hvac_horizon.features import fan_speed_from_gap
+
+        with self.assertRaises(ValueError):
+            fan_speed_from_gap(25.0, 24.0, max_gap_c=0.0)
