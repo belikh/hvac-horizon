@@ -185,3 +185,15 @@ class LearningSuggestionTests(unittest.TestCase):
         from custom_components.hvac_horizon.features import learning_suggestion
 
         self.assertIsNone(learning_suggestion(0.0, 0.3))
+
+
+class VacationTests(unittest.TestCase):
+    def test_vacation_holds_vacation_temperature(self):
+        from custom_components.hvac_horizon.features import vacation_target
+
+        self.assertEqual(vacation_target(True, 16.0, 24.0), 16.0)
+
+    def test_normal_target_when_vacation_off(self):
+        from custom_components.hvac_horizon.features import vacation_target
+
+        self.assertEqual(vacation_target(False, 16.0, 24.0), 24.0)

@@ -190,3 +190,11 @@ def learning_suggestion(current_k: float, learned_k: float, tolerance: float = 0
         return None
     direction = "more" if change > 0 else "less"
     return f"Heat gain is {abs(change) * 100:.0f} % {direction} than the current model. Review the room model."
+
+
+def vacation_target(vacation_on: bool, vacation_c: float, normal_target_c: float) -> float:
+    """While vacation mode is on, hold the vacation temperature. Otherwise keep the normal target.
+
+    Ported from RoomMind's vacation mode, which holds a lower target through one switch.
+    """
+    return vacation_c if vacation_on else normal_target_c
