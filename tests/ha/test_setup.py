@@ -330,14 +330,16 @@ async def test_repeated_sensor_value_is_not_a_stall(hass, enable_custom_integrat
     hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     room = hass.states.get(ROOM_A)
     assert room.last_updated < room.last_reported
-    assert entry.runtime_data._stalled_sensors(dt_util.utcnow().timestamp()) == []
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["sensors_stalled"] == []
 
 
 async def test_sensor_without_a_report_for_15_minutes_is_a_stall(hass, enable_custom_integrations, config_data, freezer):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data)
     freezer.tick(timedelta(minutes=15))
-    assert set(entry.runtime_data._stalled_sensors(dt_util.utcnow().timestamp())) == {ROOM_A, ROOM_B, OUTDOOR}
+    await refresh(hass, entry)
+    assert set(entry.runtime_data.data["sensors_stalled"]) == {ROOM_A, ROOM_B, OUTDOOR}
 
 
 @pytest.mark.parametrize("state", ["missing", "unavailable"])
@@ -349,7 +351,8 @@ async def test_missing_or_unavailable_sensor_is_not_a_stall(hass, enable_custom_
     else:
         hass.states.async_set(ROOM_A, "unavailable", {"unit_of_measurement": "°C", "device_class": "temperature"})
     freezer.tick(timedelta(minutes=30))
-    assert ROOM_A not in entry.runtime_data._stalled_sensors(dt_util.utcnow().timestamp())
+    await refresh(hass, entry)
+    assert ROOM_A not in entry.runtime_data.data["sensors_stalled"]
 
 
 async def test_no_room_data_leaves_the_ac_alone(hass, enable_custom_integrations, config_data, freezer):
@@ -556,9 +559,11 @@ async def test_reset_learning_service_clears_samples(hass, enable_custom_integra
     await hass.async_block_till_done()
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
-    assert len(entry.runtime_data._entries) >= 1
+    before = entry.runtime_data.data["samples"]
+    assert before >= 2
     await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": entry.entry_id}, blocking=True)
-    assert entry.runtime_data._entries == []
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["samples"] < before
 
 
 async def test_lock_needs_pin_and_blocks_control(hass, enable_custom_integrations, config_data):
@@ -576,10 +581,12 @@ async def test_lock_needs_pin_and_blocks_control(hass, enable_custom_integration
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
     assert coordinator.set_lock(True, None) is True
-    assert coordinator._locked is True
+    await refresh(hass, entry)
+    assert coordinator.data["action"] == "locked"
     assert coordinator.set_lock(False, "0000") is False
     assert coordinator.set_lock(False, "1234") is True
-    assert coordinator._locked is False
+    await refresh(hass, entry)
+    assert coordinator.data["action"] != "locked"
 
 
 async def test_backfill_runs_and_reports_count(hass, enable_custom_integrations, config_data):
@@ -670,7 +677,7 @@ async def test_mode_mismatch_raises_and_clears_repair_issue(hass, enable_custom_
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
 
-async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrations, config_data):
+async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrations, config_data, freezer):
     set_inputs(hass)
 
     async def ignore(call):
@@ -683,10 +690,12 @@ async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrati
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
-    now_min = 1_000_000.0
-    coordinator.start_timed_preset("eco", 30.0, now_min)
-    assert coordinator._effective_preset(now_min, "comfort") == "eco"
-    assert coordinator._effective_preset(now_min + 31, "comfort") == "comfort"
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 30})
+    await refresh(hass, entry)
+    assert coordinator.data["preset"] == "eco"
+    freezer.tick(timedelta(minutes=31))
+    await refresh(hass, entry)
+    assert coordinator.data["preset"] == "comfort"
 
 
 async def test_respond_suggestion_dismiss_records_gain(hass, enable_custom_integrations, config_data):
@@ -947,8 +956,9 @@ async def test_coil_dry_runs_after_cooling_stops(hass, enable_custom_integration
 async def test_heater_pid_leaves_output_alone_with_control_off(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     hass.states.async_set("switch.test_heater", "off")
-    hass.services.async_register("switch", "turn_on", lambda call: None)
-    hass.services.async_register("switch", "turn_off", lambda call: None)
+    switched = []
+    hass.services.async_register("switch", "turn_on", lambda call: switched.append("turn_on"))
+    hass.services.async_register("switch", "turn_off", lambda call: switched.append("turn_off"))
     data = {**config_data, "heater_switch": "switch.test_heater"}
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
@@ -958,7 +968,7 @@ async def test_heater_pid_leaves_output_alone_with_control_off(hass, enable_cust
     coordinator.set_heater_output(40.0)
     await coordinator.async_refresh()
     await hass.async_block_till_done()
-    assert coordinator._pwm_output_pct == 40.0
+    assert switched == []
     assert "heater_pid_output" not in coordinator.data
 
 
@@ -1072,7 +1082,8 @@ async def test_status_sensors_exist_with_control_off(hass, enable_custom_integra
 async def test_device_echo_of_rounded_setpoint_is_not_a_manual_change(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     hass.services.async_register("climate", "set_hvac_mode", lambda call: None)
-    hass.services.async_register("climate", "set_temperature", lambda call: None)
+    written = []
+    hass.services.async_register("climate", "set_temperature", lambda call: written.append(call.data["temperature"]))
     # Comfort 24.26 plus the price shift gives about 24.30, which the 1.0 C step device stores as 24.0.
     hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "target_temp_step": 1.0, "friendly_name": "Test AC"})
     data = dict(config_data, control=True, comfort_c=24.26)
@@ -1082,13 +1093,14 @@ async def test_device_echo_of_rounded_setpoint_is_not_a_manual_change(hass, enab
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
     # The setup refresh wrote the rounded setpoint. The device echoes it at its 1.0 C step.
-    assert coordinator._last_written_setpoint == 24.0
+    assert written == [24.0]
     hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "target_temp_step": 1.0, "friendly_name": "Test AC"})
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     await coordinator.async_refresh()
     await hass.async_block_till_done()
-    assert coordinator._inhibit_until_min is None
+    assert written == [24.0]
+    assert not coordinator.data["action"].startswith("inhibited")
 
 
 async def test_ac_own_reading_is_not_a_room_reading(hass, enable_custom_integrations, config_data):
@@ -1167,7 +1179,7 @@ async def test_heater_turns_off_with_window_open(hass, enable_custom_integration
     await refresh(hass, entry)
     assert "turn_off" in calls
     assert "turn_on" not in calls
-    assert entry.runtime_data._pwm_output_pct == 0.0
+    assert entry.runtime_data.data["heater_pwm_on"] is False
 
 
 async def test_heater_stays_off_inside_the_deadband(hass, enable_custom_integrations, config_data):
@@ -1239,15 +1251,15 @@ async def test_inverted_heater_is_commanded_with_inverted_polarity(hass, enable_
     # With heater_inverted, "on" wiring means the heater is off, so a heating demand sends turn_off.
     entry, calls = await setup_heater(hass, config_data, heater_state="on", extra={"heater_inverted": True})
     await refresh(hass, entry)
+    assert "turn_off" in calls
     assert "turn_on" not in calls
-    assert entry.runtime_data._heater_commanded_on is False
 
 
 async def test_heater_feedback_is_set_after_one_driven_tick(hass, enable_custom_integrations, config_data):
-    entry, _ = await setup_heater(hass, config_data)
+    entry, calls = await setup_heater(hass, config_data)
     await refresh(hass, entry)
     assert entry.runtime_data.data["heater_feedback"] != "not_configured"
-    assert entry.runtime_data._heater_commanded_on is True
+    assert "turn_on" in calls
 
 
 async def test_heating_failure_publishes_and_raises_repair(hass, enable_custom_integrations, config_data):
@@ -1280,7 +1292,7 @@ def test_reconfigure_schema_keeps_heater_inverted():
 async def test_unload_turns_off_the_switch_it_drove_after_reconfigure(hass, enable_custom_integrations, config_data):
     entry, calls = await setup_heater(hass, config_data)
     await refresh(hass, entry)
-    assert entry.runtime_data._heater_commanded_on is True
+    assert "turn_on" in calls
     hass.states.async_set(HEATER, "on")
     # Reconfigure with control off and no heater switch. Unload must still undo the last command.
     data = {k: v for k, v in entry.data.items() if k not in ("control", CONF_HEATER_SWITCH)}
@@ -1353,12 +1365,14 @@ async def test_pwm_gate_and_zero_output_cancel_the_timers(hass, enable_custom_in
 
 
 async def test_stale_heater_output_is_zeroed_when_outdoor_is_missing(hass, enable_custom_integrations, config_data):
-    entry, _ = await setup_heater(hass, config_data)
+    entry, calls = await setup_heater(hass, config_data, heater_state="on")
     coordinator = entry.runtime_data
     coordinator.set_heater_output(40.0)
     hass.states.async_set(OUTDOOR, "unavailable")
+    calls.clear()
     await refresh(hass, entry)
-    assert coordinator._pwm_output_pct == 0.0
+    assert "turn_on" not in calls
+    assert "turn_off" in calls
 
 
 async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrations, config_data):
@@ -1538,14 +1552,15 @@ async def test_reconfigure_keeps_the_lock_pin_when_the_box_is_blank(hass, enable
 async def test_stored_schedule_block_sets_the_preset(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     blocks = [{"start_h": 0.0, "end_h": 24.0, "preset": "eco"}]
-    data = {**config_data, CONF_SCHEDULE_BLOCKS: blocks}
+    data = {**config_data, CONF_SCHEDULE_BLOCKS: blocks, "control": True}
+    _register_climate_fakes(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
-    assert entry.runtime_data._preset_now == "eco"
+    assert entry.runtime_data.data["preset"] == "eco"
 
 
 async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enable_custom_integrations, config_data, freezer):
@@ -1578,7 +1593,7 @@ async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enabl
     hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
     await refresh(hass, entry)
     assert sent == [24.0]
-    assert coordinator._inhibit_until_min is not None
+    assert coordinator.data["action"] == "inhibited after a manual change"
 
     # Inside the 30 minute window nothing is sent, not even the keep-alive.
     # The sensors report at each step, so no stall stops the AC here.
@@ -1598,7 +1613,7 @@ async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enabl
     hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
     await refresh(hass, entry)
     assert sent == [24.0, 24.0]
-    assert coordinator._inhibit_until_min > dt_util.utcnow().timestamp() / 60.0
+    assert coordinator.data["action"] == "inhibited after a manual change"
 
 
 async def test_stalled_sensor_turns_the_ac_off_inside_the_inhibit_window(hass, enable_custom_integrations, config_data, freezer):
@@ -1628,12 +1643,12 @@ async def test_stalled_sensor_turns_the_ac_off_inside_the_inhibit_window(hass, e
     # Manual change to 22 C starts the 30 minute inhibition.
     hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
     await refresh(hass, entry)
-    assert coordinator._inhibit_until_min is not None
+    assert coordinator.data["action"] == "inhibited after a manual change"
 
     # No sensor reports for 16 minutes. The inhibition still holds, and the stall must still switch the AC off.
     freezer.tick(timedelta(minutes=16))
     await refresh(hass, entry)
-    assert coordinator._inhibit_until_min > dt_util.utcnow().timestamp() / 60.0
+    assert coordinator.data["action"] != "inhibited after a manual change"
     assert ROOM_A in coordinator.data["sensors_stalled"]
     assert "off" in modes
     assert sent == [24.0], "the inhibit window must not send a setpoint"
@@ -1668,10 +1683,10 @@ async def test_reconfigure_stores_a_valid_schedule_list(hass, enable_custom_inte
 async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_custom_integrations, config_data):
     entry, calls = await setup_heater(hass, config_data, heater_state="on")
     await refresh(hass, entry)
-    assert entry.runtime_data._pwm_output_pct > 0.0
+    calls.clear()
     await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
     await refresh(hass, entry)
-    assert entry.runtime_data._pwm_output_pct == 0.0
+    assert calls and set(calls) == {"turn_off"}
 
 
 @pytest.mark.parametrize(
@@ -1925,7 +1940,7 @@ async def test_list_status_sensors_show_their_content_not_a_count(hass, enable_c
 async def test_heater_pid_integral_is_frozen_while_the_band_forces_output_to_zero(hass, enable_custom_integrations, config_data, freezer):
     # A room at 23.7 C is above the 23.54 C heat threshold, so the band forces the heater output to 0.
     # The error is still positive, so an unfrozen integral would grow every tick.
-    entry, _ = await setup_heater(hass, config_data, room="23.7")
+    entry, calls = await setup_heater(hass, config_data, room="23.7")
     coordinator = entry.runtime_data
     before = coordinator._heater_pid._integral
     for tick in range(100):
@@ -1934,7 +1949,7 @@ async def test_heater_pid_integral_is_frozen_while_the_band_forces_output_to_zer
         freezer.tick(timedelta(minutes=5))
         await refresh(hass, entry)
     # The band overrides the PID request in the drive step, so the switch output (_pwm_pct_now) is 0.
-    assert coordinator._pwm_pct_now == 0.0
+    assert "turn_on" not in calls
     assert coordinator._heater_pid._integral == pytest.approx(before)
 
 
@@ -1958,8 +1973,7 @@ async def test_comfort_energy_weight_moves_the_cooling_target(hass, enable_custo
     hass.states.async_set(ROOM_B, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.runtime_data._settings.comfort_c == 26.0
-    assert entry.runtime_data._settings.eco_c == 26.0
+    assert entry.runtime_data.data["target_c"] == 26.0
 
 
 async def test_comfort_energy_weight_off_keeps_comfort_target(hass, enable_custom_integrations, config_data):
@@ -1972,7 +1986,7 @@ async def test_comfort_energy_weight_off_keeps_comfort_target(hass, enable_custo
     _register_climate_fakes(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.runtime_data._settings.comfort_c == 24.0
+    assert entry.runtime_data.data["target_c"] == 24.0
 
 
 async def test_idle_valve_is_stepped_after_a_week_still(hass, enable_custom_integrations, config_data, freezer):
@@ -2111,10 +2125,11 @@ async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_i
         temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac1 - 0.9 * ac2) * (5 / 60)
     coordinator._entries = entries
     coordinator._refit()
-    assert coordinator._room_fit["ac_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
-    assert coordinator._room_fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
     await refresh(hass, entry)
-    assert entry.runtime_data.data["room_fit"]["samples"] > 0
+    fit = entry.runtime_data.data["room_fit"]
+    assert fit["ac_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
+    assert fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
+    assert fit["samples"] > 0
 
 
 async def test_forecast_day_counts_are_published_as_content(hass, enable_custom_integrations, config_data):
@@ -2210,12 +2225,10 @@ async def test_learned_room_rate_coefficients_are_published_and_used(hass, enabl
         temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac) * (5 / 60)
     coordinator._entries = readings
     coordinator._refit()
-    assert coordinator._tpi is not None
-    assert coordinator._tpi.c == pytest.approx(1.4, abs=0.05)
     await refresh(hass, entry)
     published = entry.runtime_data.data["room_rate_coefficients"]
     assert published["c_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
-    assert entry.runtime_data.data["k"] == pytest.approx(round(coordinator._tpi.k, 4))
+    assert entry.runtime_data.data["k"] == pytest.approx(published["k_per_h"])
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
     attribute = hass.states.get(entity_id).attributes["room_rate_coefficients"]
     assert set(attribute) >= {"k_per_h", "g_k_per_h", "c_k_per_h_per_kw"}
@@ -2235,22 +2248,21 @@ async def test_presence_from_two_sources_uses_any_home_and_the_away_delay(hass, 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
-    assert coordinator._someone_home is True
+    assert coordinator.data["occupancy"] == "home"
 
     # Both sources away: still home inside the 30 minute delay, away after it.
     hass.states.async_set("binary_sensor.test_presence", "off")
     freezer.tick(timedelta(minutes=10))
     await refresh(hass, entry)
-    assert coordinator._someone_home is True
+    assert coordinator.data["occupancy"] == "home"
     freezer.tick(timedelta(minutes=25))
     await refresh(hass, entry)
-    assert coordinator._someone_home is False
     assert coordinator.data["occupancy"] == "away"
 
     # The person arrives. The second source alone makes the house home again.
     hass.states.async_set("person.test_partner", "home")
     await refresh(hass, entry)
-    assert coordinator._someone_home is True
+    assert coordinator.data["occupancy"] == "home"
     assert coordinator.data["occupancy"] == "home"
 
 
@@ -2264,10 +2276,10 @@ async def test_single_presence_string_still_works(hass, enable_custom_integratio
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.runtime_data._someone_home is True  # inside the away delay after setup
+    assert entry.runtime_data.data["occupancy"] == "home"  # inside the away delay after setup
     freezer.tick(timedelta(minutes=31))
     await refresh(hass, entry)
-    assert entry.runtime_data._someone_home is False  # no source was ever home, so the delay runs out
+    assert entry.runtime_data.data["occupancy"] == "away"  # no source was ever home, so the delay runs out
 
 
 async def test_investigator_answers_why_the_ac_runs(hass, enable_custom_integrations, config_data):
