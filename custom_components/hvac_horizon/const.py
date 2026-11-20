@@ -35,3 +35,4 @@ CONF_PRICE_CHEAP = "price_cheap"
 CONF_PRICE_EXPENSIVE = "price_expensive"
 DEFAULT_PRICE_CHEAP = 0.15
 DEFAULT_PRICE_EXPENSIVE = 0.40
+CONF_SCHEDULE_BLOCKS = "schedule_blocks"  # list of {start_h, end_h, preset}; empty means comfort all day

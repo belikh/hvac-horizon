@@ -18,7 +18,8 @@ from homeassistant.util import dt as dt_util
 from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
-from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
+from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
+from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -27,6 +28,7 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_CO2,
+    CONF_SCHEDULE_BLOCKS,
     CONF_PRICE_CHEAP,
     CONF_PRICE_EXPENSIVE,
     DEFAULT_PRICE_CHEAP,
@@ -265,8 +267,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             expensive_per_kwh=float(self.entry.data.get(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)),
         )
         result["target_c"] = round(target_c, 2)
+        blocks = [
+            ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
+            for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
+        ]
+        preset_name = scheduled_preset(dt_util.now().hour + dt_util.now().minute / 60.0, blocks)
+        result["preset"] = preset_name
         settings = Settings(
             comfort_c=target_c,
+            preset=Preset(preset_name) if preset_name in {p.value for p in Preset} else Preset.COMFORT,
             away_c=float(self.entry.data.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
             window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
         )
