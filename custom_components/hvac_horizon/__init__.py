@@ -16,7 +16,39 @@ __all__ = ["Fit", "Forecast", "NotEnoughData", "PriceSlot", "Sample", "fit", "fo
 PLATFORMS = [Platform.SENSOR]
 
 
+SERVICE_RESET = "reset_learning"
+SERVICE_EXPORT = "export_samples"
+SERVICE_AUTOTUNE = "start_autotune"
+
+
+def _register_services(hass: HomeAssistant) -> None:
+    if hass.services.has_service(DOMAIN, SERVICE_RESET):
+        return
+
+    def _coordinator(call):
+        entry = hass.config_entries.async_get_entry(call.data["entry_id"])
+        if entry is None or not hasattr(entry, "runtime_data"):
+            raise ValueError("unknown HVAC Horizon entry")
+        return entry.runtime_data
+
+    async def reset(call):
+        _coordinator(call).reset_learning()
+
+    async def export(call):
+        return {"samples": _coordinator(call).export_samples()}
+
+    async def autotune(call):
+        _coordinator(call).start_autotune(float(call.data["setpoint"]))
+
+    from homeassistant.core import SupportsResponse
+
+    hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
+    hass.services.async_register(DOMAIN, SERVICE_EXPORT, export, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    _register_services(hass)
     coordinator = HorizonCoordinator(hass, entry)
     await coordinator.async_load()
     coordinator.start_power_tracking()

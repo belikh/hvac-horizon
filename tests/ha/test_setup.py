@@ -270,3 +270,28 @@ async def test_diagnostics_redacts_entity_ids(hass, enable_custom_integrations, 
     diag = await async_get_config_entry_diagnostics(hass, entry)
     assert diag["config"]["climate"] != CLIMATE
     assert "samples" in diag
+
+
+async def test_reset_learning_service_clears_samples(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert len(entry.runtime_data._entries) >= 1
+    await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": entry.entry_id}, blocking=True)
+    assert entry.runtime_data._entries == []
+
+
+async def test_export_samples_service_returns_readings(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    result = await hass.services.async_call(DOMAIN, "export_samples", {"entry_id": entry.entry_id}, blocking=True, return_response=True)
+    assert len(result["samples"]) >= 1

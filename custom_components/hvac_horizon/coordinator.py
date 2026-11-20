@@ -46,6 +46,7 @@ from custom_components.hvac_horizon.features import (
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
+from custom_components.hvac_horizon.autotune import RelayTuner
 
 from .const import (
     CONF_AWAY_C,
@@ -136,6 +137,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._in_band_min: float = 0.0
         self._outdoor_history: list[float] = []
         self._last_good_price: float | None = None
+        self._tuner: RelayTuner | None = None
+        self._autotune_result = None
         self._last_good_price_at: float | None = None
         self._total_min: float = 0.0
         self._heater_start_temp: float | None = None
@@ -180,6 +183,39 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
         self._refit()
+
+    def reset_learning(self) -> None:
+        """Forget the stored samples and the fit. The next cycles start learning again."""
+        self._entries = []
+        self._fit = None
+        self._fit_reason = "learning reset"
+        self._backtest_runs = []
+        self._forecast_error_min = None
+        self._samples_since_fit = 0
+        self._store.async_delay_save(self._save_payload, 0)
+
+    def export_samples(self) -> list[dict[str, Any]]:
+        """All stored readings, for the export service."""
+        return [asdict(e) for e in self._entries]
+
+    def start_autotune(self, setpoint_c: float) -> None:
+        """Begin a relay test at `setpoint_c`. The switch is driven only by the cycle while this is active."""
+        self._tuner = RelayTuner(setpoint_c=setpoint_c)
+        self._autotune_result = None
+
+    def _autotune_step(self, room_c: float, now: float) -> None:
+        """One relay step. Drives the heater switch only when a tuner is active and a heater switch is configured."""
+        if self._tuner is None:
+            return
+        want_on = self._tuner.step(room_c, now / 3600.0)
+        if self._tuner.done:
+            self._autotune_result = self._tuner.result()
+            self._tuner = None
+        switch = self.entry.data.get(CONF_HEATER_SWITCH)
+        if switch and self._tuner is not None:
+            self.hass.async_create_task(
+                self.hass.services.async_call("switch", "turn_on" if want_on else "turn_off", {"entity_id": switch}, blocking=True)
+            )
 
     def _save_payload(self) -> dict[str, Any]:
         return {"entries": [asdict(e) for e in self._entries]}
@@ -393,6 +429,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._samples_since_fit = 0
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result = self._forecast(now)
+        rooms_tune = self._rooms()
+        if rooms_tune:
+            self._autotune_step(statistics.median(rooms_tune), now)
+        result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         result["sensors_stalled"] = self._stalled_sensors(now)
         result["day_type"] = self._day_type()
         result["night_plan"] = self._night_plan()
