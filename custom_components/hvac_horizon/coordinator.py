@@ -182,6 +182,7 @@ from .const import (
     CONF_COVER,
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
+    CONF_STALL_WINDOW_S,
     CONF_WHOLE_HOUSE_POWER,
     COVER_SOLAR_THRESHOLD_KW,
     CONF_VALVE,
@@ -991,13 +992,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # A missing or unavailable sensor is not a stall. _rooms() and _read_inputs() already treat it as no reading.
             if state is None or state.state in ("unavailable", "unknown"):
                 continue
-            if sensor_stalled(state.last_reported.timestamp(), now):
+            if sensor_stalled(state.last_reported.timestamp(), now, self._stall_window_s()):
                 stalled.append(name)
         return stalled
 
     def _no_room_data_stop(self, now: float) -> bool:
         """True when no room has had a valid reading for SENSOR_STALL_S. The AC then stops."""
-        return self._last_room_data_s is not None and now - self._last_room_data_s >= SENSOR_STALL_S
+        return self._last_room_data_s is not None and now - self._last_room_data_s >= self._stall_window_s()
+
+    def _stall_window_s(self) -> float:
+        """The stall window in seconds, from the stall_window_s option. Defaults to SENSOR_STALL_S."""
+        return float(self.entry.data.get(CONF_STALL_WINDOW_S, SENSOR_STALL_S))
 
     def _rooms(self) -> list[float]:
         """Room readings for the median: the room sensors only.

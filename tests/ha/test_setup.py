@@ -396,6 +396,25 @@ async def test_sensor_without_a_report_for_15_minutes_is_a_stall(hass, enable_cu
     assert set(entry.runtime_data.data["sensors_stalled"]) == {ROOM_A, ROOM_B, OUTDOOR}
 
 
+async def test_stall_window_option_sets_when_a_sensor_counts_as_stalled(hass, enable_custom_integrations, config_data, freezer):
+    """A 300 s stall_window_s marks a sensor stalled after 5 minutes with no report; the default 900 s does not."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, extra={"stall_window_s": 300.0})
+    assert entry.runtime_data._stall_window_s() == 300.0
+    freezer.tick(timedelta(minutes=6))
+    await refresh(hass, entry)
+    assert set(entry.runtime_data.data["sensors_stalled"]) == {ROOM_A, ROOM_B, OUTDOOR}
+
+
+async def test_stall_window_defaults_to_900_seconds(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    assert entry.runtime_data._stall_window_s() == 900.0
+    freezer.tick(timedelta(minutes=6))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["sensors_stalled"] == []
+
+
 @pytest.mark.parametrize("state", ["missing", "unavailable"])
 async def test_missing_or_unavailable_sensor_is_not_a_stall(hass, enable_custom_integrations, config_data, freezer, state):
     freezer.move_to("2026-11-20T10:00:00+00:00")

@@ -60,6 +60,7 @@ from .const import (
     CONF_COMPRESSOR_GROUP,
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
+    CONF_STALL_WINDOW_S,
     CONF_WHOLE_HOUSE_POWER,
     CONF_SCHEDULE_BLOCKS,
     CONF_AI_CONVERSATION,
@@ -252,6 +253,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_MOTION_AWAY_MIN, default=defaults.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=240, step=1, unit_of_measurement="min")
+            ),
+            key(CONF_STALL_WINDOW_S, default=defaults.get(CONF_STALL_WINDOW_S, 900.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=3600, step=30, unit_of_measurement="s")
             ),
             key(CONF_SHED_MAX_W): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")
