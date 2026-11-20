@@ -64,6 +64,15 @@ class PidTests(unittest.TestCase):
         pid.reset(clear_integral=True)
         self.assertEqual(pid._integral, 0.0)
 
+    def test_frozen_integral_does_not_grow(self):
+        frozen = Pid(kp=0.0, ki=60.0, kd=0.0)
+        free = Pid(kp=0.0, ki=60.0, kd=0.0)
+        for _ in range(100):
+            frozen.update(setpoint=24.0, measure=23.7, dt_h=5 / 60, freeze_integral=True)
+            free.update(setpoint=24.0, measure=23.7, dt_h=5 / 60)
+        self.assertEqual(frozen._integral, 0.0)
+        self.assertGreater(free._integral, 0.0)
+
     def test_set_gains_changes_output(self):
         pid = Pid(kp=1.0, ki=0.0, kd=0.0)
         pid.set_gains(kp=3.0)

@@ -975,8 +975,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     out_min=0.0,
                     out_max=100.0,
                 )
+            pid_room = statistics.median(pid_rooms)
+            climate_now = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+            # The heater output is forced to 0 in the heat band and while the AC cools. Hold the integral then,
+            # so the positive error of that time does not wind it up.
+            forced_off = pid_room >= self._heat_on_below_c or (climate_now is not None and climate_now.state == "cool")
             pid_out = self._heater_pid.update(
-                self._cool_above_c, statistics.median(pid_rooms), SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor
+                self._cool_above_c, pid_room, SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor, freeze_integral=forced_off
             )
             self.set_heater_output(boost_output(self._preset_now or "", pid_out))
             result["heater_pid_output"] = round(pid_out, 2)

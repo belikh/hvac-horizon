@@ -6,6 +6,7 @@ Behaviour follows the common PID design used by smart-thermostat integrations:
 - Optional outdoor feedforward: a term `ke * (setpoint - outdoor)` added to the output.
 - Anti-windup that stops the integral growing into saturation, measured including the feedforward term.
 - `reset()` for a switch-off, and `set_gains()` for changes while running.
+- `freeze_integral` for steps where the caller forces the output to 0, so the integral does not wind up.
 
 The output is a percentage, clamped to [out_min, out_max].
 """
@@ -48,8 +49,12 @@ class Pid:
         if ke is not None:
             self.ke = ke
 
-    def update(self, setpoint: float, measure: float, dt_h: float, outdoor: float | None = None) -> float:
-        """Return the output percentage for one step of `dt_h` hours."""
+    def update(self, setpoint: float, measure: float, dt_h: float, outdoor: float | None = None, freeze_integral: bool = False) -> float:
+        """Return the output percentage for one step of `dt_h` hours.
+
+        With `freeze_integral`, the integral keeps its value for this step. Use it when the caller overrides the
+        output, so the error of that time does not build up.
+        """
         if dt_h <= 0:
             raise ValueError("dt_h must be positive")
         if self.out_min >= self.out_max:
@@ -65,7 +70,7 @@ class Pid:
         delta = self.ki * trapezoid
         was_high = self._last_output >= self.out_max
         was_low = self._last_output <= self.out_min
-        if not ((was_high and delta > 0) or (was_low and delta < 0)):
+        if not freeze_integral and not ((was_high and delta > 0) or (was_low and delta < 0)):
             self._integral += delta
         self._integral = min(max(self._integral, self.out_min - feedforward), self.out_max - feedforward)
 

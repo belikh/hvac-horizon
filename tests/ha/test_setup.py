@@ -1606,3 +1606,18 @@ async def test_list_status_sensors_show_their_content_not_a_count(hass, enable_c
     assert state is not None
     assert state.attributes["value"] == value
     assert state.state == json.dumps(value)
+
+
+async def test_heater_pid_integral_is_frozen_while_the_band_forces_output_to_zero(hass, enable_custom_integrations, config_data, freezer):
+    # A room at 23.7 C is above the 23.54 C heat threshold, so the band forces the heater output to 0.
+    # The error is still positive, so an unfrozen integral would grow every tick.
+    entry, _ = await setup_heater(hass, config_data, room="23.7")
+    coordinator = entry.runtime_data
+    before = coordinator._heater_pid._integral
+    for tick in range(100):
+        set_room(hass, "23.7")
+        hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature", "tick": tick})
+        freezer.tick(timedelta(minutes=5))
+        await refresh(hass, entry)
+    assert coordinator._pwm_output_pct == 0.0
+    assert coordinator._heater_pid._integral == pytest.approx(before)
