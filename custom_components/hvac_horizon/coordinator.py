@@ -118,6 +118,8 @@ from .const import (
     CONF_NIGHT_PLAN_ACT,
     CONF_WINDOW_ACTUATOR,
     CONF_PEER_ENTRY,
+    CONF_PEER_SETPOINT_MODE,
+    PEER_SETPOINT_STEP_K,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_ECONOMIZER_FAN,
@@ -1666,6 +1668,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
+        if action.mode is Mode.OFF and self._peer_setpoint_requested() and not stalled:
+            # A warmer peer room asks for a cooler setpoint. The AC is off, so the write only stores the target.
+            await self._write_setpoint(climate_id, climate, self._cool_above_c - PEER_SETPOINT_STEP_K, now)
         if action.mode is Mode.OFF:
             # A stall means the AC goes off. Dry mode would keep it running, so it is skipped then.
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
@@ -1698,7 +1703,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
-        await self._write_setpoint(climate_id, climate, action.setpoint_c, now)
+        cool_setpoint = action.setpoint_c - PEER_SETPOINT_STEP_K if self._peer_setpoint_requested() else action.setpoint_c
+        await self._write_setpoint(climate_id, climate, cool_setpoint, now)
         if climate.state == "cool" and rooms:
             # The fan follows the room gap while the AC was already cooling before this cycle.
             if self.entry.data.get(CONF_AUTO_FAN, False):
@@ -1989,6 +1995,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _peer_open_requested(self) -> bool:
         return bool(self.hass.data.get(DOMAIN, {}).get("peer_requests", {}).get(self.entry.entry_id))
 
+    def set_peer_setpoint_request(self, requester_id: str, active: bool) -> None:
+        """Record whether the entry `requester_id` asks this entry to lower its cool setpoint. Its room is at least 2 K warmer."""
+        requests = self.hass.data.setdefault(DOMAIN, {}).setdefault("peer_setpoint_requests", {}).setdefault(self.entry.entry_id, set())
+        if active:
+            requests.add(requester_id)
+        else:
+            requests.discard(requester_id)
+
+    def _peer_setpoint_requested(self) -> bool:
+        return bool(self.hass.data.get(DOMAIN, {}).get("peer_setpoint_requests", {}).get(self.entry.entry_id))
+
     def _peer_coordinator(self) -> HorizonCoordinator | None:
         """The coordinator of the entry named by peer_entry (entry_id or title), or None when it is unset or not loaded."""
         ref = str(self.entry.data.get(CONF_PEER_ENTRY) or "").strip()
@@ -2011,12 +2028,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if peer is None:
             return
         own, other = self.median_room_c(), peer.median_room_c()
-        peer.set_peer_request(self.entry.entry_id, own is not None and other is not None and peer_warmer(own, other))
+        warmer = own is not None and other is not None and peer_warmer(own, other)
+        # With peer_setpoint_mode the request lowers the peer's setpoint instead. Each request kind is withdrawn when unused.
+        setpoint_mode = bool(self.entry.data.get(CONF_PEER_SETPOINT_MODE, False))
+        peer.set_peer_request(self.entry.entry_id, warmer and not setpoint_mode)
+        peer.set_peer_setpoint_request(self.entry.entry_id, warmer and setpoint_mode)
 
     def forget_peer_requests(self) -> None:
         """Withdraw this entry's valve requests on unload, so a removed room cannot keep another valve open."""
-        for requests in self.hass.data.get(DOMAIN, {}).get("peer_requests", {}).values():
-            requests.discard(self.entry.entry_id)
+        for kind in ("peer_requests", "peer_setpoint_requests"):
+            for requests in self.hass.data.get(DOMAIN, {}).get(kind, {}).values():
+                requests.discard(self.entry.entry_id)
 
     def forget_cooling(self) -> None:
         """Drop this entry from the cooling registry on unload, so a removed AC cannot keep another heater off."""

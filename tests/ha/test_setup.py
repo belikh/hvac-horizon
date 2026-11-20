@@ -1287,7 +1287,7 @@ PEER_CLIMATE = "climate.peer_ac"
 PEER_VALVE = "number.peer_valve"
 
 
-async def _setup_peer_pair(hass, config_data, *, requester_room: str):
+async def _setup_peer_pair(hass, config_data, *, requester_room: str, requester_extra: dict | None = None):
     """Entry A (the requester, in ROOM_A and ROOM_B) and entry B (the peer, its own room and valve).
 
     A sets peer_entry to B. The valve number records set_value calls and moves its state, so repeat writes can show.
@@ -1313,7 +1313,7 @@ async def _setup_peer_pair(hass, config_data, *, requester_room: str):
     peer.add_to_hass(hass)
     assert await hass.config_entries.async_setup(peer.entry_id)
     await hass.async_block_till_done()
-    requester_data = dict(config_data, peer_entry=peer.entry_id)
+    requester_data = dict(config_data, peer_entry=peer.entry_id, **(requester_extra or {}))
     requester_data.pop(CONF_PRICE)
     requester = MockConfigEntry(domain=DOMAIN, title="Test AC", data=requester_data, unique_id=CLIMATE)
     requester.add_to_hass(hass)
@@ -4007,3 +4007,34 @@ async def test_mpc_start_does_not_pass_the_outdoor_limit(hass, enable_custom_int
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[True] * 16, precool_now=False, outdoor="10.0", extra={"mpc_start": True})
     assert "cool" not in modes
     assert entry.runtime_data.data["action"] == "off: outdoor 10 C below cooling limit"
+
+
+async def test_warmer_room_lowers_the_peer_setpoint_by_one_kelvin_in_setpoint_mode(hass, enable_custom_integrations, config_data, freezer):
+    # Requester room 26 C, peer room 24 C: 2 K warmer. The peer's cool setpoint is its comfort 24 C, so the write is 23 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="26.0", requester_extra={"peer_setpoint_mode": True})
+    setpoints = []
+
+    async def record_temp(call):
+        setpoints.append((call.data["entity_id"], call.data["temperature"]))
+
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert (PEER_CLIMATE, 23.0) in setpoints
+    assert writes == []  # the valve is not driven in setpoint mode
+
+
+async def test_peer_setpoint_stays_alone_without_the_setpoint_mode(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="26.0")
+    setpoints = []
+
+    async def record_temp(call):
+        setpoints.append((call.data["entity_id"], call.data["temperature"]))
+
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert [sp for sp in setpoints if sp[0] == PEER_CLIMATE] == []
+    assert (PEER_VALVE, 100.0) in writes  # the valve request still works with the mode off
