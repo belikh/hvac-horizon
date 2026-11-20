@@ -206,6 +206,7 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
 
 MPC_STEP_MIN = 15.0
 MPC_STEPS = 16  # 4 hours
+SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 
 class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -635,6 +636,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pct = self._pwm_output_pct
         if driving and (self._heater_gated or self._ac_cooling_tick or gate_c is None or gate_c >= self._heat_on_below_c):
             pct = 0.0
+        if driving:
+            # A stalled sensor sets the fallback output, whatever the gates say (features.safety_output).
+            pct = safety_output(bool(result.get("sensors_stalled")), pct, fallback_pct=SAFETY_FALLBACK_PCT)
         relay_running = self._tuner is not None
         if relay_running:
             # The relay test replaces the PWM output. The PWM timers stay cancelled until the test ends.
@@ -1130,7 +1134,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._heater_commanded_on if heater_switch else None,
             heater_state.state if heater_state is not None else None,
         )
-        result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
+        result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=SAFETY_FALLBACK_PCT)
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         if valve_opening is not None:
             await self._drive_valve(valve_opening)

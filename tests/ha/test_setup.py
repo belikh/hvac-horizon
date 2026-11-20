@@ -2313,3 +2313,16 @@ async def test_second_ac_stop_inside_minimum_on_time_is_held(hass, enable_custom
     _set_ac_rooms(hass, "22.0")
     await refresh(hass, entry)
     assert (second, "off") in modes
+
+
+async def test_stall_output_turns_the_heater_off_even_without_the_gate(hass, enable_custom_integrations, config_data, monkeypatch):
+    # The window, lock and away gates are open here. Only the stall can turn the heater off, through safety_output.
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    monkeypatch.setattr(HorizonCoordinator, "_heater_gate_closed", lambda self, result: False)
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    entry, calls = await setup_heater(hass, config_data, heater_state="on", room="20.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["safety_output_pct"] == 0.0
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
