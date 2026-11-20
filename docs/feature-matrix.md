@@ -16,7 +16,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | :-- | :-- | :-- |
 | Set HVAC mode and setpoint on a climate entity | VT, RM, CA, PID | drives |
 | Observe-only mode (no commands) | CA | drives |
-| Proportional or TPI power control | VT, PID | drives the heater output when control is on (PID with a caller; the heater switch is not driven by it) |
+| Proportional or TPI power control | VT, PID | published (PID output set through set_heater_output when control is on; the heater switch is not driven yet) |
 | Auto-tuner from a relay test (Ziegler-Nichols) | PID | drives the heater during a test only, not run on hardware |
 | Heater switch output with PWM duty cycle | PID, VT | published (pattern only; heater not driven) |
 | Output polarity (inverted switch) | PID | drives (applied to the autotune switch command; config flag) |
