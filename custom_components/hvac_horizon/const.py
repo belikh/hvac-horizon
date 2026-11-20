@@ -86,6 +86,7 @@ CONF_ECO_C = "eco_c"
 CONF_COMFORT_ENERGY_WEIGHT = "comfort_energy_weight"  # 0 to 1: 0 targets comfort, 1 targets the eco setpoint; unset is 0
 CONF_BOOST_C = "boost_c"
 CONF_WHOLE_HOUSE_FAN = "whole_house_fan"  # optional switch for a whole-house fan
+CONF_DRY_FOR_HUMIDITY = "dry_for_humidity"  # bool, default False; run the AC in dry mode when humid and no dehumidifier is set. Dry mode makes a lot of water.
 CONF_COIL_DRY = "coil_dry"  # bool, default False; run the AC in dry mode after cooling to dry the coil
 CONF_HOUSE_SEALED = "house_sealed"  # bool: a sealed house never runs the whole-house fan
 PWM_WINDOW_MIN = 10.0  # heater PWM window in minutes

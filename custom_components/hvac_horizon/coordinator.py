@@ -93,6 +93,7 @@ from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPO
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
+    CONF_DRY_FOR_HUMIDITY,
     CONF_BOOST_C,
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_TRV_TEMPERATURE,
@@ -1470,7 +1471,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
-            if not stalled and humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
+            if (
+                not stalled
+                and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
+                and humidity.action == "dehumidify"
+                and not self.entry.data.get(CONF_DEHUMIDIFIER)
+                and climate.state != "dry"
+            ):
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"

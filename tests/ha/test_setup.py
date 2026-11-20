@@ -472,7 +472,7 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", ignore)
-    data = dict(config_data, room_humidity="sensor.test_humidity", control=True)
+    data = dict(config_data, room_humidity="sensor.test_humidity", control=True, dry_for_humidity=True)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -480,6 +480,28 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert {"entity_id": CLIMATE, "hvac_mode": "dry"} in calls
+
+
+async def test_ac_dry_mode_for_humidity_is_off_by_default(hass, enable_custom_integrations, config_data):
+    """Dry mode on the AC makes a lot of water, so it runs only after the user opts in."""
+    calls = []
+
+    async def record_mode(call):
+        calls.append(dict(call.data))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, room_humidity="sensor.test_humidity", control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert {"entity_id": CLIMATE, "hvac_mode": "dry"} not in calls
 
 
 async def test_humidity_band_reads_room_sensor_not_outdoor(hass, enable_custom_integrations, config_data):
