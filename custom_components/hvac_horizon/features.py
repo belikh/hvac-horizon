@@ -176,3 +176,17 @@ def night_plan(outdoor_low_c: float, indoor_c: float, comfort_c: float, cool_bel
     if indoor_c <= comfort_c:
         return "hold"
     return "none"
+
+
+def learning_suggestion(current_k: float, learned_k: float, tolerance: float = 0.2) -> str | None:
+    """Suggest a change when the learned heat gain differs from the current value by more than `tolerance` (relative).
+
+    Ported from ClimateAdvisor's learning suggestions. Returns text for the user, or None when no change is needed.
+    """
+    if current_k <= 0:
+        return None
+    change = (learned_k - current_k) / current_k
+    if abs(change) <= tolerance:
+        return None
+    direction = "more" if change > 0 else "less"
+    return f"Heat gain is {abs(change) * 100:.0f} % {direction} than the current model. Review the room model."

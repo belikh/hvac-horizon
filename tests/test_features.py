@@ -163,3 +163,25 @@ class NightPlanTests(unittest.TestCase):
         from custom_components.hvac_horizon.features import night_plan
 
         self.assertEqual(night_plan(outdoor_low_c=23.0, indoor_c=25.0, comfort_c=24.0), "none")
+
+
+class LearningSuggestionTests(unittest.TestCase):
+    def test_no_suggestion_within_tolerance(self):
+        from custom_components.hvac_horizon.features import learning_suggestion
+
+        self.assertIsNone(learning_suggestion(0.3, 0.32))
+
+    def test_suggestion_when_gain_is_higher(self):
+        from custom_components.hvac_horizon.features import learning_suggestion
+
+        self.assertIn("50 % more", learning_suggestion(0.3, 0.45))
+
+    def test_suggestion_when_gain_is_lower(self):
+        from custom_components.hvac_horizon.features import learning_suggestion
+
+        self.assertIn("50 % less", learning_suggestion(0.3, 0.15))
+
+    def test_no_suggestion_for_zero_current_gain(self):
+        from custom_components.hvac_horizon.features import learning_suggestion
+
+        self.assertIsNone(learning_suggestion(0.0, 0.3))
