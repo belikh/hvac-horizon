@@ -71,6 +71,7 @@ DEFAULT_TPI_COEF_INT = 0.6
 DEFAULT_TPI_COEF_EXT = 0.01
 CONF_TPI_THRESHOLD_HIGH = "tpi_threshold_high"  # K above target while the room rises; with the low threshold, forces the TPI output to 0. 0 is off
 CONF_TPI_THRESHOLD_LOW = "tpi_threshold_low"  # K above target while the room falls; both thresholds must be above 0 to apply
+CONF_TPI_COOL = "tpi_cool"  # bool, default False: TPI cool branch; sets the AC cool setpoint when decide() has not chosen cool
 CONF_MAX_ON_PERCENT = "max_on_percent"  # caps the TPI on-percent, 0 to 100; unset means no cap
 CONF_NIGHT_PLAN_ACT = "night_plan_act"  # bool, default False: a pre-cool night plan cools to comfort, a hold night plan stops a cool start
 CONF_WINDOW_ACTUATOR = "window_actuator"  # optional cover or switch that opens and closes a window on the natural ventilation or economizer advice
