@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, group_start_allowed, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -122,6 +122,7 @@ from .const import (
     CONF_MOTION,
     CONF_CLIMATE,
     CONF_CLIMATE_2,
+    CONF_COMPRESSOR_GROUP,
     CONF_AWAY_DELAY_MIN,
     CONF_MOTION_AWAY_MIN,
     DEFAULT_MOTION_AWAY_MIN,
@@ -1546,6 +1547,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Minimum on and off times: do not change state until the current state has lasted long enough.
         # Heat counts as running, so stopping heat, or switching heat to cool, waits for the minimum on time.
         wanted_mode = "cool" if action.mode is Mode.COOL else "off"
+        if wanted_mode == "cool" and climate.state != "cool" and not self._group_start_ok(now):
+            result["action"] = "cool: waiting for compressor group"
+            return
         running = climate.state in ("cool", "heat")
         if climate.state != wanted_mode and (running or wanted_mode == "cool"):
             since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
@@ -1578,6 +1582,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._was_cooling = climate.state == "cool"
         self._dry_started_min = None
         if climate.state != "cool":
+            self._record_group_start(now)
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
@@ -1757,10 +1762,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if second.state != "cool":
                 # The first AC is in the queue ahead of the second while it is about to start cooling.
                 wanting = ["climate_2"] if first is not None and first.state == "cool" else ["climate_1", "climate_2"]
-                if stagger_allowed("climate_2", wanting, self._last_start_min, now / 60.0):
+                if stagger_allowed("climate_2", wanting, self._last_start_min, now / 60.0) and self._group_start_ok(now):
                     if not self._second_minimum_ok(second.state, now):
                         result["second_ac"] = "waiting for minimum time"
                         return
+                    self._record_group_start(now)
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
                     self._last_start_min["climate_2"] = now / 60.0
                     self._second_changed_at = now
@@ -1780,6 +1786,25 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
             self._second_changed_at = now
             result["second_ac"] = "driven"
+
+    def _compressor_group(self) -> str | None:
+        """The compressor group name, or None when the entry has no group. A blank name counts as no group."""
+        name = str(self.entry.data.get(CONF_COMPRESSOR_GROUP) or "").strip()
+        return name or None
+
+    def _group_start_ok(self, now: float) -> bool:
+        """True when no AC in this entry's compressor group started in the last 5 minutes. Always True without a group."""
+        group = self._compressor_group()
+        if group is None:
+            return True
+        clock = self.hass.data.setdefault(DOMAIN, {}).setdefault("compressor_clock", {})
+        return group_start_allowed(clock.get(group), now / 60.0)
+
+    def _record_group_start(self, now: float) -> None:
+        """Set the group clock to this start. Call it before the service call, with no await between check and record."""
+        group = self._compressor_group()
+        if group is not None:
+            self.hass.data.setdefault(DOMAIN, {}).setdefault("compressor_clock", {})[group] = now / 60.0
 
     def _second_minimum_ok(self, state: str, now: float) -> bool:
         """True when the second AC may change mode now. It uses the same minimum on and off times as the first AC."""

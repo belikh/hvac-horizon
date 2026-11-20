@@ -37,6 +37,7 @@ from .const import (
     CONF_MOTION,
     CONF_MOTION_AWAY_MIN,
     DEFAULT_MOTION_AWAY_MIN,
+    CONF_COMPRESSOR_GROUP,
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
     CONF_WHOLE_HOUSE_POWER,
@@ -205,6 +206,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")
             ),
             key(CONF_SHED_LOADS): selector.TextSelector(selector.TextSelectorConfig(multiple=True)),
+            key(CONF_COMPRESSOR_GROUP): selector.TextSelector(),
             key(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),

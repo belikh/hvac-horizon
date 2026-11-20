@@ -100,5 +100,6 @@ PWM_WINDOW_MIN = 10.0  # heater PWM window in minutes
 # A 60 minute window samples 12 points, so the duty resolves in steps of 1/12.
 FAN_PWM_WINDOW_MIN = 60.0
 CONF_SHED_MAX_W = "shed_max_w"  # optional whole-house maximum in watts
+CONF_COMPRESSOR_GROUP = "compressor_group"  # optional name; entries with the same name share one 5-minute gap between AC starts
 CONF_SHED_LOADS = "shed_loads"  # optional list of "switch_entity_id|watts", lowest priority first
 CONF_WHOLE_HOUSE_POWER = "whole_house_power"  # optional power sensor in watts

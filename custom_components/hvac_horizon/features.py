@@ -727,6 +727,14 @@ def shed_restore(total_w: float, max_w: float, shed_loads: list[tuple[str, float
     return None
 
 
+def group_start_allowed(last_start_min: float | None, now_min: float, min_gap_min: float = 5.0) -> bool:
+    """True when no AC in the compressor group started less than `min_gap_min` minutes before `now_min`.
+
+    `last_start_min` is the time of the group's last AC start, or None when no AC has started in the group.
+    """
+    return last_start_min is None or now_min - last_start_min >= min_gap_min
+
+
 def stagger_allowed(
     device: str,
     wanting: list[str],

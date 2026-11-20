@@ -288,6 +288,41 @@ async def test_second_ac_waits_when_first_starts_in_the_same_cycle(hass, enable_
     assert ("mode", {"entity_id": "climate.test_ac_2", "hvac_mode": "cool"}) not in calls
 
 
+async def test_compressor_group_staggers_starts_across_entries(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)  # room 26.0 C, so both entries decide cool
+    calls = []
+
+    async def record_mode(call):
+        calls.append((call.data["entity_id"], call.data["hvac_mode"]))
+
+    async def record_temp(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC"})
+    hass.states.async_set("climate.test_ac_b", "off", {"temperature": 22.0, "friendly_name": "Test AC B"})
+    data = dict(config_data, control=True, compressor_group="garage")
+    entry_a = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry_b = MockConfigEntry(domain=DOMAIN, title="Test AC B", data=dict(data, climate="climate.test_ac_b"), unique_id="climate.test_ac_b")
+    for entry in (entry_a, entry_b):
+        entry.add_to_hass(hass)
+    # Both entries load in the same setup, so both want to start in the same tick.
+    assert await hass.config_entries.async_setup(entry_a.entry_id)
+    await hass.async_block_till_done()
+    starts = [entity for entity, mode in calls if mode == "cool"]
+    assert len(starts) == 1  # one AC starts, the other waits
+    started, waiting = (CLIMATE, entry_b) if starts[0] == CLIMATE else ("climate.test_ac_b", entry_a)
+    hass.states.async_set(started, "cool", {"temperature": 24.0, "friendly_name": "Test AC"})
+    freezer.tick(timedelta(minutes=4))
+    await refresh(hass, waiting)
+    assert [entity for entity, mode in calls if mode == "cool"] == starts
+    freezer.tick(timedelta(minutes=1))
+    await refresh(hass, waiting)
+    assert [entity for entity, mode in calls if mode == "cool"] == starts + [waiting.data["climate"]]
+
+
 async def test_keep_alive_resends_last_setpoint(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     calls = []
