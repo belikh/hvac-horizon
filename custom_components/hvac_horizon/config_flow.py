@@ -255,7 +255,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=1, max=240, step=1, unit_of_measurement="min")
             ),
             key(CONF_STALL_WINDOW_S, default=defaults.get(CONF_STALL_WINDOW_S, 900.0)): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=3600, step=30, unit_of_measurement="s")
+                selector.NumberSelectorConfig(min=300, max=3600, step=30, unit_of_measurement="s")
             ),
             key(CONF_SHED_MAX_W): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")

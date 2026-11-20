@@ -1784,7 +1784,7 @@ async def test_heater_turns_off_when_locked(hass, enable_custom_integrations, co
 async def test_heater_turns_off_when_a_sensor_is_stalled(hass, enable_custom_integrations, config_data, monkeypatch):
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
 
-    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A, ROOM_B])
     entry, calls = await setup_heater(hass, config_data, heater_state="on")
     await refresh(hass, entry)
     assert "turn_off" in calls
@@ -2474,7 +2474,7 @@ async def test_user_kp_after_a_tune_wins_over_the_tuned_kp(hass, enable_custom_i
 async def test_stalled_sensor_turns_the_ac_off(hass, enable_custom_integrations, config_data, monkeypatch, freezer, room):
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
 
-    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A, ROOM_B])
     entry, _ = await setup_heater(hass, config_data, room=room, climate="cool", outdoor="30.0")
     modes = []
 
@@ -3300,7 +3300,7 @@ async def test_stall_output_turns_the_heater_off_even_without_the_gate(hass, ena
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
 
     monkeypatch.setattr(HorizonCoordinator, "_heater_gate_closed", lambda self, result: False)
-    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A, ROOM_B])
     entry, calls = await setup_heater(hass, config_data, heater_state="on", room="20.0")
     await refresh(hass, entry)
     assert entry.runtime_data.data["safety_output_pct"] == 0.0
@@ -4352,3 +4352,54 @@ async def test_boost_on_an_ac_only_entry_cools_to_boost_setpoint(hass, enable_cu
     await refresh(hass, entry)
     assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(23.0)
     assert "cool" in modes
+
+
+async def test_one_stale_room_sensor_does_not_stop_the_ac_while_another_is_fresh(hass, enable_custom_integrations, config_data, freezer):
+    """Per-sensor stall: a stale room sensor drops out of the median, and the AC keeps cooling on the fresh one."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=16))
+    # Room B reports now; room A keeps its old report time.
+    hass.states.async_set(ROOM_B, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert ROOM_A in entry.runtime_data.data["sensors_stalled"]
+    assert ROOM_B not in entry.runtime_data.data["sensors_stalled"]
+    assert "cool" in modes
+    assert "off" not in modes
+
+
+async def test_stalled_outdoor_sensor_stops_the_ac_even_with_fresh_rooms(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    """The outdoor reading drives the cooling decision, so a stale outdoor sensor stops the AC whatever the rooms report."""
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [OUTDOOR])
+    entry, _ = await setup_heater(hass, config_data, room="26.0", climate="cool", outdoor="30.0")
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    freezer.tick(timedelta(minutes=10))
+    await refresh(hass, entry)
+    assert "off" in modes

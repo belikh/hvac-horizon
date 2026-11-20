@@ -670,7 +670,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or not result.get("heating_allowed", True)
             or bool(result.get("house_cooling"))
             or not lock_allows_control(self._locked)
-            or bool(result["sensors_stalled"])
+            or self._stall_blocks(result)
         )
 
     def _cancel_pwm_timers(self) -> None:
@@ -750,7 +750,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pct = 0.0
         if driving:
             # A stalled sensor sets the fallback output, whatever the gates say (features.safety_output).
-            pct = safety_output(bool(result.get("sensors_stalled")), pct, fallback_pct=SAFETY_FALLBACK_PCT)
+            pct = safety_output(self._stall_blocks(result), pct, fallback_pct=SAFETY_FALLBACK_PCT)
         relay_running = self._tuner is not None
         if relay_running:
             # The relay test replaces the PWM output. The PWM timers stay cancelled until the test ends.
@@ -978,6 +978,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def _stall_blocks(self, result: dict[str, Any]) -> bool:
+        """True when a stall stops the AC and the heater. A stalled outdoor sensor does, and so does every room sensor being stale.
+
+        One stale room sensor drops out of the median, and a fresh one keeps control running.
+        """
+        stalled = set(result.get("sensors_stalled") or [])
+        if self.entry.data[CONF_OUTDOOR] in stalled:
+            return True
+        rooms = list(self.entry.data.get(CONF_ROOM_SENSORS) or [])
+        return bool(rooms) and all(room in stalled for room in rooms)
 
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not reported recently. Published so the user can see them.
@@ -1318,7 +1329,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._heater_commanded_on if heater_switch else None,
             heater_state.state if heater_state is not None else None,
         )
-        result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=SAFETY_FALLBACK_PCT)
+        result["safety_output_pct"] = safety_output(self._stall_blocks(result), 100.0, fallback_pct=SAFETY_FALLBACK_PCT)
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         if valve_opening is not None:
             await self._drive_valve(valve_opening)
@@ -1418,7 +1429,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if command is None:
             return
         inhibit_on = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
-        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or bool(result.get("sensors_stalled")) or inhibit_on
+        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or self._stall_blocks(result) or inhibit_on
         if command == "open" and gated:
             return
         domain = actuator.split(".", 1)[0]
@@ -1576,7 +1587,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._inhibited_for_setpoint = None
         # A stalled sensor stops the AC even inside the inhibit window. The window sends nothing else.
-        stalled = bool(result.get("sensors_stalled")) or self._no_room_data_stop(now)
+        stalled = self._stall_blocks(result) or self._no_room_data_stop(now)
         inhibit_on = inhibited(now_min, self._inhibit_until_min)
         if inhibit_on and not stalled:
             result["action"] = "inhibited after a manual change"
