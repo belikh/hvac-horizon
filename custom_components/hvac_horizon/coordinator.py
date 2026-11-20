@@ -988,7 +988,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.entry.data[CONF_OUTDOOR] in stalled:
             return True
         rooms = list(self.entry.data.get(CONF_ROOM_SENSORS) or [])
-        return bool(rooms) and all(room in stalled for room in rooms)
+        fresh = [r for r in rooms if r not in stalled and _float(self.hass.states.get(r)) is not None]
+        return not fresh and any(r in stalled for r in rooms)
 
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not reported recently. Published so the user can see them.
@@ -1020,7 +1021,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         The AC's own temperature reading is whole degrees, so it is kept out of the median.
         """
-        states = [self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS]]
+        stalled = set(self._stalled_sensors(dt_util.utcnow().timestamp()))
+        every = [self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS]]
+        fresh = [s for e, s in zip(self.entry.data[CONF_ROOM_SENSORS], every) if e not in stalled]
+        # Stale room sensors drop out only when a fresh one exists. With none, the stop rule in _stall_blocks decides.
+        states = fresh if any(_float(s) is not None for s in fresh) else every
         return [v for v in (_float(s) for s in states) if v is not None]
 
     def _optional(self, key: str) -> State | None:

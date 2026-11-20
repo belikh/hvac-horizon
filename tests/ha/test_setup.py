@@ -4403,3 +4403,65 @@ async def test_stalled_outdoor_sensor_stops_the_ac_even_with_fresh_rooms(hass, e
     freezer.tick(timedelta(minutes=10))
     await refresh(hass, entry)
     assert "off" in modes
+
+
+async def test_stale_room_sensor_leaves_the_median_so_its_value_is_not_used(hass, enable_custom_integrations, config_data, freezer):
+    """Room A is stale at 30 C and room B is fresh at 22 C. The median uses room B only, so the AC does not cool."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "22.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    # The setup tick at 10:00 saw both rooms fresh and may have cooled. Only later writes count.
+    modes.clear()
+    freezer.tick(timedelta(minutes=16))
+    hass.states.async_set(ROOM_B, "22.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert ROOM_A in entry.runtime_data.data["sensors_stalled"]
+    assert "cool" not in modes
+
+
+async def test_stale_room_with_unavailable_room_stops_the_ac(hass, enable_custom_integrations, config_data, freezer):
+    """Room A is stale and room B is unavailable: no fresh room reading, so the AC stops."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=16))
+    hass.states.async_set(ROOM_B, "unavailable")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert ROOM_A in entry.runtime_data.data["sensors_stalled"]
+    assert "off" in modes
