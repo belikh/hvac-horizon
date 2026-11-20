@@ -21,6 +21,7 @@ SERVICE_EXPORT = "export_samples"
 SERVICE_AUTOTUNE = "start_autotune"
 SERVICE_WHAT_IF = "what_if"
 SERVICE_EXPORT_CSV = "export_csv"
+SERVICE_LOCK = "set_lock"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -52,6 +53,11 @@ def _register_services(hass: HomeAssistant) -> None:
     async def autotune(call):
         _coordinator(call).start_autotune(float(call.data["setpoint"]))
 
+    async def set_lock(call):
+        changed = _coordinator(call).set_lock(bool(call.data["locked"]), call.data.get("pin"))
+        if not changed:
+            raise ValueError("lock not changed: wrong PIN, or no PIN configured")
+
     from homeassistant.core import SupportsResponse
 
     hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
@@ -59,6 +65,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

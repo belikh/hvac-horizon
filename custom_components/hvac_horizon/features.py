@@ -376,6 +376,18 @@ def ventilation_rate_from_co2(co2_ppm: float | None, low_ppm: float = 800.0, hig
     return (co2_ppm - low_ppm) / (high_ppm - low_ppm)
 
 
+def lock_allows_control(locked: bool) -> bool:
+    """Control commands are allowed only when the lock is off. Ported from Versatile Thermostat's lock."""
+    return not locked
+
+
+def check_pin(entered: str | None, configured: str | None) -> bool:
+    """True when the entered PIN matches the configured one. No PIN configured means the lock cannot be opened."""
+    if not configured or entered is None:
+        return False
+    return entered == configured
+
+
 def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: float = 5.0) -> bool:
     """True when a command must be re-sent to keep the device from timing out. Ported from Versatile Thermostat's keep-alive."""
     if last_sent_min is None:

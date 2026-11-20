@@ -1,3 +1,23 @@
+set_lock:
+  name: Set lock
+  description: Lock control so no commands are sent, or unlock it. Unlocking needs the configured PIN.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon
+    locked:
+      name: Locked
+      required: true
+      selector:
+        boolean:
+    pin:
+      name: PIN
+      selector:
+        text:
+          type: password
 export_csv:
   name: Export CSV
   description: Return the stored readings as CSV text, in the layout the backfill tool reads.

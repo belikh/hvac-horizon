@@ -32,8 +32,10 @@ from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
     daily_briefing,
+    check_pin,
     heating_failure,
     hot_streak,
+    lock_allows_control,
     learning_suggestion,
     band_action,
     comfort_band,
@@ -63,6 +65,7 @@ from .const import (
     CONF_CLIMATE,
     CONF_AWAY_DELAY_MIN,
     CONF_CO2,
+    CONF_LOCK_PIN,
     CONF_HOUSE_SEALED,
     CONF_WHOLE_HOUSE_FAN,
     CONF_IRRADIANCE,
@@ -151,6 +154,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_good_price: float | None = None
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
+        self._locked = False
         self._last_written_setpoint: float | None = None
         self._autotune_result = None
         self._last_good_price_at: float | None = None
@@ -262,6 +266,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cost": None if f.cost is None else round(f.cost, 3),
             "reason": f.reason,
         }
+
+    def set_lock(self, locked: bool, pin: str | None) -> bool:
+        """Lock or unlock control. Unlocking needs the configured PIN. Returns True when the lock changed."""
+        configured = self.entry.data.get(CONF_LOCK_PIN)
+        if not locked:
+            if not check_pin(pin, configured):
+                return False
+        if locked and not configured:
+            return False
+        self._locked = locked
+        return True
 
     def reset_learning(self) -> None:
         """Forget the stored samples and the fit. The next cycles start learning again."""
@@ -576,6 +591,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
         climate_id = self.entry.data[CONF_CLIMATE]
+        if not lock_allows_control(self._locked):
+            result["action"] = "locked"
+            return
         rooms = self._rooms()
         if not rooms:
             return

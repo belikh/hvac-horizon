@@ -285,6 +285,27 @@ async def test_reset_learning_service_clears_samples(hass, enable_custom_integra
     assert entry.runtime_data._entries == []
 
 
+async def test_lock_needs_pin_and_blocks_control(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, lock_pin="1234", control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator.set_lock(True, None) is True
+    assert coordinator._locked is True
+    assert coordinator.set_lock(False, "0000") is False
+    assert coordinator.set_lock(False, "1234") is True
+    assert coordinator._locked is False
+
+
 async def test_backfill_runs_and_reports_count(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)

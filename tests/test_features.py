@@ -412,6 +412,22 @@ class NaturalVentilationTests(unittest.TestCase):
         self.assertEqual(natural_ventilation_window(outdoor_c=23.5, indoor_c=24.5), "hold")
 
 
+class LockTests(unittest.TestCase):
+    def test_lock_blocks_control(self):
+        from custom_components.hvac_horizon.features import lock_allows_control
+
+        self.assertFalse(lock_allows_control(True))
+        self.assertTrue(lock_allows_control(False))
+
+    def test_pin_check(self):
+        from custom_components.hvac_horizon.features import check_pin
+
+        self.assertTrue(check_pin("1234", "1234"))
+        self.assertFalse(check_pin("0000", "1234"))
+        self.assertFalse(check_pin(None, "1234"))
+        self.assertFalse(check_pin("", None))
+
+
 class MorePortedFeatureTests(unittest.TestCase):
     def test_keep_alive(self):
         from custom_components.hvac_horizon.features import keep_alive_due
