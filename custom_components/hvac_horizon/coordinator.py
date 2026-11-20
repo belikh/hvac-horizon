@@ -29,6 +29,7 @@ from custom_components.hvac_horizon.features import (
     band_action,
     comfort_band,
     compliance_score,
+    drying_needed,
     fan_speed_from_gap,
     mould_risk,
     surface_humidity,
@@ -405,6 +406,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rooms_fan = self._rooms()
         target_fan = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
+        room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
+        result["drying_needed"] = drying_needed(_float(self._optional(CONF_HUMIDITY)), cool_gap_c=room_gap)
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
