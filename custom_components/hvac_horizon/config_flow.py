@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_BOOST_C,
+    CONF_ECO_C,
     CONF_DEHUMIDIFIER,
     CONF_FAN,
     CONF_CO2,
@@ -73,6 +75,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_SCHEDULE): selector.EntitySelector(selector.EntitySelectorConfig(domain=["schedule", "sensor", "input_datetime"])),
             key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
             vol.Optional(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            vol.Optional(CONF_ECO_C, default=defaults.get(CONF_ECO_C, DEFAULT_COMFORT_C + 1.0)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            vol.Optional(CONF_BOOST_C, default=defaults.get(CONF_BOOST_C, DEFAULT_COMFORT_C - 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),
             vol.Optional(CONF_AWAY_C, default=defaults.get(CONF_AWAY_C, DEFAULT_AWAY_C)): selector.NumberSelector(

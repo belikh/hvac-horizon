@@ -10,6 +10,8 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.components import persistent_notification
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -138,6 +140,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._outdoor_history: list[float] = []
         self._last_good_price: float | None = None
         self._tuner: RelayTuner | None = None
+        self._stall_reported = False
+        self._last_written_setpoint: float | None = None
         self._autotune_result = None
         self._last_good_price_at: float | None = None
         self._total_min: float = 0.0
@@ -350,6 +354,33 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         service = "turn_on" if on else "turn_off"
         await self.hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
 
+    def _report_stalls(self, stalled: list[str]) -> None:
+        """Repair issue and notification when sensors stall. Cleared when they recover."""
+        issue_id = f"{self.entry.entry_id}_stalled"
+        if stalled and not self._stall_reported:
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="sensors_stalled", translation_placeholders={"sensors": ", ".join(stalled)},
+            )
+            persistent_notification.async_create(
+                self.hass, f"HVAC Horizon: sensors not updating: {', '.join(stalled)}", title="HVAC Horizon", notification_id=issue_id
+            )
+            self._stall_reported = True
+        elif not stalled and self._stall_reported:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            persistent_notification.async_dismiss(self.hass, issue_id)
+            self._stall_reported = False
+
+    def _external_change(self) -> bool:
+        """True when the climate setpoint differs from the last one this integration wrote (someone changed it by hand)."""
+        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        if climate is None or climate.attributes.get("temperature") is None:
+            return False
+        current = float(climate.attributes["temperature"])
+        if self._last_written_setpoint is None:
+            return False
+        return abs(current - self._last_written_setpoint) > 0.05
+
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not updated recently. Published so the user can see them."""
         names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
@@ -434,6 +465,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._autotune_step(statistics.median(rooms_tune), now)
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         result["sensors_stalled"] = self._stalled_sensors(now)
+        self._report_stalls(result["sensors_stalled"])
+        result["external_change"] = self._external_change()
         result["day_type"] = self._day_type()
         result["night_plan"] = self._night_plan()
         result["learning_suggestion"] = self._learning_suggestion()
@@ -557,6 +590,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
             )
+            self._last_written_setpoint = float(action.setpoint_c)
 
     def _precool_start(self, now: float, rooms: list[float]) -> float | None:
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""

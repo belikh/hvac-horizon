@@ -20,7 +20,9 @@
           "control": "Let HVAC Horizon control the AC (off = observe only)",
           "co2": "CO2 sensor (optional)",
           "pm25": "PM2.5 sensor (optional)",
-          "schedule": "Schedule entity (optional)"
+          "schedule": "Schedule entity (optional)",
+          "eco_c": "Eco setpoint (°C)",
+          "boost_c": "Boost setpoint (°C)"
         }
       },
       "reconfigure": {
@@ -42,13 +44,21 @@
           "control": "Let HVAC Horizon control the AC (off = observe only)",
           "co2": "CO2 sensor (optional)",
           "pm25": "PM2.5 sensor (optional)",
-          "schedule": "Schedule entity (optional)"
+          "schedule": "Schedule entity (optional)",
+          "eco_c": "Eco setpoint (°C)",
+          "boost_c": "Boost setpoint (°C)"
         }
       }
     },
     "abort": {
       "already_configured": "This AC is already set up.",
       "reconfigure_successful": "Settings updated. Stored samples are kept."
+    }
+  },
+  "issues": {
+    "sensors_stalled": {
+      "title": "HVAC Horizon sensors not updating",
+      "description": "These sensors have not updated recently: {sensors}. Control uses the last good readings until they recover."
     }
   }
 }

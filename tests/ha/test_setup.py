@@ -295,3 +295,18 @@ async def test_export_samples_service_returns_readings(hass, enable_custom_integ
     await hass.async_block_till_done()
     result = await hass.services.async_call(DOMAIN, "export_samples", {"entry_id": entry.entry_id}, blocking=True, return_response=True)
     assert len(result["samples"]) >= 1
+
+
+async def test_stalled_sensor_raises_repair_issue(hass, enable_custom_integrations, config_data):
+    from homeassistant.helpers import issue_registry as ir
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._report_stalls([ROOM_A])
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_stalled") is not None
+    coordinator._report_stalls([])
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_stalled") is None
