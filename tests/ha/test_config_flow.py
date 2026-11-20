@@ -115,3 +115,37 @@ def test_every_form_field_has_a_label_in_both_steps():
         labels = translations["config"]["step"][step]["data"]
         missing = sorted(fields - set(labels))
         assert not missing, f"{step} has no label for {missing}"
+
+
+def _serialise_field(validator):
+    """The form field for one schema value. Only selectors have a serialised form; any other validator raises."""
+    from homeassistant.helpers import config_validation as cv
+
+    if not isinstance(validator, selector.Selector):
+        raise AssertionError(f"{type(validator).__name__} is not a selector, so the form cannot render it")
+    out = cv.custom_serializer(validator)
+    assert isinstance(out, dict) and "selector" in out, f"{validator!r} serialised to {out!r}"
+    return out
+
+
+# voluptuous_serialize.convert returns UNSUPPORTED for every schema under the probatio shim that
+# Home Assistant installs in this venv, even for a plain str field. So this test serialises each
+# selector with cv.custom_serializer instead of converting the whole schema.
+@pytest.mark.parametrize(
+    "stored",
+    [{}, {"comfort_c": 22.0, "control": True, "heater_inverted": True, CONF_SCHEDULE_BLOCKS: VALID_BLOCKS}],
+    ids=["user", "reconfigure"],
+)
+def test_every_form_field_serialises_for_the_form(stored):
+    schema = config_flow._schema(stored)
+    for marker, validator in schema.schema.items():
+        try:
+            _serialise_field(validator)
+        except AssertionError as error:
+            raise AssertionError(f"field {marker} cannot be serialised: {error}") from None
+
+
+def test_serialiser_check_rejects_a_plain_validator():
+    # Negative control: the check above must fail on a field the form cannot render.
+    with pytest.raises(AssertionError, match="not a selector"):
+        _serialise_field(str)
