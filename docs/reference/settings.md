@@ -8,6 +8,8 @@ The setup and reconfigure forms store these keys in the config entry. A key mark
 
 Only `climate`, `power`, `room_sensors` and `outdoor` are required. Every other key is optional.
 
+A heater gain from a relay test replaces the unset or default value of `heater_kp`, `heater_ki` or `heater_kd`. A gain you set yourself takes precedence over the tuned value.
+
 | Key | Required | Default | Label |
 | :--- | :--- | :--- | :--- |
 | `climate` | required | unset | AC climate entity |
