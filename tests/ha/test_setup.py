@@ -1977,6 +1977,46 @@ async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrat
     assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 23.0))
 
 
+async def _setup_valve(hass, config_data, room: str, trv: str | None):
+    """A control-on entry with a valve. The TRV sensor is set only when trv is given."""
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    hass.states.async_set("number.test_valve", "0")
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    data = dict(config_data, control=True, valve="number.test_valve")
+    if trv is not None:
+        hass.states.async_set("sensor.test_trv", trv, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        data["trv_temperature"] = "sensor.test_trv"
+    hass.services.async_register("number", "set_value", lambda call: None)
+    data.pop(CONF_PRICE)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_trv_offset_of_one_kelvin_moves_the_valve_by_100_points(hass, enable_custom_integrations, config_data):
+    # Room 23 C, comfort 24 C. Without a TRV the valve is fully open. A TRV at 24 C gives offset +1 K,
+    # so the target drops to 23 C and the room is at target: the valve closes. That is a 100 point move.
+    without_trv = await _setup_valve(hass, config_data, room="23.0", trv=None)
+    assert without_trv.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
+    with_trv = await _setup_valve(hass, dict(config_data, comfort_c=24.0), room="23.0", trv="24.0")
+    assert with_trv.runtime_data.data["trv_offset_k"] == pytest.approx(1.0, abs=0.01)
+    assert with_trv.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
+
+
+async def test_trv_offset_keeps_the_valve_between_0_and_100(hass, enable_custom_integrations, config_data):
+    # Room 18 C with a TRV at 19 C: the target moves to 23 C, the error is 5 K, and the opening clamps to 100.
+    low = await _setup_valve(hass, config_data, room="18.0", trv="19.0")
+    assert low.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
+    # Room 23 C with a TRV at 27 C: offset +4 K, the target drops to 20 C, and the opening clamps to 0.
+    # Offsets above 5 K are dropped as outliers by trv_offset, so 7 K would give 100 here.
+    high = await _setup_valve(hass, config_data, room="23.0", trv="27.0")
+    assert high.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
+
+
 async def test_radiator_residual_heat_closes_the_heater_gate_early(hass, enable_custom_integrations, config_data, freezer):
     # Room 23 C is below the heat threshold of 23.5 C. The heater stopped now, so the radiators still add 1 K.
     # The gate reads the room at 24 C and forces the output to zero. Without radiators the heater stays on.

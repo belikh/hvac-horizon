@@ -616,7 +616,11 @@ def pwm_on(output_pct: float, window_min: float, elapsed_min: float) -> bool:
     return position < output_pct / 100.0
 
 
-def valve_opening_pct(room_c: float, target_c: float, band_c: float = 1.0) -> float:
+# Width of the proportional valve band, kelvin. The TRV offset scale follows from it: 1 K of offset moves the opening by 100 / VALVE_BAND_C points.
+VALVE_BAND_C = 1.0
+
+
+def valve_opening_pct(room_c: float, target_c: float, band_c: float = VALVE_BAND_C) -> float:
     """Valve opening in percent from how far the room is below the target.
 
     Fully open at or below target minus `band_c`, closed at or above target, proportional between.
