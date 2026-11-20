@@ -739,9 +739,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Home or away from the optional presence sources. Tracks the last time any source was home."""
         states = [self.hass.states.get(entity) for entity in presence_sources(self.entry.data.get(CONF_PRESENCE))]
         home = [s.state in ("on", "home") for s in states if s is not None]
-        if any(home):
+        if any(home) or self._last_home_at is None:
+            # The away clock starts at the first cycle when no source has been home yet, so an away house goes away.
             self._last_home_at = now
-        since = 0.0 if self._last_home_at is None else (now - self._last_home_at) / 60.0
+        since = (now - self._last_home_at) / 60.0
         return presence_mode(home, float(self.entry.data.get(CONF_AWAY_DELAY_MIN, DEFAULT_AWAY_DELAY_MIN)), since)
 
     def _learning_suggestion(self) -> str | None:

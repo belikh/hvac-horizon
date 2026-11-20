@@ -1986,7 +1986,8 @@ async def test_presence_from_two_sources_uses_any_home_and_the_away_delay(hass, 
     assert coordinator.data["occupancy"] == "home"
 
 
-async def test_single_presence_string_still_works(hass, enable_custom_integrations, config_data):
+async def test_single_presence_string_still_works(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
     _register_climate_fakes(hass)
     hass.states.async_set("binary_sensor.test_presence", "off")
@@ -1996,6 +1997,9 @@ async def test_single_presence_string_still_works(hass, enable_custom_integratio
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data._someone_home is True  # inside the away delay after setup
+    freezer.tick(timedelta(minutes=31))
+    await refresh(hass, entry)
+    assert entry.runtime_data._someone_home is False  # no source was ever home, so the delay runs out
 
 
 async def test_investigator_answers_why_the_ac_runs(hass, enable_custom_integrations, config_data):
