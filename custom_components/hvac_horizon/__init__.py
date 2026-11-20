@@ -20,6 +20,7 @@ SERVICE_RESET = "reset_learning"
 SERVICE_EXPORT = "export_samples"
 SERVICE_AUTOTUNE = "start_autotune"
 SERVICE_WHAT_IF = "what_if"
+SERVICE_EXPORT_CSV = "export_csv"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -43,6 +44,11 @@ def _register_services(hass: HomeAssistant) -> None:
             float(call.data["room_c"]), float(call.data["target_c"]), float(call.data["outdoor_c"]), float(call.data["power_kw"])
         )
 
+    async def export_csv(call):
+        from .collector import entries_to_csv
+
+        return {"csv": entries_to_csv(_coordinator(call)._entries)}
+
     async def autotune(call):
         _coordinator(call).start_autotune(float(call.data["setpoint"]))
 
@@ -52,6 +58,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_EXPORT, export, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

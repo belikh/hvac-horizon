@@ -285,6 +285,18 @@ async def test_reset_learning_service_clears_samples(hass, enable_custom_integra
     assert entry.runtime_data._entries == []
 
 
+async def test_export_csv_service_returns_csv_header(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    result = await hass.services.async_call(DOMAIN, "export_csv", {"entry_id": entry.entry_id}, blocking=True, return_response=True)
+    assert result["csv"].splitlines()[0] == "time,room_c,outdoor_c,power_w"
+
+
 async def test_export_samples_service_returns_readings(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)

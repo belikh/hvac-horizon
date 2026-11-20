@@ -1,3 +1,13 @@
+export_csv:
+  name: Export CSV
+  description: Return the stored readings as CSV text, in the layout the backfill tool reads.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon
 reset_learning:
   name: Reset learning
   description: Forget the stored samples and the fitted model for an HVAC Horizon entry.
