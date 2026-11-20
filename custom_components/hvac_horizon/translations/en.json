@@ -124,6 +124,10 @@
       "title": "HVAC Horizon sensors not updating",
       "description": "These sensors have not updated recently: {sensors}. Control uses the last good readings until they recover."
     },
+    "heating_failure": {
+      "title": "HVAC Horizon heater is not warming the room",
+      "description": "The heater has been on for 60 minutes and the room has risen less than 0.5 °C. Check the heater and its switch."
+    },
     "mode_mismatch": {
       "title": "HVAC Horizon mode does not match",
       "description": "The AC is in a different mode than HVAC Horizon last set. Check whether it was changed on the unit or another automation."

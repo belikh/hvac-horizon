@@ -146,11 +146,20 @@ class ScheduleTests(unittest.TestCase):
 
 class SafetyAndBriefingTests(unittest.TestCase):
     def test_heating_failure_after_window_without_rise(self):
-        from custom_components.hvac_horizon.features import heating_failure
+        from custom_components.hvac_horizon.features import heating_failed
 
-        self.assertTrue(heating_failure(35.0, 0.05))
-        self.assertFalse(heating_failure(35.0, 0.5))
-        self.assertFalse(heating_failure(10.0, 0.0))
+        self.assertTrue(heating_failed(60.0, 0.49))
+        self.assertTrue(heating_failed(90.0, 0.0))
+        self.assertFalse(heating_failed(60.0, 0.5))
+        self.assertFalse(heating_failed(59.9, 0.0))
+
+    def test_heat_target_is_comfort_plus_and_minus_deadband(self):
+        from custom_components.hvac_horizon.features import heat_target
+
+        self.assertEqual(heat_target(24.0, 0.5), (23.5, 24.5))
+        self.assertEqual(heat_target(21.0, 0.0), (21.0, 21.0))
+        with self.assertRaises(ValueError):
+            heat_target(24.0, -0.1)
 
     def test_sensor_stall(self):
         from custom_components.hvac_horizon.features import sensor_stalled

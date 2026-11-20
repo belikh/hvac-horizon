@@ -168,12 +168,23 @@ def scheduled_preset(now_h: float, blocks: list[ScheduleBlock], default: str = "
     return default
 
 
-def heating_failure(heater_on_min: float, temp_rise_c: float, window_min: float = 30.0, min_rise_c: float = 0.2) -> bool:
-    """True when the heater has run for `window_min` or longer and the room has risen less than `min_rise_c`.
+def heating_failed(minutes_on: float, rise_c: float, window_min: float = 60.0, min_rise_c: float = 0.5) -> bool:
+    """True when the heater has been commanded on for `window_min` or longer and the room has risen less than `min_rise_c`.
 
     Ported from the heating failure detection in Versatile Thermostat. Only meaningful while the heater is commanded on.
     """
-    return heater_on_min >= window_min and temp_rise_c < min_rise_c
+    return minutes_on >= window_min and rise_c < min_rise_c
+
+
+def heat_target(comfort_c: float, deadband_c: float) -> tuple[float, float]:
+    """Return (heat_on_below, cool_on_above) for a comfort temperature and a deadband.
+
+    The heater heats when the room is below the first value and the AC cools when it is above the second.
+    Both are off between them.
+    """
+    if deadband_c < 0:
+        raise ValueError("deadband_c must not be negative")
+    return comfort_c - deadband_c, comfort_c + deadband_c
 
 
 def switch_feedback(commanded_on: bool | None, actual_state: str | None) -> str:

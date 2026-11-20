@@ -174,7 +174,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor", device_class="irradiance")
             ),
             vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
-            vol.Optional(CONF_HEATER_INVERTED, default=False): selector.BooleanSelector(),
+            vol.Optional(CONF_HEATER_INVERTED, default=defaults.get(CONF_HEATER_INVERTED, False)): selector.BooleanSelector(),
             vol.Optional(CONF_OUTPUT_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),

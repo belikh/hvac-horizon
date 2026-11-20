@@ -14,7 +14,7 @@ from homeassistant.core import SupportsResponse
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
-from custom_components.hvac_horizon.features import room_devices
+from custom_components.hvac_horizon.features import pwm_on, room_devices
 from custom_components.hvac_horizon.const import (
     CONF_HEATER_SWITCH,
     CONF_CLIMATE,
@@ -868,6 +868,8 @@ async def test_heater_pid_leaves_output_alone_with_control_off(hass, enable_cust
 
 async def test_heater_pid_publishes_output_with_control_on(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
+    # Outdoor 10 C: at 30 C heating_allowed is false and the gate keeps the PID idle.
+    hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set("switch.test_heater", "off")
     hass.services.async_register("switch", "turn_on", lambda call: None)
     hass.services.async_register("switch", "turn_off", lambda call: None)
@@ -964,3 +966,182 @@ async def test_flat_keys_set_up_as_one_room(hass, enable_custom_integrations, co
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert room_devices(entry.data)["heating"] == ["switch.test_heater"]
+
+
+HEATER = "switch.test_heater"
+WINDOW = "binary_sensor.test_window"
+
+
+async def setup_heater(hass, config_data, *, heater_state="off", outdoor="10.0", room="20.0", extra=None, climate="off"):
+    """Set up a control-on entry with a heater switch and a cold room. The switch and climate services are fakes that record calls."""
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, climate, {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    hass.states.async_set(ROOM_A, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(HEATER, heater_state)
+    calls = []
+
+    async def record_on(call):
+        calls.append("turn_on")
+
+    async def record_off(call):
+        calls.append("turn_off")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = {**config_data, CONF_HEATER_SWITCH: HEATER, "control": True, **(extra or {})}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, calls
+
+
+async def refresh(hass, entry):
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+
+
+async def test_heater_turns_on_when_room_is_below_threshold(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert "turn_on" in calls
+    assert "turn_off" not in calls
+    assert entry.runtime_data.data["heater_pwm_on"] is True
+
+
+async def test_heater_turns_off_with_window_open(hass, enable_custom_integrations, config_data):
+    hass.states.async_set(WINDOW, "on")
+    entry, calls = await setup_heater(hass, config_data, heater_state="on", extra={"window": WINDOW})
+    await refresh(hass, entry)
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+    assert entry.runtime_data._pwm_output_pct == 0.0
+
+
+async def test_heater_stays_off_inside_the_deadband(hass, enable_custom_integrations, config_data):
+    # Comfort 24.0 C, deadband 0.5 C: 23.7 C is above the 23.5 C heat threshold.
+    entry, calls = await setup_heater(hass, config_data, heater_state="on", room="23.7")
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert "turn_off" in calls
+
+
+async def test_heater_and_ac_are_never_on_together(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data, climate="cool")
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert entry.runtime_data.data["heater_pwm_on"] is False
+
+
+async def test_heater_turns_off_when_heating_not_allowed(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data, heater_state="on", outdoor="30.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heating_allowed"] is False
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+
+
+async def test_heater_turns_off_when_house_is_away(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
+    await hass.async_block_till_done()
+    calls.clear()
+    hass.states.async_set(HEATER, "on")
+    await refresh(hass, entry)
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+
+
+async def test_heater_turns_off_when_locked(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data, extra={"lock_pin": "1234"})
+    assert entry.runtime_data.set_lock(True, None) is True
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+
+
+async def test_heater_turns_off_when_a_sensor_is_stalled(hass, enable_custom_integrations, config_data, monkeypatch):
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    entry, calls = await setup_heater(hass, config_data, heater_state="on")
+    await refresh(hass, entry)
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+    assert entry.runtime_data.data["safety_output_pct"] == 0.0
+
+
+async def test_heater_switches_off_on_unload(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == ["turn_off"]
+
+
+async def test_inverted_heater_is_commanded_with_inverted_polarity(hass, enable_custom_integrations, config_data):
+    # With heater_inverted, "on" wiring means the heater is off, so a heating demand sends turn_off.
+    entry, calls = await setup_heater(hass, config_data, heater_state="on", extra={"heater_inverted": True})
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert entry.runtime_data._heater_commanded_on is False
+
+
+async def test_heater_feedback_is_set_after_one_driven_tick(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heater_feedback"] != "not_configured"
+    assert entry.runtime_data._heater_commanded_on is True
+
+
+async def test_pwm_window_gives_zero_fifty_or_hundred_percent(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    start = 6000.0 * 60
+    seen = {}
+    for pct in (0.0, 50.0, 100.0):
+        coordinator._pwm_window_start_min = start / 60.0
+        pattern = [pwm_on(pct, 10.0, coordinator._pwm_elapsed_min(start + 300.0 * tick)) for tick in range(4)]
+        seen[pct] = pattern
+    assert seen[0.0] == [False, False, False, False]
+    assert seen[50.0] == [True, False, True, False]
+    assert seen[100.0] == [True, True, True, True]
+    assert coordinator._pwm_window_start_min == (start + 600.0) / 60.0
+
+
+async def test_heating_failure_publishes_and_raises_repair(hass, enable_custom_integrations, config_data):
+    from homeassistant.helpers import issue_registry as ir
+
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    assert coordinator.data["heating_failure"] is False
+    coordinator._heater_on_min = 60.0
+    await refresh(hass, entry)
+    assert coordinator.data["heating_failure"] is True
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_heating_failure") is not None
+    hass.states.async_set(ROOM_A, "21.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "21.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert coordinator.data["heating_failure"] is False
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_heating_failure") is None
+
+
+def test_reconfigure_schema_keeps_heater_inverted():
+    from custom_components.hvac_horizon.config_flow import _schema
+
+    for stored in (True, False):
+        schema = _schema({"heater_inverted": stored})
+        key = next(k for k in schema.schema if k == "heater_inverted")
+        assert key.default() is stored

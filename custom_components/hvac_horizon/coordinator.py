@@ -43,7 +43,8 @@ from custom_components.hvac_horizon.features import (
     natural_ventilation_window,
     daily_briefing,
     check_pin,
-    heating_failure,
+    heating_failed,
+    heat_target,
     pwm_on,
     apply_polarity,
     clamp_output,
@@ -91,6 +92,7 @@ from .const import (
     DEFAULT_HEATER_KP,
     DEFAULT_HEATER_KI,
     DEFAULT_HEATER_KD,
+    DEFAULT_HEATER_DEADBAND_C,
     PWM_WINDOW_MIN,
     CONF_AWAY_C,
     CONF_MOTION,
@@ -200,7 +202,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
-        self._heater_on_since: float | None = None
+        self._heater_on_min: float = 0.0
+        self._heater_check_t: float | None = None
+        self._heater_gated = False
+        self._ac_cooling_tick = False
+        self._heating_fail_reported = False
+        self._pwm_window_start_min: float | None = None
         self._baseline_k: float | None = None
         self._last_home_at: float | None = None
         self._last_cycle_t: float | None = None
@@ -423,25 +430,98 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)
 
-    def _heating_check(self, now: float) -> bool:
-        """True when the heater has run for its window without the room rising. Uses the heater switch when set."""
-        switch_id = (room_devices(self.entry.data)["heating"] or [None])[0]
-        if not switch_id:
-            return False
-        state = self.hass.states.get(switch_id)
-        rooms = self._rooms()
-        if state is None or not rooms:
-            return False
-        if state.state != "on":
-            self._heater_on_since = None
+    def _heating_check(self, now: float, demand: bool, heater_on: bool, room_c: float | None) -> bool:
+        """True when the heater has been on for the failure window without the room rising.
+
+        `demand` is true while the heater output is above 0. On-minutes accumulate only while the switch is
+        commanded on, and reset with the start temperature when demand ends.
+        """
+        elapsed_min = 0.0 if self._heater_check_t is None else min(now - self._heater_check_t, 2 * SAMPLE_INTERVAL_S) / 60.0
+        self._heater_check_t = now
+        if not demand or room_c is None:
+            self._heater_on_min = 0.0
             self._heater_start_temp = None
             return False
-        if self._heater_on_since is None:
-            self._heater_on_since = now
-            self._heater_start_temp = statistics.median(rooms)
-        on_min = (now - self._heater_on_since) / 60.0
-        rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
-        return heating_failure(on_min, rise)
+        if self._heater_start_temp is None:
+            self._heater_start_temp = room_c
+        if heater_on:
+            self._heater_on_min += elapsed_min
+        return heating_failed(self._heater_on_min, room_c - self._heater_start_temp)
+
+    def _report_heating_failure(self, failed: bool) -> None:
+        """Repair issue while the heater is on without warming the room. Cleared when it recovers."""
+        issue_id = f"{self.entry.entry_id}_heating_failure"
+        if failed and not self._heating_fail_reported:
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="heating_failure",
+            )
+            self._heating_fail_reported = True
+        elif not failed and self._heating_fail_reported:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            self._heating_fail_reported = False
+
+    def _heater_gate_closed(self, result: dict[str, Any]) -> bool:
+        """True when a gate forces the heater off: window open, house away, heating not allowed, lock on or a stalled sensor."""
+        window = self._optional(CONF_WINDOW)
+        return (
+            (window is not None and window.state == "on")
+            or self.hass.data.get(DOMAIN, {}).get("house_mode", "home") == "away"
+            or not result.get("heating_allowed", True)
+            or not lock_allows_control(self._locked)
+            or bool(result["sensors_stalled"])
+        )
+
+    def _pwm_elapsed_min(self, now: float) -> float:
+        """Minutes into the current PWM window, on the coordinator tick grid.
+
+        The coordinator ticks every SAMPLE_INTERVAL_S (300 s) and the window is PWM_WINDOW_MIN (10 min),
+        so each window has two ticks and duty can only be 0, 50 or 100 %. A duty between those rounds
+        to the nearest step of the pattern: on for the first tick only, or on for both.
+        """
+        tick_min = SAMPLE_INTERVAL_S / 60.0
+        now_min = now / 60.0
+        if self._pwm_window_start_min is None:
+            self._pwm_window_start_min = now_min
+        ticks = round((now_min - self._pwm_window_start_min) / tick_min)
+        if ticks < 0 or ticks * tick_min >= PWM_WINDOW_MIN:
+            self._pwm_window_start_min = now_min
+            ticks = 0
+        return ticks * tick_min
+
+    async def _async_heater_step(self, now: float, result: dict[str, Any]) -> None:
+        """Publish the PWM state and, with control on and a heater switch set, drive the switch.
+
+        Gates, an AC that is cooling and a room at or above the heat threshold force the output to 0.
+        """
+        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
+        driving = bool(self.entry.data.get(CONF_CONTROL)) and bool(switch)
+        rooms = self._rooms()
+        room_c = statistics.median(rooms) if rooms else None
+        if driving:
+            heat_below, _ = heat_target(
+                float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)), DEFAULT_HEATER_DEADBAND_C
+            )
+            if self._heater_gated or self._ac_cooling_tick or room_c is None or room_c >= heat_below:
+                self._pwm_output_pct = 0.0
+        heater_on = pwm_on(self._pwm_output_pct, PWM_WINDOW_MIN, self._pwm_elapsed_min(now))
+        result["heater_pwm_on"] = heater_on
+        failed = self._heating_check(now, driving and self._pwm_output_pct > 0, heater_on, room_c)
+        result["heating_failure"] = failed
+        self._report_heating_failure(failed)
+        if driving:
+            command_on = apply_polarity(heater_on, bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
+            self._heater_commanded_on = command_on
+            await self._drive_switch(switch, command_on)
+
+    async def async_heater_off(self) -> None:
+        """Turn the heater switch off. Called on unload; does nothing unless control is on and a heater switch is set."""
+        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
+        if not self.entry.data.get(CONF_CONTROL) or not switch:
+            return
+        command_on = apply_polarity(False, bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
+        self._heater_commanded_on = command_on
+        await self._drive_switch(switch, command_on)
 
     async def _refresh_weather(self) -> None:
         weather_id = self.entry.data.get(CONF_WEATHER)
@@ -797,19 +877,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         age_min = 0.0 if self._last_good_price_at is None else (now - self._last_good_price_at) / 60.0
         result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
         result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
-        result["heating_failure"] = self._heating_check(now)
-        # Publishes the PWM pattern only. This path does not drive the heater switch;
-        # only the autotune path does.
-        heater_on = pwm_on(self._pwm_output_pct, PWM_WINDOW_MIN, now / 60.0)
-        result["heater_pwm_on"] = heater_on
         pid_rooms = self._rooms()
         pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        if (
-            self.entry.data.get(CONF_CONTROL)
-            and (room_devices(self.entry.data)["heating"] or [None])[0]
+        heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool((room_devices(self.entry.data)["heating"] or [None])[0])
+        self._heater_gated = heater_configured and self._heater_gate_closed(result)
+        if self._heater_gated:
+            self._pwm_output_pct = 0.0
+            if self._heater_pid is not None:
+                self._heater_pid.reset()
+        elif (
+            heater_configured
             and pid_rooms
             and pid_outdoor is not None
-            and lock_allows_control(self._locked)
             and not inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
         ):
             if self._heater_pid is None:
@@ -821,7 +900,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     out_min=0.0,
                     out_max=100.0,
                 )
-            pid_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            pid_target, _ = heat_target(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)), DEFAULT_HEATER_DEADBAND_C)
             pid_out = self._heater_pid.update(
                 pid_target, statistics.median(pid_rooms), SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor
             )
@@ -857,6 +936,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             to_shed = shed_plan(total_w, float(max_w), loads)
             result["shed"] = to_shed
             await self._drive_shed(to_shed)
+        self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
+        self._ac_cooling_tick = False
+        if self.entry.data.get(CONF_CONTROL):
+            await self._async_control(now, result)
+        await self._async_heater_step(now, result)
         heater_switch = (room_devices(self.entry.data)["heating"] or [None])[0]
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
@@ -864,9 +948,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heater_state.state if heater_state is not None else None,
         )
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
-        self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
-        if self.entry.data.get(CONF_CONTROL):
-            await self._async_control(now, result)
         if valve_opening is not None:
             await self._drive_valve(valve_opening)
         return result
@@ -927,6 +1008,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
         climate_id = self.entry.data[CONF_CLIMATE]
+        first_ac = self.hass.states.get(climate_id)
+        self._ac_cooling_tick = first_ac is not None and first_ac.state == "cool"
         if not lock_allows_control(self._locked):
             result["action"] = "locked"
             return
@@ -1008,6 +1091,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
         )
         action = decide(state, settings)
+        self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
         result["daily_briefing"] = daily_briefing(
