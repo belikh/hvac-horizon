@@ -790,12 +790,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     def _stalled_sensors(self, now: float) -> list[str]:
-        """Room and outdoor sensors that have not updated recently. Published so the user can see them."""
+        """Room and outdoor sensors that have not reported recently. Published so the user can see them.
+
+        Reads last_reported. Home Assistant keeps last_updated when a sensor repeats its value,
+        so a steady reading would look stalled.
+        """
         names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
         stalled = []
         for name in names:
             state = self.hass.states.get(name)
-            last = state.last_updated.timestamp() if state is not None else None
+            last = state.last_reported.timestamp() if state is not None else None
             if sensor_stalled(last, now):
                 stalled.append(name)
         return stalled

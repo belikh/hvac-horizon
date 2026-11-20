@@ -317,6 +317,25 @@ async def test_stalled_sensors_are_reported(hass, enable_custom_integrations, co
     assert set(stalled) >= {ROOM_A, ROOM_B, OUTDOOR}
 
 
+async def test_repeated_sensor_value_is_not_a_stall(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    freezer.tick(timedelta(minutes=20))
+    # Same value and attributes: Home Assistant updates last_reported only.
+    set_room(hass, "20.0")
+    hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    room = hass.states.get(ROOM_A)
+    assert room.last_updated < room.last_reported
+    assert entry.runtime_data._stalled_sensors(dt_util.utcnow().timestamp()) == []
+
+
+async def test_sensor_without_a_report_for_15_minutes_is_a_stall(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    freezer.tick(timedelta(minutes=15))
+    assert set(entry.runtime_data._stalled_sensors(dt_util.utcnow().timestamp())) == {ROOM_A, ROOM_B, OUTDOOR}
+
+
 async def test_motion_sensor_publishes_home_preset(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     hass.states.async_set("binary_sensor.test_motion", "on")
@@ -1619,5 +1638,6 @@ async def test_heater_pid_integral_is_frozen_while_the_band_forces_output_to_zer
         hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature", "tick": tick})
         freezer.tick(timedelta(minutes=5))
         await refresh(hass, entry)
-    assert coordinator._pwm_output_pct == 0.0
+    # The band overrides the PID request in the drive step, so the switch output (_pwm_pct_now) is 0.
+    assert coordinator._pwm_pct_now == 0.0
     assert coordinator._heater_pid._integral == pytest.approx(before)
