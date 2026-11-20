@@ -203,6 +203,7 @@ from .const import (
     FIT_EVERY_N_SAMPLES,
     INHIBIT_MIN,
     KEEP_ALIVE_MIN,
+    KEEP_DAYS,
     MAX_ENTRIES,
     SAMPLE_INTERVAL_S,
     STORE_VERSION,
@@ -236,6 +237,10 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
 
 MPC_STEP_MIN = 15.0
 MPC_STEPS = 16  # 4 hours
+# The heat plan's energy cost is multiplied by this. At 1.0, one 15 min step at $0.18/kWh costs about 0.05 units, and
+# one K of discomfort costs 1 unit per step, so price rarely changes step 0. At 50, a $0.28/kWh step costs about 3.9 units.
+# Picked by a sweep of 1 to 119 on one room at 23.4 C. It is not calibrated against metered data.
+MPC_HEAT_COST_WEIGHT = 50.0
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 
@@ -1162,8 +1167,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                 ]
                 if self.entry.data.get(CONF_MPC_HEAT_PLAN, False):
-                    # The heat side reuses the cooling coefficient c with the AC's running power. No power, no heat plan.
-                    heat_kw = running_power_kw(self._entries, now)
+                    # The heat side reuses the cooling coefficient c with the AC's running power. With no running reading
+                    # in the last two hours, the mean running power of the kept history stands in for it.
+                    heat_kw = running_power_kw(self._entries, now) or running_power_kw(self._entries, now, window_s=KEEP_DAYS * 86400.0)
                     if heat_kw:
                         result["mpc_heat_steps"] = [
                             bool(a)
@@ -1177,6 +1183,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 heat_kw,
                                 step_prices,
                                 step_min=MPC_STEP_MIN,
+                                cost_weight=MPC_HEAT_COST_WEIGHT,
                             )
                         ]
         pid_rooms = self._rooms()

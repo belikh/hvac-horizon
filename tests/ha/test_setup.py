@@ -3596,9 +3596,23 @@ async def test_mpc_idle_step_does_not_idle_a_night_pre_cool(hass, enable_custom_
     assert entry.runtime_data.data["action"] == "cool: night pre-cool"
 
 
-async def _heat_plan_run(hass, config_data, monkeypatch, freezer, *, room="19.0", outdoor="10.0", extra=None, heater=False):
-    """Control on, the real MPC plans (only the fit is set), a cheap price now and a dear one 30 minutes on.
+async def _heat_plan_run(
+    hass,
+    config_data,
+    monkeypatch,
+    freezer,
+    *,
+    room="19.0",
+    outdoor="10.0",
+    extra=None,
+    heater=False,
+    price_now="0.10",
+    forecast=(("2026-11-20T08:10:00+00:00", 0.10), ("2026-11-20T08:40:00+00:00", 0.30)),
+    ac_power="1100",
+):
+    """Control on, the real MPC plans (only the fit is set), a cheap price now and a dear one 30 minutes on by default.
 
+    `price_now` and `forecast` (time, $/kWh pairs) set the price. `ac_power` sets the AC power reading in W.
     Returns the entry and the AC mode writes. The heater switch is set only with heater=True.
     """
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
@@ -3609,15 +3623,13 @@ async def _heat_plan_run(hass, config_data, monkeypatch, freezer, *, room="19.0"
     set_inputs(hass)
     hass.states.async_set(
         PRICE,
-        "0.10",
+        price_now,
         {
             "unit_of_measurement": "$/kWh",
-            "forecast": [
-                {"time": "2026-11-20T08:10:00+00:00", "value": 0.10},
-                {"time": "2026-11-20T08:40:00+00:00", "value": 0.30},
-            ],
+            "forecast": [{"time": time, "value": value} for time, value in forecast],
         },
     )
+    hass.states.async_set(POWER, ac_power, {"unit_of_measurement": "W", "device_class": "power"})
     _set_ac_rooms(hass, room)
     hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
@@ -3641,7 +3653,7 @@ async def _heat_plan_run(hass, config_data, monkeypatch, freezer, *, room="19.0"
     hass.services.async_register("switch", "turn_on", ignore_switch)
     hass.services.async_register("switch", "turn_off", ignore_switch)
     # The price band is 0 to 0.20. The 0.10 slot sits in its middle, so the price shift leaves the 24 C target alone.
-    data = dict(config_data, control=True, comfort_c=24.0, price_cheap=0.0, price_expensive=0.20, **(extra or {}))
+    data = dict(config_data, control=True, comfort_c=24.0, price_cheap=0.0, **{"price_expensive": 0.20, **(extra or {})})
     if heater:
         data[CONF_HEATER_SWITCH] = HEATER
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
@@ -3675,6 +3687,57 @@ async def test_heat_plan_does_not_send_ac_heat_when_a_heater_switch_is_set(hass,
     entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer, extra={"mpc_heat_plan": True}, heater=True)
     assert entry.runtime_data.data["mpc_heat_steps"][0] is True
     assert "heat" not in modes
+
+
+# Room 23.4 C is just under the 23.5 C heat threshold. A price shifts the target, so each run sets its price band so the
+# shift is 0 K. The dear run sits at the middle of a 0 to 0.56 band. The flat run uses the default 0 to 0.20 band.
+
+
+async def test_heat_plan_waits_when_power_is_dear_now_and_cheap_later(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(
+        hass,
+        config_data,
+        monkeypatch,
+        freezer,
+        room="23.4",
+        price_now="0.28",
+        forecast=(("2026-11-20T08:10:00+00:00", 0.28), ("2026-11-20T08:40:00+00:00", 0.05)),
+        extra={"mpc_heat_plan": True, "price_expensive": 0.56},
+    )
+    assert entry.runtime_data.data["heat_on_below_c"] == 23.5
+    assert entry.runtime_data.data["mpc_heat_steps"][0] is False
+    assert "heat" not in modes
+
+
+async def test_heat_plan_heats_at_a_flat_price_just_under_the_threshold(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(
+        hass,
+        config_data,
+        monkeypatch,
+        freezer,
+        room="23.4",
+        price_now="0.10",
+        forecast=(("2026-11-20T08:10:00+00:00", 0.10), ("2026-11-20T08:40:00+00:00", 0.10)),
+        extra={"mpc_heat_plan": True},
+    )
+    assert entry.runtime_data.data["heat_on_below_c"] == 23.5
+    assert entry.runtime_data.data["mpc_heat_steps"][0] is True
+    assert "heat" in modes
+
+
+async def test_heat_plan_uses_the_kept_power_when_the_ac_has_not_run_for_two_hours(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # The AC reads 0 W, so no running reading falls in the last two hours and the plan is not made.
+    entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer, room="19.0", extra={"mpc_heat_plan": True}, ac_power="0")
+    coordinator = entry.runtime_data
+    assert "mpc_heat_steps" not in coordinator.data
+    assert "heat" not in modes
+
+    # Three hours earlier the AC ran at 1.1 kW. Those readings are in the kept history, so their mean stands in for the power.
+    now = dt_util.utcnow().timestamp()
+    coordinator._entries = [Entry(t=now - 3 * 3600 + i * 300, room_c=19.0, outdoor_c=10.0, power_w=1100.0) for i in range(12)]
+    await refresh(hass, entry)
+    assert coordinator.data["mpc_heat_steps"][0] is True
+    assert "heat" in modes
 
 
 async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
