@@ -7,6 +7,7 @@
         "data": {
           "climate": "AC climate entity",
           "climate_2": "Second AC in the same room (optional)",
+          "power_2": "Second AC power sensor, W (optional, enables the two-device fit)",
           "power": "AC power sensor (W)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor",
@@ -69,6 +70,7 @@
         "data": {
           "climate": "AC climate entity",
           "climate_2": "Second AC in the same room (optional)",
+          "power_2": "Second AC power sensor, W (optional, enables the two-device fit)",
           "power": "AC power sensor (W)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor",

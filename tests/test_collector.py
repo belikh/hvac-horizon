@@ -181,3 +181,22 @@ class PowerMeanTests(unittest.TestCase):
         a = Entry(0, 26, 30, 1100)
         b = Entry(300, 26, 30, 1100, power_mean_w=50.0)
         self.assertEqual(_interval_power_kw(a, b), 0.0)
+
+
+class RoomSamplesTests(unittest.TestCase):
+    def test_second_power_becomes_the_ac_2_device(self):
+        from custom_components.hvac_horizon.collector import Entry, room_samples_from_entries
+
+        a = Entry(t=0.0, room_c=24.0, outdoor_c=30.0, power_w=1200.0, power_2_w=800.0)
+        b = Entry(t=300.0, room_c=23.8, outdoor_c=30.0, power_w=1200.0, power_2_w=800.0)
+        (sample,) = room_samples_from_entries([a, b])
+        self.assertEqual(sample.minutes, 5.0)
+        self.assertAlmostEqual(sample.device_kw["ac"], 1.2)
+        self.assertAlmostEqual(sample.device_kw["ac_2"], 0.8)
+
+    def test_gap_breaks_the_pair(self):
+        from custom_components.hvac_horizon.collector import Entry, room_samples_from_entries
+
+        a = Entry(t=0.0, room_c=24.0, outdoor_c=30.0, power_w=1200.0)
+        b = Entry(t=1800.0, room_c=23.8, outdoor_c=30.0, power_w=1200.0)
+        self.assertEqual(room_samples_from_entries([a, b]), [])

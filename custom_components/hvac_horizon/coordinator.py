@@ -24,9 +24,11 @@ from custom_components.hvac_horizon.collector import (
     entries_from_history,
     has_enough_cycles,
     price_slots,
+    room_samples_from_entries,
     running_power_kw,
     samples_from_entries,
 )
+from custom_components.hvac_horizon.devices import COOL, fit_room
 from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
@@ -92,6 +94,7 @@ from .const import (
     CONF_TRV_TEMPERATURE,
     TRV_HISTORY,
     CONF_RADIATORS,
+    CONF_POWER_2,
     DEFAULT_RESIDUAL_PEAK_K,
     RESIDUAL_TAU_MIN,
     CONF_ECO_C,
@@ -241,6 +244,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_economizer_t: float | None = None
         self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
         self._heater_was_on = False
+        self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
         self._forecast_highs: list[float] = []
@@ -452,8 +456,27 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_shutdown_store(self) -> None:
         await self._store.async_save(self._save_payload())
 
+    def _refit_room_model(self) -> None:
+        """Fit one coefficient per AC from the readings, when a second power sensor is set. The forecast keeps the single-device fit."""
+        self._room_fit = None
+        if not (self.entry.data.get(CONF_CLIMATE_2) and self.entry.data.get(CONF_POWER_2)):
+            return
+        try:
+            found = fit_room(room_samples_from_entries(self._entries), {"ac": COOL, "ac_2": COOL})
+        except NotEnoughData as err:
+            self._room_fit = {"reason": str(err)}
+            return
+        self._room_fit = {
+            "k_per_h": round(found.k, 4),
+            "g_k_per_h": round(found.g, 4),
+            "ac_k_per_h_per_kw": round(found.coef["ac"], 4),
+            "ac_2_k_per_h_per_kw": round(found.coef["ac_2"], 4),
+            "samples": found.samples,
+        }
+
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
+        self._refit_room_model()
         self._backtest_runs = []
         if not has_enough_cycles(samples):
             self._fit = None
@@ -846,11 +869,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         setpoint = climate.attributes.get("temperature") if climate else None
         price = _float(self._optional(CONF_PRICE))
+        second_w = _float(self._optional(CONF_POWER_2)) if self.entry.data.get(CONF_CLIMATE_2) else None
         return Entry(
             t=now,
             room_c=statistics.median(rooms),
             outdoor_c=outdoor,
             power_w=power_w,
+            power_2_w=second_w,
             setpoint_c=float(setpoint) if setpoint is not None else None,
             mode=climate.state if climate else None,
             rooms_c=tuple(rooms),
@@ -1486,6 +1511,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "g": None,
             "forecast_error_min": self._forecast_error_min,
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
+            "room_fit": self._room_fit,
         }
         if self._fit is None:
             return result

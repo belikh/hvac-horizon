@@ -1819,3 +1819,34 @@ async def test_radiator_residual_heat_holds_the_heater_gate_open(hass, enable_cu
     result2: dict = {}
     await other._async_heater_step(now, result2)
     assert result2["heater_pwm_on"] is False
+
+
+async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_integrations, config_data, freezer):
+    import math
+
+    from custom_components.hvac_horizon.collector import Entry
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    data = dict(config_data, climate_2="climate.test_ac2", power_2="sensor.test_ac2_power")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    # Synthetic history: k 0.3, g 0.2, first AC 1.4 K/h per kW at 1 kW (cycle 6), second AC 0.9 at 1 kW (cycle 17), 5-minute steps.
+    now = dt_util.utcnow().timestamp()
+    temp, entries = 24.0, []
+    for i in range(800):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac1 = 1.0 if (i // 6) % 2 == 0 else 0.0
+        ac2 = 1.0 if (i // 17) % 2 == 1 else 0.0
+        entries.append(Entry(t=now - (800 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000 * ac1, power_2_w=1000 * ac2))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac1 - 0.9 * ac2) * (5 / 60)
+    coordinator._entries = entries
+    coordinator._refit()
+    assert coordinator._room_fit["ac_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
+    assert coordinator._room_fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["room_fit"]["samples"] > 0

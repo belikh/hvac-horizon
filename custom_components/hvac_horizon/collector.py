@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .forecast import PriceSlot
+from .devices import RoomSample
 from .model import Sample
 
 STEP_S = 300  # collector interval, seconds
@@ -33,6 +34,7 @@ class Entry:
     price: float | None = None
     energy_kwh: float | None = None  # cumulative energy counter, when the meter has one
     power_mean_w: float | None = None  # integral of power over the interval, from state changes
+    power_2_w: float | None = None  # power of the second AC at this reading, W; None when no second power sensor
 
 
 def _running_kw(power_w: float) -> float:
@@ -73,6 +75,27 @@ def samples_from_entries(entries: list[Entry]) -> list[Sample]:
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
                 power_kw=_interval_power_kw(a, b),
+            )
+        )
+    return out
+
+
+def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
+    """Two-device samples from consecutive readings one step apart. The first AC is "ac", the second is "ac_2"."""
+    ordered = sorted(entries, key=lambda e: e.t)
+    out: list[RoomSample] = []
+    for a, b in zip(ordered, ordered[1:]):
+        gap = b.t - a.t
+        if abs(gap - STEP_S) > TOLERANCE_S:
+            continue
+        second = _running_kw(a.power_2_w) if a.power_2_w is not None else 0.0
+        out.append(
+            RoomSample(
+                minutes=gap / 60.0,
+                temp_c=a.room_c,
+                temp_next_c=b.room_c,
+                outdoor_c=a.outdoor_c,
+                device_kw={"ac": _interval_power_kw(a, b), "ac_2": second},
             )
         )
     return out

@@ -60,6 +60,7 @@ STATUS_KEYS: dict[str, str] = {
     "heat_on_below_c": "Heat below",
     "backtest_runs": "Backtest runs",
     "trv_offset_k": "TRV offset",
+    "room_fit": "Two-device room fit",
 }
 STATUS_UNITS = {
     "target_c": "°C",
