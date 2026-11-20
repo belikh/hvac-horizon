@@ -8,6 +8,7 @@ from custom_components.hvac_horizon.features import (
     minimum_time_ok,
     outdoor_allows,
     timed_preset_active,
+    transition_message,
 )
 
 
@@ -468,3 +469,17 @@ class MorePortedFeatureTests(unittest.TestCase):
         self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.5), 25.0)
         with self.assertRaises(ValueError):
             comfort_energy_setpoint(24.0, 26.0, 1.5)
+
+
+class TransitionMessageTests(unittest.TestCase):
+    def test_turns_on(self):
+        self.assertEqual(transition_message(False, True, "on", "off"), "on")
+
+    def test_turns_off(self):
+        self.assertEqual(transition_message(True, False, "on", "off"), "off")
+
+    def test_stays_on(self):
+        self.assertIsNone(transition_message(True, True, "on", "off"))
+
+    def test_stays_off(self):
+        self.assertIsNone(transition_message(False, False, "on", "off"))

@@ -55,6 +55,7 @@ from custom_components.hvac_horizon.features import (
     safety_output,
     scheduled_preset,
     sensor_stalled,
+    transition_message,
 )
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
@@ -157,6 +158,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._window_paused = False
+        self._lock_notified = False
         self._inhibit_until_min: float | None = None
         self._last_written_setpoint: float | None = None
         self._autotune_result = None
@@ -587,9 +590,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
+        self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
         return result
+
+    def _notify_transition(self, kind: str, attr: str, current: bool, on_text: str, off_text: str) -> None:
+        """Raise a persistent notification when `current` turns True and dismiss it when it turns False."""
+        message = transition_message(getattr(self, attr), current, on_text, off_text)
+        setattr(self, attr, current)
+        if message is None:
+            return
+        notification_id = f"{self.entry.entry_id}_{kind}"
+        if current:
+            persistent_notification.async_create(self.hass, message, title="HVAC Horizon", notification_id=notification_id)
+        else:
+            persistent_notification.async_dismiss(self.hass, notification_id)
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
@@ -612,6 +628,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             self._window_open_since = None
         window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
+        window_delay_min = float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+        self._notify_transition(
+            "window", "_window_paused", window_open_min >= window_delay_min,
+            "HVAC Horizon paused control: a window is open.", "HVAC Horizon resumed control: the window is closed.",
+        )
         presence = self._optional(CONF_PRESENCE)
         # A binary presence sensor reports "on" for home. A person or tracker reports "home".
         someone_home = presence is None or presence.state in ("on", "home")

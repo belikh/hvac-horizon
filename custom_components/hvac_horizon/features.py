@@ -430,3 +430,15 @@ def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) ->
     if not 0.0 <= weight <= 1.0:
         raise ValueError("weight must be in [0, 1]")
     return comfort_c + (energy_c - comfort_c) * weight
+
+
+def transition_message(previous: bool, current: bool, on_text: str, off_text: str) -> str | None:
+    """Return `on_text` when a state turns True, `off_text` when it turns False, None when unchanged.
+
+    Ported from ClimateAdvisor's notifications.
+    """
+    if current and not previous:
+        return on_text
+    if previous and not current:
+        return off_text
+    return None
