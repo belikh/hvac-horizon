@@ -24,6 +24,7 @@ from custom_components.hvac_horizon.features import (
     classify_day,
     daily_briefing,
     heating_failure,
+    hot_streak,
     learning_suggestion,
     band_action,
     comfort_band,
@@ -129,6 +130,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_home_at: float | None = None
         self._last_cycle_t: float | None = None
         self._in_band_min: float = 0.0
+        self._outdoor_history: list[float] = []
         self._total_min: float = 0.0
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
@@ -216,6 +218,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         on_min = (now - self._heater_on_since) / 60.0
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
+
+    def _heatwave(self) -> bool:
+        """True when the outdoor readings have reached 30 C on at least three cycles in a row.
+
+        Uses the recent outdoor readings as the forecast until a weather entity is wired in.
+        """
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if outdoor is None:
+            return False
+        self._outdoor_history.append(outdoor)
+        self._outdoor_history = self._outdoor_history[-24:]
+        return hot_streak(self._outdoor_history)
 
     def _compliance(self, now: float, band_action_value: str | None) -> float | None:
         """Share of time in band since the coordinator started. Tracked from each cycle's band action."""
@@ -386,6 +400,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
         result["mould_risk"] = self._mould_risk()
         result["compliance_pct"] = self._compliance(now, band_action_value=result["band_action"])
+        result["heatwave"] = self._heatwave()
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
