@@ -106,12 +106,17 @@ def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
     return out
 
 
-def running_power_kw(entries: list[Entry], now: float, window_s: float = 7200.0) -> float | None:
+def running_power_kw(entries: list[Entry], now: float, window_s: float = 7200.0, field: str = "power_w") -> float | None:
     """Mean power over the last `window_s` seconds, counting only readings with the AC running.
 
-    Returns None when the AC has not run in the window. The forecast then needs a fallback.
+    `field` is "power_w" for the first AC or "power_2_w" for the second. Returns None when the AC has not run in the window.
+    The forecast then needs a fallback.
     """
-    on = [e.power_w / 1000.0 for e in entries if now - window_s <= e.t <= now and e.power_w / 1000.0 >= RUNNING_MIN_KW]
+    on = []
+    for e in entries:
+        value = getattr(e, field)
+        if value is not None and now - window_s <= e.t <= now and value / 1000.0 >= RUNNING_MIN_KW:
+            on.append(value / 1000.0)
     if not on:
         return None
     return sum(on) / len(on)

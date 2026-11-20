@@ -4,6 +4,7 @@ Run with pytest-homeassistant-custom-component. This directory has no __init__.p
 so the standard-library unittest run does not collect it.
 """
 
+import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -18,6 +19,8 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
+from custom_components.hvac_horizon.collector import Entry
+from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.tpi import GAIN_MAX, TpiFit
 from custom_components.hvac_horizon.const import (
@@ -28,8 +31,10 @@ from custom_components.hvac_horizon.const import (
     CONF_HEATER_INVERTED,
     CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
+    CONF_CLIMATE_2,
     CONF_HEAT_BOOST_C,
     CONF_HEAT_ECO_C,
+    CONF_POWER_2,
     CONF_OUTPUT_MAX,
     CONF_OUTPUT_MAX_ENTITY,
     CONF_OUTPUT_MIN,
@@ -3122,4 +3127,52 @@ async def test_heat_gain_learns_from_heating_and_survives_reload(hass, enable_cu
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).attributes["auto_tpi_gains"]["heat"] == pytest.approx(before, abs=1e-3)
+
+
+async def test_forecast_uses_the_two_device_fit_when_a_second_ac_is_set(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    data = {**config_data, CONF_CLIMATE_2: "climate.test_ac2", CONF_POWER_2: "sensor.test_ac2_power"}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    # Two ACs with different on periods, so both devices vary. Cooling per kW: 1.4 for the first, 0.8 for the second.
+    now = dt_util.utcnow().timestamp()
+    temp = 24.0
+    readings = []
+    for i in range(800):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac1 = 1.0 if (i // 6) % 2 == 0 else 0.0
+        ac2 = 1.0 if (i // 10) % 2 == 0 else 0.0
+        readings.append(
+            Entry(
+                t=now - (799 - i) * 300,
+                room_c=temp,
+                outdoor_c=outdoor,
+                power_w=1000.0 * ac1,
+                power_2_w=800.0 * ac2,
+                setpoint_c=24.0,
+                mode="cool" if (ac1 or ac2) else "off",
+            )
+        )
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac1 - 0.8 * ac2) * (5 / 60)
+    coordinator._entries = readings
+    coordinator._refit()
+    assert coordinator._room_model is not None
+    assert coordinator._room_fit["ac_2_k_per_h_per_kw"] > 0
+
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set("sensor.test_ac2_power", "800", {"unit_of_measurement": "W", "device_class": "power"})
+    await refresh(hass, entry)
+    published = coordinator.data["minutes"]
+    assert published is not None
+    # The single-device fit at the live 1.1 kW. On this data it cannot reach 24 C (its cooling is learned from the first AC alone),
+    # while the combined fit reaches it. Either way the published value differs.
+    single = forecast(coordinator._active_fit(), 26.0, 24.0, 30.0, 1.1, [])
+    assert single.minutes is None
+    assert published > 0
 

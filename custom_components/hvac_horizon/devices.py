@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .model import MIN_OUTDOOR_SPREAD_K, MIN_SAMPLES, NotEnoughData, _least_squares
+from .model import MIN_OUTDOOR_SPREAD_K, MIN_SAMPLES, Fit, NotEnoughData, _least_squares
 
 COOL = "cool"
 HEAT = "heat"
@@ -84,3 +84,16 @@ def fit_room(samples: list[RoomSample], kinds: dict[str, str]) -> RoomFit:
     for dev in kinds:
         device_coef.setdefault(dev, 0.0)
     return RoomFit(k=k, g=g, coef=device_coef, samples=len(usable))
+
+
+def forecast_fit(room: RoomFit, device_kw: dict[str, float]) -> tuple[Fit, float] | None:
+    """The two-device model as one Fit, and the total running power in kW.
+
+    The forecast runs the AC at constant power. The combined cooling coefficient weights each device's coefficient
+    by its share of the running power. Returns None when no device runs.
+    """
+    total = sum(device_kw.get(dev, 0.0) for dev in room.coef)
+    if total <= 0:
+        return None
+    c = sum(coef * device_kw.get(dev, 0.0) for dev, coef in room.coef.items()) / total
+    return Fit(k=room.k, c=c, g=room.g, samples=room.samples), total

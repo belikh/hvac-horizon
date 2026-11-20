@@ -29,7 +29,7 @@ from custom_components.hvac_horizon.collector import (
     running_power_kw,
     samples_from_entries,
 )
-from custom_components.hvac_horizon.devices import COOL, fit_room
+from custom_components.hvac_horizon.devices import COOL, RoomFit, fit_room, forecast_fit
 from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
@@ -278,6 +278,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
+        self._room_model: RoomFit | None = None  # the valid two-device fit the forecast uses when a second AC is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
         self._forecast_highs: list[float] = []
@@ -511,6 +512,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _refit_room_model(self) -> None:
         """Fit one coefficient per AC from the readings, when a second power sensor is set. The forecast keeps the single-device fit."""
         self._room_fit = None
+        self._room_model = None
         if not (self.entry.data.get(CONF_CLIMATE_2) and self.entry.data.get(CONF_POWER_2)):
             return
         try:
@@ -518,6 +520,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except NotEnoughData as err:
             self._room_fit = {"reason": str(err)}
             return
+        self._room_model = found
         self._room_fit = {
             "k_per_h": round(found.k, 4),
             "g_k_per_h": round(found.g, 4),
@@ -1803,6 +1806,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._price_forecast(now),
         )
 
+    def _forecast_model(self, active: Fit, power_kw: float, now: float) -> tuple[Fit, float]:
+        """With a second AC and a valid two-device fit, the forecast uses the combined fit and both running powers.
+
+        Otherwise the single-device fit and the power already chosen stand.
+        """
+        if self._room_model is None:
+            return active, power_kw
+        means = {
+            "ac": running_power_kw(self._entries, now) or 0.0,
+            "ac_2": running_power_kw(self._entries, now, field="power_2_w") or 0.0,
+        }
+        combined = forecast_fit(self._room_model, means)
+        if combined is None or combined[0].c <= 0:
+            return active, power_kw
+        return combined
+
     def _forecast(self, now: float) -> dict[str, Any]:
         # Observe-only values: the control path overwrites target_c and preset with the full decision.
         comfort_default = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
@@ -1855,6 +1874,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.update(status="no running power yet")
             return result
 
+        active, power_kw = self._forecast_model(active, power_kw, now)
         f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now))
         result.update(
             status="reachable" if f.reachable else "unreachable",
