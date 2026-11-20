@@ -18,6 +18,8 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon.const import (
+    CONF_BOOST_C,
+    CONF_ECO_C,
     CONF_HEATER_INVERTED,
     CONF_HEATER_SWITCH,
     CONF_CLIMATE,
@@ -1226,10 +1228,18 @@ async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrat
     assert coordinator._pwm_output_pct == 40.0
 
 
+# The AC cools above these values. Eco and boost use the setpoints set in the entry; comfort is 24 C.
+COOL_ABOVE_BY_PRESET = {"comfort": 24.0, "eco": 26.0, "boost": 22.0, "away": 27.0, "vacation": 27.0}
+
+
 @pytest.mark.parametrize("scenario", ["comfort", "eco", "boost", "away", "vacation"])
 async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enable_custom_integrations, config_data, scenario):
-    extra = {CONF_VACATION: "input_boolean.vacation"} if scenario == "vacation" else None
+    extra = {CONF_ECO_C: 26.0, CONF_BOOST_C: 22.0}
+    if scenario == "vacation":
+        extra[CONF_VACATION] = "input_boolean.vacation"
     entry, _ = await setup_heater(hass, config_data, extra=extra)
+    # A price midway between the cheap and expensive limits leaves the comfort target unshifted at 24.0 C.
+    hass.states.async_set(PRICE, "0.275", hass.states.get(PRICE).attributes)
     if scenario == "vacation":
         hass.states.async_set("input_boolean.vacation", "on")
     elif scenario != "comfort":
@@ -1239,6 +1249,7 @@ async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enab
     cool_on = entry.runtime_data.data["cool_on_above_c"]
     assert heat_on < cool_on
     assert cool_on - heat_on == pytest.approx(0.5)
+    assert cool_on == pytest.approx(COOL_ABOVE_BY_PRESET[scenario])
 
 
 

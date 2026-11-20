@@ -87,6 +87,8 @@ from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
+    CONF_BOOST_C,
+    CONF_ECO_C,
     CONF_HEATER_KP,
     CONF_HEATER_KI,
     CONF_HEATER_KD,
@@ -172,6 +174,11 @@ def _float(state: State | None) -> float | None:
         return float(state.state)
     except ValueError:
         return None
+
+
+def _optional_float(value: Any) -> float | None:
+    """A stored number, or None when the key is absent or empty."""
+    return None if value is None or value == "" else float(value)
 
 
 def _entry_from_dict(raw: dict[str, Any]) -> Entry:
@@ -1104,6 +1111,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             preset=Preset(preset_name) if preset_name in {p.value for p in Preset} else Preset.COMFORT,
             away_c=float(self.entry.data.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
             window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
+            eco_c=_optional_float(self.entry.data.get(CONF_ECO_C)),
+            boost_c=_optional_float(self.entry.data.get(CONF_BOOST_C)),
         )
         self._settings = settings
         self._someone_home = someone_home
