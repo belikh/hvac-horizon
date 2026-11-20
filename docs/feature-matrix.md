@@ -5,8 +5,8 @@ Sources: VT = Versatile Thermostat, RM = RoomMind, CA = ClimateAdvisor, PID = sm
 Checked against commit 6f70496. Line numbers refer to that commit. Source paths are under `custom_components/hvac_horizon/` unless a cell names `tests/`.
 
 Status values:
-- `drives`: a call writes a device or a setpoint through the control path. The cell cites the call site and the gates.
-- `published`: a sensor or status attribute shows the value. Nothing acts on it. The cell cites the sensor.py line.
+- `drives`: a call writes a device or a setpoint through the control path, or a value the control path reads changes that write (the cell says which). The cell cites the call site and the gates.
+- `published`: a sensor or status attribute shows the value, and no control path reads it. The cell cites the sensor.py line.
 - `control`: a gate, service, repair issue, persistent notification, event or user action. It acts without writing a device setpoint. The cell cites the call site and the test. `test: none` means no test covers it.
 - `pure`: a function with no caller. `tests/test_no_dead_code.py` fails on it. No row carries this status.
 - `missing`: not built. No row carries this status.
@@ -67,7 +67,7 @@ Status values:
 | Time, energy and cost to setpoint | ours | published (`forecast` at forecast.py:60 runs in `_forecast` at coordinator.py:1730-1790, called at 989. Shows on sensor.py:85-87. Nothing acts on it) |
 | Forecast error from backtest | ours | published (`backtest` at backfill.py:74 and `median_abs_error` at backfill.py:105, run in `_refit` at coordinator.py:557-558. Shows as `forecast_error_min` on sensor.py:90. Tests: test_backtest_uses_only_earlier_data, tests/test_backfill.py:57; test_median_abs_error_handles_even_and_empty, tests/test_backfill.py:74. The tests use synthetic samples. Accuracy on cool-downs in practice is not confirmed) |
 | Room rate fit from history (k, g, c) | ours | published (`learn_room_rates` at tpi.py:58-92 fits k and g from AC-off intervals and c from AC-on intervals, offline, at each refit, called at coordinator.py:541. `_active_fit()` (519-523), `what_if` (404) and the pre-cool planner (1702) use the fit with the online gain from the next row. The fit sets the room's k, g and c and no AC setpoint or mode. Shows as `room_rate_coefficients` on sensor.py:127. Test: test_learned_room_rate_coefficients_are_published_and_used, tests/ha/test_setup.py:2206; test_recovers_off_and_on_coefficients, tests/test_tpi.py:25) |
-| Thermal rate learning (Auto TPI) | VT | published (`adjust_cool_gain` at tpi.py:38-55 runs from `_learn_cool_gain` at coordinator.py:525-535 once per interval, in cool mode at one setpoint. The gain scales c in `TpiFit.to_fit` (tpi.py:33-35) through `_active_fit()` (519-523). The forecast and the pre-cool start (`_precool_start`, 1699-1728) use the scaled c. The gain has no device write. It is stored as `auto_tpi_gains` (save payload 491-496, load at 399) and shows on sensor.py:128. Ours learns one cool gain on a fitted room model. VT learns controller gains for a duty cycle. Tests: test_online_cool_gain_follows_a_weaker_ac_and_survives_reload, tests/ha/test_setup.py:2239; test_room_warmer_than_predicted_lowers_the_gain, tests/test_tpi.py:58; test_one_interval_moves_the_gain_at_most_the_step, tests/test_tpi.py:66; test_gain_stays_at_the_clamp, tests/test_tpi.py:69) |
+| Thermal rate learning (Auto TPI) | VT | drives (the gain changes the pre-cool start, which writes the setpoint, so the row is drives through `_precool_start`; `adjust_cool_gain` at tpi.py:38-55 runs from `_learn_cool_gain` at coordinator.py:525-535 once per interval, in cool mode at one setpoint. The gain scales c in `TpiFit.to_fit` (tpi.py:33-35) through `_active_fit()` (519-523). The forecast and the pre-cool start (`_precool_start`, 1699-1728) use the scaled c. The gain has no device write. It is stored as `auto_tpi_gains` (save payload 491-496, load at 399) and shows on sensor.py:128. Ours learns one cool gain on a fitted room model. VT learns controller gains for a duty cycle. Tests: test_online_cool_gain_follows_a_weaker_ac_and_survives_reload, tests/ha/test_setup.py:2239; test_room_warmer_than_predicted_lowers_the_gain, tests/test_tpi.py:58; test_one_interval_moves_the_gain_at_most_the_step, tests/test_tpi.py:66; test_gain_stays_at_the_clamp, tests/test_tpi.py:69) |
 | Learning suggestion | CA | published (`learning_suggestion` at coordinator.py:799-806 compares the fitted k with the first fit (`_baseline_k`, set at 803-804), and `suggestion_visible` at features.py:253-259 hides dismissed ones. Set at 998-1002. Shows on sensor.py:44. Nothing acts on it) |
 | Accept or dismiss learning suggestions | CA | control (`respond_suggestion` at coordinator.py:815-822 sets the baseline or the dismissal, which only changes the suggestion. Service at __init__.py:66-67, registered at 95. Test: test_respond_suggestion_dismiss_records_gain, tests/ha/test_setup.py:701) |
 | Model predictive control (idles pre-cool steps) | RM | drives (`mpc_plan` at features.py:732-804 runs at coordinator.py:1064-1086 when the single fit `_fit` and price slots exist. The first step idles a COOL decision at 1410-1412 through `mpc_idle` (features.py:485-487, 0.5 K deadband). The OFF write is at 1479-1480. Only the pre-cool branch can return COOL more than 0.5 K below the threshold (decide.py:88-89). The plan never starts heat: `not mpc_idled` at 1452 skips the AC heat. The plan shows on sensor.py:52. Tests: test_mpc_idle_step_holds_the_ac_off_when_the_room_is_well_below_target, tests/ha/test_setup.py:2857; test_mpc_idle_step_never_starts_heat_with_the_ac, tests/ha/test_setup.py:2863) |
@@ -148,8 +148,8 @@ Status values:
 ## Counts and open items
 
 Counts by status, from the table above (94 rows):
-- drives: 58
-- published: 20
+- drives: 59
+- published: 19
 - control: 16
 - pure: 0
 - missing: 0
