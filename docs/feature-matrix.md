@@ -121,7 +121,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Heat source selection (boiler or AC) | RM | drives (outdoor temperature picks the source; the boiler switch follows demand) |
 | Central boiler activation | VT | drives (boiler switch, if configured) |
 | Compressor groups (several AC on one compressor) | RM | missing |
-| Second AC under the same room (multi-device control) | ours | missing (room model is single-device in control) |
+| Second AC under the same room (multi-device control) | ours | drives (same cooling decision; not yet held by the minimum on and off times) |
 | Multi-room coordination | VT, RM | missing (one room per entry) |
 | Power shedding per device | VT | drives (lowest-priority loads switched off over the limit; not turned back on yet) |
 | Central power limit | VT | drives (whole-house limit, same path as per-device shedding) |
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, second AC under one room, multi-room.
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
 
-After the weather, shedding, economizer, heat-source and boiler rows were updated, 15 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather, shedding, economizer, heat-source, boiler and second-AC rows were updated, 14 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
