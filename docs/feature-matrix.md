@@ -155,7 +155,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Services: reset learning, export samples | VT, CA | control. Services `reset_learning` (`__init__.py:42-44`, coordinator.py:460-470) and `export_samples` (`__init__.py:45-47`, coordinator.py:472-474). Test: `tests/ha/test_setup.py` test_reset_learning_service_clears_samples; test_export_samples_service_returns_readings |
 | Start auto-tune service | PID | drives, during a test only. Service `start_autotune` (`__init__.py:58-60`) calls `start_autotune` (coordinator.py:476-479). The relay test then drives the heater switch (see the auto-tuner row). Test: `tests/ha/test_setup.py` test_relay_test_does_not_command_the_heater_behind_a_closed_gate; `tests/test_autotune.py` RelayTunerTests.test_relay_switches_around_setpoint |
 | Accuracy page (prediction versus actual) | CA | published. The accuracy figure is the `Forecast error` sensor (sensor.py:98, `forecast_error_min`). It is the median absolute error of the backtest (`median_abs_error`, backfill.py:105), set in `_refit` (coordinator.py:609-610). The run count is the `Backtest runs` sensor (sensor.py:67). The integration has no separate page. Test: `tests/test_backfill.py` BacktestTests.test_backtest_uses_only_earlier_data |
-| Accuracy page as its own view | CA | missing. No view, panel or frontend registration exists in the integration. The list is the `accuracy_pairs` attribute of the `Forecast error` sensor (sensor.py:120-122), covered by the row above. The attribute lists the last 20 backtest runs that have a prediction, oldest first. Each entry holds predicted, measured and error minutes (`accuracy_pairs` at backfill.py:117, `ACCURACY_PAIRS_LIMIT` = 20 at backfill.py:114). The coordinator publishes it beside `backtest_runs` (coordinator.py:1950). ClimateAdvisor's view reads GET `/api/climate_advisor/prediction_accuracy` (its `api.py:1596`) and shows per-engine statistics. This list is per run. No control path reads it. Limits: the list holds 20 runs. The state is the median absolute error over all runs (coordinator.py:610), so the state and the list can disagree after 20 runs. Test: `tests/ha/test_setup.py` test_accuracy_pairs_and_forecast_error_follow_the_backtest; `tests/test_backfill.py` AccuracyPairsTests.test_pairs_hold_the_predicted_runs_with_their_errors and AccuracyPairsTests.test_pairs_keep_the_last_20_predicted_runs. |
+| Accuracy page as its own view | CA | missing. No view, panel or frontend registration exists in the integration. The list is the `accuracy_pairs` attribute of the `Forecast error` sensor (sensor.py:120-122), covered by the row above. The attribute lists the last 20 backtest runs that have a prediction, oldest first. Each entry holds predicted, measured and error minutes (`accuracy_pairs` at backfill.py:117, `ACCURACY_PAIRS_LIMIT` = 20 at backfill.py:114). The coordinator publishes it beside `backtest_runs` (coordinator.py:1950). This list is per run. No control path reads it. Limits: the list holds 20 runs. The state is the median absolute error over all runs (coordinator.py:610), so the state and the list can disagree after 20 runs. Test: none for the view. |
 | Notifications on events | CA | control. Persistent notifications for sensor stalls (coordinator.py:925-927), the window and the lock (1271). Test: none |
 | AI investigator and budget | CA | control. `_ask_model` (coordinator.py:1691) is called when the AC mode changes (1656-1657) and for the report (1683). `CallBudget` (investigator.py:99) limits the calls per day through `ai_budget_per_day`. The answer is shown at sensor.py:134-135. Test: `tests/ha/test_setup.py` test_model_calls_follow_mode_changes_and_stop_at_the_budget; test_a_blocked_model_call_clears_the_answer_for_the_old_mode; `tests/test_investigator.py` CallBudgetTests.test_cap_stops_calls_for_the_day |
 | Rule-based investigation answer | ours | published. `investigate` (investigator.py:28) at coordinator.py:1646-1653 explains the AC action from its inputs. Shown at sensor.py:133, with recent actions. Test: `tests/ha/test_setup.py` test_investigator_answers_why_the_ac_runs; `tests/test_investigator.py` InvestigateTests.test_running_ac_names_the_reason_and_the_numbers |
@@ -168,11 +168,19 @@ Rows by status. The five counts add up to the row count.
 | Status | Rows |
 | :-- | --: |
 | drives | 68 |
-| published | 19 |
+| published | 18 |
 | control | 16 |
 | pure | 0 |
-| missing | 0 |
-| total | 103 |
+| missing | 6 |
+| total | 108 |
+
+Rows marked `missing`:
+- TPI high and low thresholds, max on percent and cool branch: none of these options exist in the code.
+- Night plan acts on the AC (pre-cool or hold): the night plan is published text, and no write reads it.
+- Window opening from natural ventilation and economizer advice: no call opens a window, and the economizer fan assist is not written.
+- MPC plan starts cooling or heating: plan step 0 only idles a cool decision.
+- Cross-room setpoint or valve control: no code reads another entry's room reading, setpoint or valve.
+- Accuracy page as its own view: no view, panel or frontend code exists.
 
 Open items. The first seven need a run that has not happened yet:
 - Residual heat on hardware: the radiator gate has no run on a heater in this house.
@@ -181,7 +189,7 @@ Open items. The first seven need a run that has not happened yet:
 - Forecast error on cool-downs in this house: the live error is unknown until cool-downs are scored.
 - Persistent notifications with no test: the stall, window and lock notifications.
 - Config form in HA: the flow schema is tested, but the form is not rendered in a live HA instance.
-- The 723-test suite has not run on a live HA instance.
+- The 724-test suite has not run on a live HA instance. It passed at a411c5d.
 
 Code open items:
 - Accuracy state and list: the list keeps 20 runs and the state keeps the median over all runs. They can disagree after 20 runs.
