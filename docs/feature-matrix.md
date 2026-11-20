@@ -120,7 +120,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Radiator and underfloor residual heat | RM | missing |
 | Heat source selection (boiler or AC) | RM | drives (outdoor temperature picks the source; the boiler switch follows demand) |
 | Central boiler activation | VT | drives (boiler switch, if configured) |
-| Compressor groups (several AC on one compressor) | RM | missing |
+| Compressor groups (several AC on one compressor) | RM | drives (starts of two ACs in one room are staggered by 5 minutes; not across rooms) |
 | Second AC under the same room (multi-device control) | ours | drives (same cooling decision; not yet held by the minimum on and off times) |
 | Multi-room coordination | VT, RM | missing (one room per entry) |
 | Power shedding per device | VT | drives (lowest-priority loads switched off over the limit; not turned back on yet) |
@@ -145,4 +145,4 @@ This file reflects the code on `main` at the time of the last update. Update it 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
 heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
 
-After the weather, shedding, economizer, heat-source, boiler and second-AC rows were updated, 14 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather, shedding, economizer, heat-source, boiler, second-AC and compressor-staggering rows were updated, 13 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
