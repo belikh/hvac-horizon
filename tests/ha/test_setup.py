@@ -1438,11 +1438,13 @@ async def test_empty_house_heater_runs_below_the_frost_floor(hass, enable_custom
     assert "turn_on" in calls
 
 
-async def test_boost_drives_heater_output_to_100(hass, enable_custom_integrations, config_data):
-    entry, _ = await setup_heater(hass, config_data)
+async def test_boost_turns_the_heater_switch_on_in_a_cold_room(hass, enable_custom_integrations, config_data):
+    # Boost heats to comfort (24 C here, no boost_c set): the threshold is 23.5 C, so a 22.9 C room gets heat.
+    entry, calls = await setup_heater(hass, config_data, room="22.9")
     await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    calls.clear()
     await refresh(hass, entry)
-    assert entry.runtime_data._pwm_output_pct == 100.0
+    assert "turn_on" in calls
 
 
 async def test_window_pauses_control_only_after_the_delay(hass, enable_custom_integrations, config_data, freezer):
