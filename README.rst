@@ -26,7 +26,7 @@ Add this repository to HACS as a custom repository, category *Integration*.
    :alt: HACS custom repository
  Install it, then restart Home Assistant. Add the integration from *Settings > Devices & Services*, and pick the AC, its power sensor, the room and outdoor temperature sensors and the price sensor.
 
-The integration shows *learning* until it has enough samples to fit. The first forecast needs about an hour of AC running.
+The integration shows *learning* until it has enough samples to fit. The first forecast needs at least three hours with the AC on and three hours with it off, in several separate runs.
 
 ----
 

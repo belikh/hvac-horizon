@@ -197,7 +197,7 @@
   "issues": {
     "sensors_stalled": {
       "title": "HVAC Horizon sensors not updating",
-      "description": "These sensors have not updated recently: {sensors}. Control uses the last good readings until they recover."
+      "description": "These sensors have not updated recently: {sensors}. The AC and heater stop while the outdoor sensor is stale or no room sensor is fresh."
     },
     "heating_failure": {
       "title": "HVAC Horizon heater is not warming the room",
