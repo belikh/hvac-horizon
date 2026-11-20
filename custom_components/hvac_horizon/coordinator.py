@@ -80,6 +80,7 @@ from custom_components.hvac_horizon.features import air_quality_ventilation, boo
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
+from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
     PWM_WINDOW_MIN,
@@ -94,6 +95,8 @@ from .const import (
     CONF_WHOLE_HOUSE_FAN,
     CONF_IRRADIANCE,
     CONF_WINDOW_AREA_M2,
+    CONF_WINDOW_AZIMUTH,
+    DEFAULT_WINDOW_AZIMUTH,
     DEFAULT_AWAY_DELAY_MIN,
     CONF_VACATION,
     CONF_VACATION_C,
@@ -493,6 +496,20 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return round(sun_heat_gain(irradiance, float(area)), 3)
 
+    def _modelled_solar_kw(self) -> float | None:
+        """Clear-sky gain in kW on the window from the sun position at the house location. None without a window area."""
+        area = self.entry.data.get(CONF_WINDOW_AREA_M2)
+        if area is None:
+            return None
+        utc = dt_util.utcnow()
+        elevation, azimuth = solar_elevation_azimuth(
+            self.hass.config.latitude, self.hass.config.longitude,
+            utc.hour + utc.minute / 60.0, utc.timetuple().tm_yday,
+        )
+        window_az = float(self.entry.data.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH))
+        irradiance = window_irradiance(clear_sky_irradiance(elevation), elevation, azimuth, window_az)
+        return sun_heat_gain(irradiance, float(area))
+
     def _occupancy_mode(self, now: float) -> str:
         """Home or away from the optional presence sources. Tracks the last time any source was home."""
         sources = [self._optional(CONF_PRESENCE)] if self.entry.data.get(CONF_PRESENCE) else []
@@ -702,7 +719,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
-        # No independent modelled solar value exists, so nothing is appended to _solar_pairs and the scale stays None.
+        modelled_kw = self._modelled_solar_kw()
+        if modelled_kw is not None and result["solar_gain_kw"] is not None:
+            self._solar_pairs.append((modelled_kw, result["solar_gain_kw"]))
+            del self._solar_pairs[:-288]
         result["solar_scale"] = learned_solar_scale([m for m, _ in self._solar_pairs], [v for _, v in self._solar_pairs]) if self._solar_pairs else None
         result["window_advice"] = self._window_advice()
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))

@@ -33,9 +33,11 @@ from .const import (
     CONF_VALVE,
     CONF_PRESENCE,
     CONF_WINDOW,
+    CONF_WINDOW_AZIMUTH,
     CONF_WINDOW_DELAY_MIN,
     DEFAULT_AWAY_C,
     DEFAULT_COMFORT_C,
+    DEFAULT_WINDOW_AZIMUTH,
     DEFAULT_WINDOW_DELAY_MIN,
     CONF_CLIMATE,
     CONF_CLIMATE_2,
@@ -117,6 +119,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
+            ),
+            vol.Optional(CONF_WINDOW_AZIMUTH, default=defaults.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=360, step=1, unit_of_measurement="°")
             ),
             vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
             vol.Optional(CONF_HEATER_INVERTED, default=False): selector.BooleanSelector(),
