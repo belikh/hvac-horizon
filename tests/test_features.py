@@ -4,6 +4,7 @@ from custom_components.hvac_horizon.features import (
     apply_polarity,
     boost_output,
     clamp_output,
+    corrected_setpoint,
     coil_dry_due,
     DayType,
     air_quality_ventilation,
@@ -28,6 +29,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_active,
     timed_preset_name,
     transition_message,
+    trv_offset,
     valve_opening_pct,
 )
 
@@ -861,3 +863,24 @@ class BoostOutputTest(unittest.TestCase):
     def test_nan_raises_value_error(self):
         with self.assertRaises(ValueError):
             boost_output("comfort", float("nan"))
+
+
+class TrvOffsetTests(unittest.TestCase):
+    def test_constant_offset(self):
+        self.assertEqual(trv_offset([21.0, 22.0, 23.0], [20.0, 21.0, 22.0]), 1.0)
+
+    def test_outlier_dropped(self):
+        self.assertEqual(trv_offset([21.0, 21.0, 40.0], [20.0, 20.0, 20.0]), 1.0)
+
+    def test_empty_gives_none(self):
+        self.assertIsNone(trv_offset([], []))
+
+    def test_mismatched_lengths_raise(self):
+        with self.assertRaises(ValueError):
+            trv_offset([21.0], [20.0, 20.0])
+
+    def test_corrected_setpoint_subtracts_offset(self):
+        self.assertEqual(corrected_setpoint(21.0, 1.5), 19.5)
+
+    def test_corrected_setpoint_none_unchanged(self):
+        self.assertEqual(corrected_setpoint(21.0, None), 21.0)

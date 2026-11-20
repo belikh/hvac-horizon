@@ -755,3 +755,31 @@ def coil_dry_due(was_cooling: bool, now_cooling: bool, dry_started_min: float | 
     if dry_started_min is None:
         return was_cooling and not now_cooling
     return now_min - dry_started_min < dry_minutes
+
+
+def trv_offset(trv_c: list[float], room_c: list[float], max_abs_k: float = 5.0) -> float | None:
+    """Median of (TRV reading minus room reading) over paired samples. Ported from RoomMind's head offset tracker.
+
+    A TRV's own sensor sits on the radiator and reads differently from the room sensor. Differences larger than
+    max_abs_k in absolute value are dropped as outliers. Returns None when no differences remain.
+    Raises ValueError when the lists differ in length.
+
+    Pure logic with no caller yet: the house has no TRVs, so nothing in the coordinator uses this.
+    """
+    if len(trv_c) != len(room_c):
+        raise ValueError("trv_c and room_c must have the same length")
+    diffs = [t - r for t, r in zip(trv_c, room_c)]
+    kept = [d for d in diffs if abs(d) <= max_abs_k]
+    if not kept:
+        return None
+    return statistics.median(kept)
+
+
+def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
+    """Setpoint to send to a TRV: setpoint_c minus the learned offset, so a TRV reading high gets a lower setpoint.
+
+    Returns setpoint_c unchanged when offset_k is None. Pure logic with no caller yet (no TRV in the house).
+    """
+    if offset_k is None:
+        return setpoint_c
+    return setpoint_c - offset_k
