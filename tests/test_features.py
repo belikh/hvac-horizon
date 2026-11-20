@@ -18,6 +18,7 @@ from custom_components.hvac_horizon.features import (
     learned_solar_scale,
     humidity_action,
     minimum_time_ok,
+    room_devices,
     round_to_step,
     mould_target,
     mpc_plan,
@@ -927,3 +928,23 @@ class RoundToStepTests(unittest.TestCase):
     def test_zero_step_raises(self):
         with self.assertRaises(ValueError):
             round_to_step(24.0, 0)
+
+
+class RoomDevicesTests(unittest.TestCase):
+    def test_one_ac(self):
+        self.assertEqual(room_devices({"climate": "climate.a"}), {"cooling": ["climate.a"], "heating": [], "valves": []})
+
+    def test_second_ac_follows_first(self):
+        data = {"climate": "climate.a", "climate_2": "climate.b"}
+        self.assertEqual(room_devices(data)["cooling"], ["climate.a", "climate.b"])
+
+    def test_heater_switch_is_heating(self):
+        data = {"climate": "climate.a", "heater_switch": "switch.h"}
+        self.assertEqual(room_devices(data)["heating"], ["switch.h"])
+
+    def test_valve_is_valves(self):
+        data = {"climate": "climate.a", "valve": "number.v"}
+        self.assertEqual(room_devices(data)["valves"], ["number.v"])
+
+    def test_empty_dict_gives_empty_lists(self):
+        self.assertEqual(room_devices({}), {"cooling": [], "heating": [], "valves": []})

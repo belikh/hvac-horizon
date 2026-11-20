@@ -30,6 +30,7 @@ from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
+    room_devices,
     effective_home,
     classify_day,
     boiler_demand,
@@ -390,7 +391,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._tuner.done:
             self._autotune_result = self._tuner.result()
             self._tuner = None
-        switch = self.entry.data.get(CONF_HEATER_SWITCH)
+        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
         if switch and self._tuner is not None:
             command_on = apply_polarity(bool(want_on), bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
             self._heater_commanded_on = command_on
@@ -424,7 +425,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _heating_check(self, now: float) -> bool:
         """True when the heater has run for its window without the room rising. Uses the heater switch when set."""
-        switch_id = self.entry.data.get(CONF_HEATER_SWITCH)
+        switch_id = (room_devices(self.entry.data)["heating"] or [None])[0]
         if not switch_id:
             return False
         state = self.hass.states.get(switch_id)
@@ -805,7 +806,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if (
             self.entry.data.get(CONF_CONTROL)
-            and self.entry.data.get(CONF_HEATER_SWITCH)
+            and (room_devices(self.entry.data)["heating"] or [None])[0]
             and pid_rooms
             and pid_outdoor is not None
             and lock_allows_control(self._locked)
@@ -856,7 +857,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             to_shed = shed_plan(total_w, float(max_w), loads)
             result["shed"] = to_shed
             await self._drive_shed(to_shed)
-        heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
+        heater_switch = (room_devices(self.entry.data)["heating"] or [None])[0]
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
             self._heater_commanded_on if heater_switch else None,
@@ -884,7 +885,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _drive_valve(self, opening: float) -> None:
         """Set the valve number entity to `opening` percent. Runs only with control on and a valve configured."""
-        valve = self.entry.data.get(CONF_VALVE)
+        valve = (room_devices(self.entry.data)["valves"] or [None])[0]
         if not self.entry.data.get(CONF_CONTROL) or not valve:
             return
         if not lock_allows_control(self._locked):

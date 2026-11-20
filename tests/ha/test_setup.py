@@ -14,7 +14,9 @@ from homeassistant.core import SupportsResponse
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
+from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon.const import (
+    CONF_HEATER_SWITCH,
     CONF_CLIMATE,
     CONF_OUTDOOR,
     CONF_POWER,
@@ -952,3 +954,13 @@ async def test_ac_own_reading_is_not_a_room_reading(hass, enable_custom_integrat
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert sorted(entry.runtime_data._rooms()) == [20.0, 20.2]
+
+
+async def test_flat_keys_set_up_as_one_room(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    config_data[CONF_HEATER_SWITCH] = "switch.test_heater"
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert room_devices(entry.data)["heating"] == ["switch.test_heater"]

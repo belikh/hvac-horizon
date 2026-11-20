@@ -10,6 +10,8 @@ import statistics
 from dataclasses import dataclass
 from enum import Enum
 
+from custom_components.hvac_horizon.const import CONF_CLIMATE, CONF_CLIMATE_2, CONF_HEATER_SWITCH, CONF_VALVE
+
 
 class DayType(str, Enum):
     HOT = "hot"
@@ -817,3 +819,11 @@ def residual_correction(
     Pure logic with no caller yet: the house has no radiators or underfloor heating.
     """
     return room_c - residual_rise(peak_rise_k, minutes_since_off, tau_min)
+
+
+def room_devices(entry_data: dict) -> dict[str, list[str]]:
+    """Devices of the room, built from the flat config keys. Absent or empty keys give empty lists."""
+    cooling = [entry_data[key] for key in (CONF_CLIMATE, CONF_CLIMATE_2) if entry_data.get(key)]
+    heating = [entry_data[CONF_HEATER_SWITCH]] if entry_data.get(CONF_HEATER_SWITCH) else []
+    valves = [entry_data[CONF_VALVE]] if entry_data.get(CONF_VALVE) else []
+    return {"cooling": cooling, "heating": heating, "valves": valves}
