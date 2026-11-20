@@ -283,3 +283,15 @@ def surface_humidity(room_humidity_pct: float, room_c: float, surface_c: float) 
         raise ValueError("room humidity must be in [0, 100]")
     vapour = room_humidity_pct / 100.0 * saturation_hpa(room_c)
     return min(vapour / saturation_hpa(surface_c) * 100.0, 100.0)
+
+
+def compliance_score(in_band_minutes: float, total_minutes: float) -> float | None:
+    """Share of time the room was inside the comfort band, as a percentage. None when there is no time yet.
+
+    Ported from ClimateAdvisor's compliance sensor.
+    """
+    if total_minutes <= 0:
+        return None
+    if in_band_minutes < 0 or in_band_minutes > total_minutes:
+        raise ValueError("in-band minutes must be between 0 and the total")
+    return round(100.0 * in_band_minutes / total_minutes, 1)

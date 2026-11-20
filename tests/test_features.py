@@ -285,3 +285,21 @@ class MouldAndWindowTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             surface_humidity(120.0, 22.0, 14.0)
+
+
+class ComplianceTests(unittest.TestCase):
+    def test_compliance_percentage(self):
+        from custom_components.hvac_horizon.features import compliance_score
+
+        self.assertEqual(compliance_score(90.0, 120.0), 75.0)
+
+    def test_no_time_is_none(self):
+        from custom_components.hvac_horizon.features import compliance_score
+
+        self.assertIsNone(compliance_score(0.0, 0.0))
+
+    def test_rejects_impossible_minutes(self):
+        from custom_components.hvac_horizon.features import compliance_score
+
+        with self.assertRaises(ValueError):
+            compliance_score(130.0, 120.0)
