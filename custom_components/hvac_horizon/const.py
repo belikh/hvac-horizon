@@ -75,6 +75,7 @@ CONF_TPI_COOL = "tpi_cool"  # bool, default False: TPI cool branch; sets the AC 
 CONF_MAX_ON_PERCENT = "max_on_percent"  # caps the TPI on-percent, 0 to 100; unset means no cap
 CONF_NIGHT_PLAN_ACT = "night_plan_act"  # bool, default False: a pre-cool night plan cools to comfort, a hold night plan stops a cool start
 CONF_MPC_START = "mpc_start"  # bool, default False: the four-hour plan starts a cool when its first step runs and the room is past the deadband
+CONF_MPC_HEAT = "mpc_heat"  # bool, default False: the four-hour plan starts AC heat when its first step runs and the room is past the heat deadband; replaces ac_heat for that start
 CONF_ECONOMIZER_FAN = "economizer_fan"  # bool, default False: run the fan switch in the economizer fan_assist phase
 CONF_WINDOW_ACTUATOR = "window_actuator"  # optional cover or switch that opens and closes a window on the natural ventilation or economizer advice
 CONF_ACCURACY_PANEL = "accuracy_panel"  # bool, default False: list this entry in the HVAC Accuracy sidebar panel

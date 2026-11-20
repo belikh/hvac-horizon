@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_heat_start, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -123,6 +123,7 @@ from .const import (
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_ECONOMIZER_FAN,
+    CONF_MPC_HEAT,
     CONF_MPC_START,
     CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
@@ -1649,8 +1650,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
-        if rooms and not mpc_idled and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min)):
-            result["action"] = "heat: room below heat threshold"
+        # The plan's heat start is off unless mpc_heat is set, the plan's step runs and the room is past the heat deadband.
+        mpc_heat = bool(self.entry.data.get(CONF_MPC_HEAT, False) and plan and rooms and mpc_heat_start(plan[0], statistics.median(rooms), self._heat_on_below_c, MPC_DEADBAND_C))
+        if rooms and not mpc_idled and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min), mpc_heat):
+            result["action"] = "heat: mpc start" if mpc_heat else "heat: room below heat threshold"
             if await self._drive_ac_heat(climate_id, climate, now):
                 result["action"] = "heat: waiting for minimum time"
             return
@@ -1838,15 +1841,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now / 60.0
             self._inhibited_for_setpoint = None  # our write answers the manual change
 
-    def _ac_heat_wanted(self, action: Action, result: dict[str, Any], room_c: float, window_paused: bool) -> bool:
+    def _ac_heat_wanted(self, action: Action, result: dict[str, Any], room_c: float, window_paused: bool, mpc_heat: bool = False) -> bool:
         """True when the AC heats this tick.
 
         The AC heats only when the heat source is the AC, no heater switch is set and someone is home.
         A stalled sensor, a paused window and a closed heating window (outdoor limit) also stop it.
+        The ac_heat flag or a plan heat start (mpc_heat, checked by the caller) allows it.
         """
         return (
             action.mode is Mode.OFF
-            and bool(self.entry.data.get(CONF_AC_HEAT, False))
+            and (mpc_heat or bool(self.entry.data.get(CONF_AC_HEAT, False)))
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
             and self._someone_home
