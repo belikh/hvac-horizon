@@ -83,3 +83,18 @@ class PresetTests(unittest.TestCase):
 
         s = Settings(comfort_c=24.0, away_c=27.0, preset=Preset.ECO)
         self.assertEqual(preset_setpoint(s), 24.0)
+
+
+class OutdoorLimitTests(unittest.TestCase):
+    def test_cooling_blocked_below_outdoor_limit(self):
+        a = decide(state(room_c=26.0, outdoor_c=12.0), S)
+        self.assertEqual(a.mode, Mode.OFF)
+        self.assertIn("cooling limit", a.reason)
+
+    def test_cooling_allowed_at_or_above_outdoor_limit(self):
+        a = decide(state(room_c=26.0, outdoor_c=20.0), S)
+        self.assertEqual(a.mode, Mode.COOL)
+
+    def test_unknown_outdoor_does_not_block(self):
+        a = decide(state(room_c=26.0, outdoor_c=None), S)
+        self.assertEqual(a.mode, Mode.COOL)

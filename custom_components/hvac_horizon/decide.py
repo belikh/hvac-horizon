@@ -13,6 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 
+COOL_MIN_OUTDOOR_C = 16.0  # below this outdoors, cooling is blocked
+
+
 class Mode(str, Enum):
     OFF = "off"
     COOL = "cool"
@@ -25,6 +28,7 @@ class RoomState:
     someone_home: bool
     precool_start_in_min: float | None  # from the planner; None when no plan exists
     current_setpoint_c: float | None = None
+    outdoor_c: float | None = None  # None means unknown: the outdoor limit is not applied
 
 
 class Preset(str, Enum):
@@ -65,6 +69,8 @@ class Action:
 def decide(state: RoomState, settings: Settings) -> Action:
     if state.window_open_min >= settings.window_delay_min:
         return Action(Mode.OFF, None, f"window open {state.window_open_min:.0f} min")
+    if state.outdoor_c is not None and state.outdoor_c < COOL_MIN_OUTDOOR_C:
+        return Action(Mode.OFF, None, f"outdoor {state.outdoor_c:.0f} C below cooling limit")
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
         if state.room_c > settings.away_c:

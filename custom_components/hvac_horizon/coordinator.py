@@ -19,6 +19,7 @@ from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
+from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 
@@ -26,6 +27,8 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_COMFORT_C,
+    CONF_MIN_OFF_MIN,
+    CONF_MIN_ON_MIN,
     CONF_CONTROL,
     CONF_ENERGY,
     CONF_SCHEDULE,
@@ -84,6 +87,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fit_reason = "not enough data"
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
+        self._state_changed_at: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
 
@@ -238,11 +242,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A binary presence sensor reports "on" for home. A person or tracker reports "home".
         someone_home = presence is None or presence.state in ("on", "home")
         precool = self._precool_start(now, rooms)
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         state = RoomState(
             room_c=statistics.median(rooms),
             window_open_min=window_open_min,
             someone_home=someone_home,
             precool_start_in_min=precool,
+            outdoor_c=outdoor,
         )
         settings = Settings(
             comfort_c=float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
@@ -254,6 +260,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(climate_id)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
+        # Minimum on and off times: do not change state until the current state has lasted long enough.
+        wanted_on = action.mode is Mode.COOL
+        is_on = climate.state == "cool"
+        if wanted_on != is_on:
+            since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
+            if not minimum_time_ok(is_on, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
+                result["action"] = f"{action.mode.value}: waiting for minimum time"
+                return
+            self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF:
             if climate.state != "off":
