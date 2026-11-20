@@ -77,3 +77,35 @@ class BacktestTests(unittest.TestCase):
         runs = [BacktestRun(0, 10, 12, 2.0), BacktestRun(1, 10, 15, 5.0), BacktestRun(2, 10, 9, -1.0), BacktestRun(3, 10, 20, 10.0)]
         self.assertAlmostEqual(median_abs_error(runs), 3.5)
         self.assertIsNone(median_abs_error([]))
+
+
+class AccuracyPairsTests(unittest.TestCase):
+    def test_pairs_hold_the_predicted_runs_with_their_errors(self):
+        from custom_components.hvac_horizon.backfill import BacktestRun, accuracy_pairs, median_abs_error
+
+        runs = [
+            BacktestRun(0, 40.0, None, None),  # too little history: left out
+            BacktestRun(10, 40.0, 50.0, 10.0),
+            BacktestRun(20, 30.0, None, None),  # no prediction: left out
+            BacktestRun(30, 60.0, 52.0, -8.0),
+            BacktestRun(40, 25.0, 31.0, 6.0),
+        ]
+        self.assertEqual(
+            accuracy_pairs(runs),
+            [
+                {"predicted_min": 50.0, "measured_min": 40.0, "error_min": 10.0},
+                {"predicted_min": 52.0, "measured_min": 60.0, "error_min": -8.0},
+                {"predicted_min": 31.0, "measured_min": 25.0, "error_min": 6.0},
+            ],
+        )
+        self.assertEqual(median_abs_error(runs), 8.0)
+
+    def test_pairs_keep_the_last_20_predicted_runs(self):
+        from custom_components.hvac_horizon.backfill import BacktestRun, accuracy_pairs
+
+        runs = [BacktestRun(i, 30.0, 30.0 + i, float(i)) for i in range(25)]
+        pairs = accuracy_pairs(runs)
+        self.assertEqual(len(pairs), 20)
+        self.assertEqual(pairs[0]["predicted_min"], 35.0)  # run 5
+        self.assertEqual(pairs[-1]["error_min"], 24.0)  # run 24
+

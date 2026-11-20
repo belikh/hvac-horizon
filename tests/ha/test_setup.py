@@ -5,6 +5,7 @@ so the standard-library unittest run does not collect it.
 """
 
 import math
+import statistics
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -17,6 +18,8 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 
 from homeassistant.util import dt as dt_util
 
+from custom_components.hvac_horizon.backfill import BacktestRun
+from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.devices import forecast_fit
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
@@ -1100,6 +1103,38 @@ async def test_pid_algorithm_is_the_default_and_publishes_no_tpi_output(hass, en
     assert "tpi_output_pct" not in coordinator.data
     assert 0.0 <= coordinator.data["heater_pid_output"] <= 100.0
     assert coordinator._pwm_output_pct == pytest.approx(coordinator.data["heater_pid_output"], abs=0.01)
+
+
+async def test_accuracy_pairs_and_forecast_error_follow_the_backtest(hass, enable_custom_integrations, config_data, monkeypatch):
+    # Known runs: the backtest is stubbed to return them, and the refit takes the real median of their errors.
+    runs = [
+        BacktestRun(0, 40.0, None, None),
+        BacktestRun(10, 40.0, 50.0, 10.0),
+        BacktestRun(20, 30.0, None, None),
+        BacktestRun(30, 60.0, 52.0, -8.0),
+        BacktestRun(40, 25.0, 31.0, 6.0),
+    ]
+    monkeypatch.setattr(coordinator_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
+    monkeypatch.setattr(coordinator_module, "has_enough_cycles", lambda samples: True)
+    monkeypatch.setattr(coordinator_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._refit()
+    await refresh(hass, entry)
+    state = hass.states.get("sensor.hvac_horizon_test_ac_forecast_error")
+    assert state is not None
+    expected = [
+        {"predicted_min": 50.0, "measured_min": 40.0, "error_min": 10.0},
+        {"predicted_min": 52.0, "measured_min": 60.0, "error_min": -8.0},
+        {"predicted_min": 31.0, "measured_min": 25.0, "error_min": 6.0},
+    ]
+    assert state.attributes["accuracy_pairs"] == expected
+    assert float(state.state) == pytest.approx(8.0)
+    assert statistics.median(abs(p["error_min"]) for p in state.attributes["accuracy_pairs"]) == float(state.state)
 
 
 async def test_version_1_default_eco_of_25_is_dropped_on_migration(hass, enable_custom_integrations, config_data, freezer):

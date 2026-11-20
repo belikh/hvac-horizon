@@ -18,7 +18,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.backfill import backtest, median_abs_error
+from custom_components.hvac_horizon.backfill import accuracy_pairs, backtest, median_abs_error
 from custom_components.hvac_horizon.collector import (
     Entry,
     heat_pairs_from_entries,
@@ -1936,6 +1936,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "g": None,
             "forecast_error_min": self._forecast_error_min,
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
+            "accuracy_pairs": accuracy_pairs(self._backtest_runs),
             "room_fit": self._room_fit,
             "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
             "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4), "heat": round(self._auto_heat_gain, 4)},

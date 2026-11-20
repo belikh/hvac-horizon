@@ -109,3 +109,22 @@ def median_abs_error(runs: list[BacktestRun]) -> float | None:
         return None
     mid = len(errors) // 2
     return errors[mid] if len(errors) % 2 else (errors[mid - 1] + errors[mid]) / 2
+
+
+ACCURACY_PAIRS_LIMIT = 20  # runs listed in the accuracy_pairs attribute
+
+
+def accuracy_pairs(runs: list[BacktestRun], limit: int = ACCURACY_PAIRS_LIMIT) -> list[dict[str, float]]:
+    """The last `limit` runs that have a prediction, oldest first. Each entry holds predicted, measured and error in minutes.
+
+    The error is predicted minus measured. Runs without a prediction are left out.
+    """
+    done = [r for r in runs if r.predicted_min is not None and r.error_min is not None]
+    return [
+        {
+            "predicted_min": round(r.predicted_min, 1),
+            "measured_min": round(r.actual_min, 1),
+            "error_min": round(r.error_min, 1),
+        }
+        for r in done[-limit:]
+    ]

@@ -115,7 +115,12 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
 
     @property
     def extra_state_attributes(self):
-        if self._key != "status" or self.coordinator.data is None:
+        if self.coordinator.data is None:
+            return None
+        if self._key == "forecast_error_min":
+            # The last 20 backtest runs. The state is the median absolute error over every run.
+            return {"accuracy_pairs": self.coordinator.data.get("accuracy_pairs")}
+        if self._key != "status":
             return None
         d = self.coordinator.data
         return {
