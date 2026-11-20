@@ -10,6 +10,7 @@ from custom_components.hvac_horizon.features import (
     forecast_highs,
     boiler_demand,
     heat_source,
+    learned_solar_scale,
     humidity_action,
     minimum_time_ok,
     mould_target,
@@ -792,3 +793,22 @@ class OutputPolarityAndClampTests(unittest.TestCase):
     def test_clamp_lo_above_hi_raises(self):
         with self.assertRaises(ValueError):
             clamp_output(50.0, 90.0, 10.0)
+
+    def test_solar_scale_equal_values_is_one(self):
+        self.assertEqual(learned_solar_scale([0.2, 0.4], [0.2, 0.4]), 1.0)
+
+    def test_solar_scale_steady_factor(self):
+        self.assertEqual(learned_solar_scale([0.2, 0.4, 0.8], [0.1, 0.2, 0.4]), 2.0)
+
+    def test_solar_scale_skips_near_zero_measured(self):
+        self.assertEqual(learned_solar_scale([1.0, 0.2], [0.01, 0.1]), 2.0)
+
+    def test_solar_scale_no_pairs_is_none(self):
+        self.assertIsNone(learned_solar_scale([0.1], [0.0]))
+
+    def test_solar_scale_length_mismatch_raises(self):
+        with self.assertRaises(ValueError):
+            learned_solar_scale([0.1, 0.2], [0.1])
+
+    def test_solar_scale_clamped_high(self):
+        self.assertEqual(learned_solar_scale([50.0], [0.1]), 10.0)

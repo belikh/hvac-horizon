@@ -64,6 +64,7 @@ from custom_components.hvac_horizon.features import (
     mould_target,
     surface_humidity,
     presence_mode,
+    learned_solar_scale,
     sun_heat_gain,
     vacation_target,
     night_plan,
@@ -196,6 +197,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._solar_pairs: list[tuple[float, float]] = []
         self._last_motion_at: float | None = None
         self._last_start_min: dict[str, float] = {}
         self._minutes_in_open: float = 0.0
@@ -697,6 +699,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
+        # No independent modelled solar value exists, so nothing is appended to _solar_pairs and the scale stays None.
+        result["solar_scale"] = learned_solar_scale([m for m, _ in self._solar_pairs], [v for _, v in self._solar_pairs]) if self._solar_pairs else None
         result["window_advice"] = self._window_advice()
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_econ = self._rooms()

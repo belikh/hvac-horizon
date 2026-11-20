@@ -6,6 +6,7 @@ Each function is one decision with its own tests, so it can be wired into a cont
 from __future__ import annotations
 
 import math
+import statistics
 from dataclasses import dataclass
 from enum import Enum
 
@@ -707,3 +708,16 @@ def clamp_output(pct: float, lo: float = 0.0, hi: float = 100.0) -> float:
     if lo > hi:
         raise ValueError("lo must not exceed hi")
     return max(lo, min(hi, pct))
+
+
+def learned_solar_scale(modelled_kw: list[float], measured_kw: list[float], min_irradiance_kw: float = 0.05) -> float | None:
+    """Median of modelled/measured solar gain, clamped to [0.1, 10.0]. Ported from RoomMind's solar sensor manager.
+
+    Pairs whose measured value is below min_irradiance_kw are skipped. Returns None when no pairs remain.
+    """
+    if len(modelled_kw) != len(measured_kw):
+        raise ValueError("modelled and measured lists must have the same length")
+    ratios = [m / v for m, v in zip(modelled_kw, measured_kw) if v >= min_irradiance_kw]
+    if not ratios:
+        return None
+    return max(0.1, min(10.0, statistics.median(ratios)))
