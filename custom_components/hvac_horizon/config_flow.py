@@ -14,6 +14,7 @@ from .const import (
     CONF_COVER,
     CONF_ECO_C,
     CONF_DEHUMIDIFIER,
+    CONF_HUMIDIFIER,
     CONF_FAN,
     CONF_CO2,
     CONF_PM25,
@@ -72,6 +73,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_DEHUMIDIFIER): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            key(CONF_HUMIDIFIER): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_PM25): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="pm25")
             ),

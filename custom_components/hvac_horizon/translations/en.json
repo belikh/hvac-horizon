@@ -24,7 +24,8 @@
           "schedule": "Schedule entity (optional)",
           "eco_c": "Eco setpoint (°C)",
           "boost_c": "Boost setpoint (°C)",
-          "valve": "Valve or TRV opening number (optional)"
+          "valve": "Valve or TRV opening number (optional)",
+          "humidifier": "Humidifier switch (optional)"
         }
       },
       "reconfigure": {
@@ -50,7 +51,8 @@
           "schedule": "Schedule entity (optional)",
           "eco_c": "Eco setpoint (°C)",
           "boost_c": "Boost setpoint (°C)",
-          "valve": "Valve or TRV opening number (optional)"
+          "valve": "Valve or TRV opening number (optional)",
+          "humidifier": "Humidifier switch (optional)"
         }
       }
     },

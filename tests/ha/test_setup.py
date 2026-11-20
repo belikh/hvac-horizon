@@ -299,6 +299,32 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
     assert {"entity_id": CLIMATE, "hvac_mode": "dry"} in calls
 
 
+async def test_humidifier_turns_on_when_air_is_dry(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("switch.test_humidifier", "off")
+    hass.states.async_set("sensor.test_humidity", "30", {"unit_of_measurement": "%"})
+    calls = []
+
+    async def record(call):
+        calls.append((call.service, call.data["entity_id"]))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record)
+    hass.services.async_register("switch", "turn_off", record)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, humidifier="switch.test_humidifier", humidity="sensor.test_humidity", control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert ("turn_on", "switch.test_humidifier") in calls
+
+
 async def test_diagnostics_redacts_entity_ids(hass, enable_custom_integrations, config_data):
     from custom_components.hvac_horizon.diagnostics import async_get_config_entry_diagnostics
 

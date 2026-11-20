@@ -85,6 +85,7 @@ from .const import (
     CONF_VACATION_C,
     DEFAULT_VACATION_C,
     CONF_DEHUMIDIFIER,
+    CONF_HUMIDIFIER,
     CONF_FAN,
     CONF_HEATER_SWITCH,
     CONF_SCHEDULE_BLOCKS,
@@ -821,6 +822,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["humidity"] = humidity.reason
         await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
+        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
