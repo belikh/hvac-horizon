@@ -32,6 +32,7 @@ class Entry:
     humidity_pct: float | None = None
     price: float | None = None
     energy_kwh: float | None = None  # cumulative energy counter, when the meter has one
+    power_mean_w: float | None = None  # integral of power over the interval, from state changes
 
 
 def _running_kw(power_w: float) -> float:
@@ -46,8 +47,11 @@ def interval_power_kw(a: Entry, b: Entry) -> float:
     Uses the energy counter when both readings have one, because it averages the
     whole interval and so handles a cycling compressor. Otherwise it uses the
     first reading's power. A counter that fell (a meter reset) also falls back.
+    The interval mean from state changes, when present, comes first: it sees every change in between.
     """
     gap_h = (b.t - a.t) / 3600.0
+    if b.power_mean_w is not None:
+        return _running_kw(b.power_mean_w)
     if a.energy_kwh is not None and b.energy_kwh is not None and gap_h > 0 and b.energy_kwh >= a.energy_kwh:
         kw = (b.energy_kwh - a.energy_kwh) / gap_h
         return kw if kw >= RUNNING_MIN_KW else 0.0

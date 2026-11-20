@@ -101,3 +101,19 @@ class CycleGuardTests(unittest.TestCase):
         from custom_components.hvac_horizon.collector import has_enough_cycles
 
         self.assertTrue(has_enough_cycles(self._samples(20, 20, 4)))
+
+
+class PowerMeanTests(unittest.TestCase):
+    def test_interval_mean_is_preferred_over_counter_and_instant(self):
+        from custom_components.hvac_horizon.collector import interval_power_kw
+
+        a = Entry(0, 26, 30, 0, energy_kwh=10.0)
+        b = Entry(300, 26, 30, 0, energy_kwh=10.1, power_mean_w=850.0)
+        self.assertAlmostEqual(interval_power_kw(a, b), 0.85)
+
+    def test_interval_mean_below_threshold_counts_as_off(self):
+        from custom_components.hvac_horizon.collector import interval_power_kw
+
+        a = Entry(0, 26, 30, 1100)
+        b = Entry(300, 26, 30, 1100, power_mean_w=50.0)
+        self.assertEqual(interval_power_kw(a, b), 0.0)

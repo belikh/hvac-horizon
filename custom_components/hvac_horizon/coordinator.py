@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import statistics
-from dataclasses import asdict, fields
+from dataclasses import asdict, fields, replace
 from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -85,6 +86,40 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
 
+    def start_power_tracking(self) -> None:
+        """Integrate the power sensor between samples, so each sample gets a true interval mean."""
+        now = dt_util.utcnow().timestamp()
+        self._last_power_w = _float(self.hass.states.get(self.entry.data[CONF_POWER])) or 0.0
+        self._last_t = now
+        self._ws_total = 0.0
+        self._ws_at_sample = 0.0
+        self._t_at_sample = now
+        entity = self.entry.data[CONF_POWER]
+
+        @callback
+        def _changed(event) -> None:
+            new_value = _float(event.data.get("new_state"))
+            self._accumulate(dt_util.utcnow().timestamp())
+            if new_value is not None:
+                self._last_power_w = new_value
+
+        self.entry.async_on_unload(async_track_state_change_event(self.hass, [entity], _changed))
+
+    def _accumulate(self, now: float) -> None:
+        self._ws_total += self._last_power_w * (now - self._last_t)
+        self._last_t = now
+
+    def _take_interval_mean(self, now: float) -> float | None:
+        """Mean power in watts since the previous sample, or None when no time has passed."""
+        self._accumulate(now)
+        dt = now - self._t_at_sample
+        if dt <= 0:
+            return None
+        mean = (self._ws_total - self._ws_at_sample) / dt
+        self._ws_at_sample = self._ws_total
+        self._t_at_sample = now
+        return mean
+
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
@@ -159,7 +194,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         now = dt_util.utcnow().timestamp()
         reading = self._read_inputs(now)
+        interval_mean = self._take_interval_mean(now)
         if reading is not None:
+            reading = replace(reading, power_mean_w=interval_mean)
             self._entries.append(reading)
             self._entries = self._entries[-MAX_ENTRIES:]
             self._samples_since_fit += 1
