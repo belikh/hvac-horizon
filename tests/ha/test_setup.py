@@ -207,8 +207,8 @@ async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_in
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "cool"}) in calls
-    # Price 0.28 $/kWh sits inside the 0.15 to 0.40 band, so the target shifts from 24.0 to 24.04 C.
-    assert ("temp", {"entity_id": CLIMATE, "temperature": 24.04}) in calls
+    # Price 0.28 $/kWh sits inside the 0.15 to 0.40 band, so the target shifts from 24.0 to 24.04 C, and the default device step of 1.0 C rounds it to 24.0.
+    assert ("temp", {"entity_id": CLIMATE, "temperature": 24.0}) in calls
 
 
 async def test_second_ac_gets_the_cool_decision(hass, enable_custom_integrations, config_data):
@@ -851,3 +851,25 @@ async def test_status_sensors_exist_with_control_off(hass, enable_custom_integra
         assert state is not None and state.state not in ("unavailable", "unknown"), (key, state)
     target = hass.states.get(registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_target_c"))
     assert float(target.state) == 24.0, target.state
+
+
+async def test_device_echo_of_rounded_setpoint_is_not_a_manual_change(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.services.async_register("climate", "set_hvac_mode", lambda call: None)
+    hass.services.async_register("climate", "set_temperature", lambda call: None)
+    # Comfort 24.26 plus the price shift gives about 24.30, which the 1.0 C step device stores as 24.0.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "target_temp_step": 1.0, "friendly_name": "Test AC"})
+    data = dict(config_data, control=True, comfort_c=24.26)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    # The setup refresh wrote the rounded setpoint. The device echoes it at its 1.0 C step.
+    assert coordinator._last_written_setpoint == 24.0
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "target_temp_step": 1.0, "friendly_name": "Test AC"})
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator._inhibit_until_min is None

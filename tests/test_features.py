@@ -18,6 +18,7 @@ from custom_components.hvac_horizon.features import (
     learned_solar_scale,
     humidity_action,
     minimum_time_ok,
+    round_to_step,
     mould_target,
     mpc_plan,
     motion_preset,
@@ -914,3 +915,15 @@ class ResidualHeatTests(unittest.TestCase):
     def test_negative_peak_raises(self):
         with self.assertRaises(ValueError):
             residual_rise(-1.0, 5.0)
+
+
+class RoundToStepTests(unittest.TestCase):
+    def test_rounds_to_whole_step(self):
+        self.assertEqual(round_to_step(24.04, 1.0), 24.0)
+
+    def test_rounds_to_half_step(self):
+        self.assertEqual(round_to_step(24.26, 0.5), 24.5)
+
+    def test_zero_step_raises(self):
+        with self.assertRaises(ValueError):
+            round_to_step(24.0, 0)

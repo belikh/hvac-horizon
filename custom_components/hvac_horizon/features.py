@@ -117,6 +117,13 @@ def timed_preset_name(active: bool, timed_preset: str | None, normal_preset: str
     return normal_preset
 
 
+def round_to_step(value: float, step: float) -> float:
+    """Round a setpoint to the nearest multiple of the device's step."""
+    if step <= 0:
+        raise ValueError("step must be positive")
+    return round(round(value / step) * step, 6)
+
+
 def price_shifted_target(comfort_c: float, price_per_kwh: float | None, cheap_per_kwh: float, expensive_per_kwh: float, max_shift_c: float = 1.0) -> float:
     """Move the target by up to `max_shift_c` with the electricity price.
 

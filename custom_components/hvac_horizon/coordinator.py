@@ -76,7 +76,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -1045,11 +1045,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
         current = climate.attributes.get("temperature")
-        if current is None or float(current) != float(action.setpoint_c):
+        step = float(climate.attributes.get("target_temp_step") or 1.0)
+        setpoint = round_to_step(action.setpoint_c, step)
+        if current is None or float(current) != setpoint:
             await self.hass.services.async_call(
-                "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
+                "climate", "set_temperature", {"entity_id": climate_id, "temperature": setpoint}, blocking=True
             )
-            self._last_written_setpoint = float(action.setpoint_c)
+            self._last_written_setpoint = setpoint
             self._last_sent_min = now / 60.0
 
     async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:
