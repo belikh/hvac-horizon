@@ -24,6 +24,7 @@ from custom_components.hvac_horizon.features import (
     classify_day,
     daily_briefing,
     heating_failure,
+    night_plan,
     safety_output,
     scheduled_preset,
     sensor_stalled,
@@ -195,6 +196,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
 
+    def _night_plan(self) -> str | None:
+        """Overnight plan from the room and outdoor readings. Uses the current outdoor reading as the low until a forecast is wired in."""
+        rooms = self._rooms()
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if not rooms or outdoor is None:
+            return None
+        comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        return night_plan(outdoor, statistics.median(rooms), comfort)
+
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
@@ -293,6 +303,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = self._forecast(now)
         result["sensors_stalled"] = self._stalled_sensors(now)
         result["day_type"] = self._day_type()
+        result["night_plan"] = self._night_plan()
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
