@@ -28,6 +28,7 @@ class Pid:
     _last_error: float | None = None
     _last_measure: float | None = None
     _derivative: float = 0.0
+    _last_output: float = 0.0
 
     def reset(self, clear_integral: bool = False) -> None:
         """Forget the last samples, e.g. after the heater was switched off. The integral is kept unless asked."""
@@ -57,14 +58,15 @@ class Pid:
         error = setpoint - measure
         feedforward = self.ke * (setpoint - outdoor) if outdoor is not None else 0.0
 
-        # Anti-windup: decide before adding this step whether the output is already saturated.
+        # Anti-windup: the integral may not grow further into the saturation the heater is in now.
+        # Decide from the last output the heater actually produced, so the integral can still unwind.
         last_error = self._last_error if self._last_error is not None else error
         trapezoid = 0.5 * (error + last_error) * dt_h
-        provisional = self.kp * error + self._integral + self.ki * trapezoid + feedforward + self._derivative
-        saturated_high = provisional >= self.out_max and error > 0
-        saturated_low = provisional <= self.out_min and error < 0
-        if not (saturated_high or saturated_low):
-            self._integral += self.ki * trapezoid
+        delta = self.ki * trapezoid
+        was_high = self._last_output >= self.out_max
+        was_low = self._last_output <= self.out_min
+        if not ((was_high and delta > 0) or (was_low and delta < 0)):
+            self._integral += delta
         self._integral = min(max(self._integral, self.out_min - feedforward), self.out_max - feedforward)
 
         # Derivative on the measurement with a time-based filter weight alpha = dt / (tau + dt).
@@ -81,4 +83,5 @@ class Pid:
         self._last_error = error
         self._last_measure = measure
         output = self.kp * error + self._integral + self._derivative + feedforward
-        return min(max(output, self.out_min), self.out_max)
+        self._last_output = min(max(output, self.out_min), self.out_max)
+        return self._last_output

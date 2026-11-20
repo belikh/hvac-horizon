@@ -30,10 +30,10 @@ class PidTests(unittest.TestCase):
         pid = Pid(kp=1.0, ki=500.0, kd=0.0)
         for _ in range(200):
             pid.update(setpoint=30.0, measure=10.0, dt_h=5 / 60)
-        # The first step still averages in the previous positive error (trapezoid), so the output
-        # falls on the second step after the room passes the setpoint.
-        pid.update(setpoint=20.0, measure=25.0, dt_h=5 / 60)
-        self.assertLess(pid.update(setpoint=20.0, measure=25.0, dt_h=5 / 60), 50.0)
+        # The integral was stuck at its top. Once the room is above the setpoint, it must unwind.
+        for _ in range(3):
+            out = pid.update(setpoint=20.0, measure=25.0, dt_h=5 / 60)
+        self.assertLessEqual(out, 0.0)
 
     def test_rejects_non_positive_step(self):
         with self.assertRaises(ValueError):
