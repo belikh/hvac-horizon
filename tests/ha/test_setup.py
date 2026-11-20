@@ -736,3 +736,36 @@ async def test_boiler_turns_on_when_cold_and_room_below_low_edge(hass, enable_cu
     await hass.async_block_till_done()
     assert coordinator.data["heat_source"] == "boiler"
     assert ("switch.turn_on", "switch.test_boiler") in calls
+
+
+async def test_boiler_blocked_when_outdoor_above_heat_limit(hass, enable_custom_integrations, config_data):
+    calls = []
+
+    async def record_on(call):
+        calls.append(("switch.turn_on", call.data["entity_id"]))
+
+    async def record_off(call):
+        calls.append(("switch.turn_off", call.data["entity_id"]))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    set_inputs(hass)
+    hass.states.async_set(OUTDOOR, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_A, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set("switch.test_boiler", "off")
+    data = dict(config_data, control=True, boiler="switch.test_boiler")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert ("switch.turn_on", "switch.test_boiler") not in calls
+    assert coordinator.data["heating_allowed"] is False

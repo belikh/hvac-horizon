@@ -32,6 +32,7 @@ from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
     boiler_demand,
+    outdoor_allows,
     economizer_phase,
     heat_source,
     mpc_plan,
@@ -706,6 +707,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             low_edge = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)) - 1.0
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
+            result["heating_allowed"] = outdoor_allows("heat", outdoor_now)
         if self._fit is not None and outdoor_now is not None and rooms_econ:
             slots = self._price_forecast(now)
             if slots:
@@ -952,7 +954,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
-        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")))
+        heat_ok = result.get("heating_allowed", True)
+        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok)
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
