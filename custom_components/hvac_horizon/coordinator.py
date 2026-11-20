@@ -19,7 +19,7 @@ from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
-from custom_components.hvac_horizon.features import ScheduleBlock, classify_day, scheduled_preset, sensor_stalled
+from custom_components.hvac_horizon.features import ScheduleBlock, classify_day, heating_failure, scheduled_preset, sensor_stalled
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -28,6 +28,7 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_CO2,
+    CONF_HEATER_SWITCH,
     CONF_SCHEDULE_BLOCKS,
     CONF_PRICE_CHEAP,
     CONF_PRICE_EXPENSIVE,
@@ -96,6 +97,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
+        self._heater_on_since: float | None = None
+        self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
 
@@ -161,6 +164,26 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)
+
+    def _heating_check(self, now: float) -> bool:
+        """True when the heater has run for its window without the room rising. Uses the heater switch when set."""
+        switch_id = self.entry.data.get(CONF_HEATER_SWITCH)
+        if not switch_id:
+            return False
+        state = self.hass.states.get(switch_id)
+        rooms = self._rooms()
+        if state is None or not rooms:
+            return False
+        if state.state != "on":
+            self._heater_on_since = None
+            self._heater_start_temp = None
+            return False
+        if self._heater_on_since is None:
+            self._heater_on_since = now
+            self._heater_start_temp = statistics.median(rooms)
+        on_min = (now - self._heater_on_since) / 60.0
+        rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
+        return heating_failure(on_min, rise)
 
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
@@ -248,6 +271,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = self._forecast(now)
         result["sensors_stalled"] = self._stalled_sensors(now)
         result["day_type"] = self._day_type()
+        result["heating_failure"] = self._heating_check(now)
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
         return result
