@@ -503,6 +503,20 @@ def fan_mode_for_gap(gap_c: float, available: list[str] | None, high_above_c: fl
     return None
 
 
+def window_actuator_command(open_advice: bool, indoor_c: float, outdoor_c: float, is_open: bool, opened_by_us: bool, min_delta_c: float = 2.0) -> str | None:
+    """"open" when the advice says open windows, outdoors is at least `min_delta_c` cooler than indoors and the actuator is shut.
+
+    "close" when the advice has ended or the air is no longer cool enough, and this integration opened the actuator, and it is open.
+    None otherwise. An actuator this integration did not open is never closed.
+    """
+    cooler = indoor_c - outdoor_c >= min_delta_c
+    if open_advice and cooler:
+        return None if is_open else "open"
+    if opened_by_us and is_open:
+        return "close"
+    return None
+
+
 def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c: float) -> bool:
     """True when the plan's next step is idle and the room is more than `deadband_c` below the cool threshold."""
     return not plan_run_now and room_c < cool_above_c - deadband_c

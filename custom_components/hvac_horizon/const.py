@@ -73,6 +73,7 @@ CONF_TPI_THRESHOLD_HIGH = "tpi_threshold_high"  # K above target while the room 
 CONF_TPI_THRESHOLD_LOW = "tpi_threshold_low"  # K above target while the room falls; both thresholds must be above 0 to apply
 CONF_MAX_ON_PERCENT = "max_on_percent"  # caps the TPI on-percent, 0 to 100; unset means no cap
 CONF_NIGHT_PLAN_ACT = "night_plan_act"  # bool, default False: a pre-cool night plan cools to comfort, a hold night plan stops a cool start
+CONF_WINDOW_ACTUATOR = "window_actuator"  # optional cover or switch that opens and closes a window on the natural ventilation or economizer advice
 DEFAULT_HEATER_DEADBAND_C = 0.5  # heater heats below comfort minus this; the AC cools above comfort plus this
 FROST_FLOOR_C = 16.0  # heat target for an empty or vacation house: only keeps the pipes and walls from freezing
 CONF_OUTPUT_MIN = "output_min"  # percent, default 0.0

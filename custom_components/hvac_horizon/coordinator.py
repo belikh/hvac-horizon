@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -116,6 +116,7 @@ from .const import (
     CONF_HEATER_ALGORITHM,
     CONF_MAX_ON_PERCENT,
     CONF_NIGHT_PLAN_ACT,
+    CONF_WINDOW_ACTUATOR,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_TPI_THRESHOLD_HIGH,
@@ -290,6 +291,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
+        self._actuator_opened_by_us = False  # set when this integration opens the window actuator; only then does it close it
         self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._room_model: RoomFit | None = None  # the valid two-device fit the forecast uses when a second AC is set
@@ -1094,6 +1096,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
             result["heating_allowed"] = outdoor_allows("heat", outdoor_now)
+        await self._drive_window_actuator(result)
         # The motion preset sets occupancy in _plan_control. The idle clock starts at the first tick, as presence does.
         motion_state = self._optional(CONF_MOTION)
         motion_on: bool | None = None
@@ -1344,6 +1347,33 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._drive_switch(entity_id, True)
         self._shed_loads.discard(entity_id)
         return sent
+
+    async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
+        """Open or close the window actuator on the natural ventilation or economizer advice.
+
+        Gates: control on, unlocked, house not away and no stalled sensor. The actuator is written only on a state change.
+        """
+        actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
+        state = self.hass.states.get(actuator) if actuator else None
+        if state is None or state.state in ("unavailable", "unknown"):
+            return
+        house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
+        if not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or result.get("sensors_stalled"):
+            return
+        rooms = self._rooms()
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if not rooms or outdoor is None:
+            return
+        open_advice = result.get("window_advice") == "open" or result.get("economizer") in ("open_windows", "fan_assist")
+        command = window_actuator_command(
+            open_advice, statistics.median(rooms), outdoor, state.state in ("open", "on"), self._actuator_opened_by_us
+        )
+        if command is None:
+            return
+        domain = actuator.split(".", 1)[0]
+        service = {"open": "open_cover" if domain == "cover" else "turn_on", "close": "close_cover" if domain == "cover" else "turn_off"}[command]
+        await self.hass.services.async_call(domain, service, {"entity_id": actuator}, blocking=True)
+        self._actuator_opened_by_us = command == "open"
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""

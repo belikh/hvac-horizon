@@ -1217,6 +1217,71 @@ async def test_night_hold_sets_a_running_ac_to_comfort(hass, enable_custom_integ
     assert ("setpoint", 24.0 if flag else 23.0) in writes
 
 
+def _window_actuator_fakes(hass):
+    """Cover services that move the cover's state, so a second write only happens after a state change."""
+    calls = []
+
+    async def opened(call):
+        calls.append(("open", call.data["entity_id"]))
+        hass.states.async_set("cover.test_window", "open")
+
+    async def closed(call):
+        calls.append(("close", call.data["entity_id"]))
+        hass.states.async_set("cover.test_window", "closed")
+
+    hass.services.async_register("cover", "open_cover", opened)
+    hass.services.async_register("cover", "close_cover", closed)
+    hass.states.async_set("cover.test_window", "closed")
+    return calls
+
+
+async def test_window_actuator_opens_on_ventilation_advice_and_closes_when_it_ends(hass, enable_custom_integrations, config_data, freezer):
+    # Room 24 C, outdoor 18 C: the advice is open windows, and outdoors is 6 K cooler. Outdoor 26 C ends the advice.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    assert entry.runtime_data.data["window_advice"] == "open"
+    assert calls == [("open", "cover.test_window")]
+    await refresh(hass, entry)
+    assert calls == [("open", "cover.test_window")]  # the state already reads open, so no second call
+    hass.states.async_set(OUTDOOR, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["window_advice"] == "close"
+    assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
+
+
+async def test_window_actuator_stays_unused_without_the_option(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0")
+    assert entry.runtime_data.data["window_advice"] == "open"
+    await refresh(hass, entry)
+    assert calls == []
+
+
+@pytest.mark.parametrize("gate", ["none", "control_off", "house_away", "locked", "stalled"])
+async def test_window_actuator_obeys_its_gates(hass, enable_custom_integrations, config_data, freezer, gate):
+    # Start with the advice closed (outdoor 26 C). Each gate then changes, and outdoor drops to 18 C to open the advice.
+    # Only the no-gate case opens the window.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    extra = {"window_actuator": "cover.test_window", "lock_pin": "1234"}
+    if gate == "control_off":
+        extra["control"] = False
+    entry, _ = await setup_heater(hass, config_data, outdoor="26.0", room="24.0", extra=extra)
+    if gate == "house_away":
+        await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    if gate == "locked":
+        await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    if gate == "stalled":
+        # The room sensors stop reporting for 16 minutes, so they read as stalled when the advice turns open.
+        freezer.tick(timedelta(minutes=16))
+        hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert calls == ([("open", "cover.test_window")] if gate == "none" else [])
+
+
 async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
     # Same inputs as the TPI test. With heater_algorithm "pid" the PID sets the output and tpi_output_pct stays unset.
     extra = {"comfort_c": 24.0, "heater_algorithm": "pid"}
