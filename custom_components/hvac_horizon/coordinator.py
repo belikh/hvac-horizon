@@ -89,7 +89,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates, tpi_on_percent
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates, tpi_on_percent, tpi_threshold_forced_off
 from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -114,8 +114,11 @@ from .const import (
     CONF_HEATER_KI,
     CONF_HEATER_KD,
     CONF_HEATER_ALGORITHM,
+    CONF_MAX_ON_PERCENT,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
+    CONF_TPI_THRESHOLD_HIGH,
+    CONF_TPI_THRESHOLD_LOW,
     DEFAULT_TPI_COEF_EXT,
     DEFAULT_TPI_COEF_INT,
     HEATER_ALGORITHM_TPI,
@@ -286,6 +289,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
+        self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._room_model: RoomFit | None = None  # the valid two-device fit the forecast uses when a second AC is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
@@ -1157,13 +1161,25 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pid_room = statistics.median(pid_rooms)
             if self.entry.data.get(CONF_HEATER_ALGORITHM) == HEATER_ALGORITHM_TPI:
                 # The TPI duty cycle replaces the PID output. The PID is reset so a switch back starts clean.
-                tpi_pct = tpi_on_percent(
-                    self._heat_target_c,
+                room_slope = None if self._prev_room_c is None else pid_room - self._prev_room_c
+                self._prev_room_c = pid_room
+                if tpi_threshold_forced_off(
                     pid_room,
-                    pid_outdoor,
-                    float(self.entry.data.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
-                    float(self.entry.data.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
-                )
+                    self._heat_target_c,
+                    room_slope,
+                    _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0,
+                    _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_LOW)) or 0.0,
+                ):
+                    tpi_pct = 0.0
+                else:
+                    tpi_pct = tpi_on_percent(
+                        self._heat_target_c,
+                        pid_room,
+                        pid_outdoor,
+                        float(self.entry.data.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
+                        float(self.entry.data.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
+                        max_pct=_optional_float(self.entry.data.get(CONF_MAX_ON_PERCENT)),
+                    )
                 if self._heater_pid is not None:
                     self._heater_pid.reset()
                 self.set_heater_output(boost_output(self._preset_now or "", tpi_pct))

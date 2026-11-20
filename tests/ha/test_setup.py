@@ -1096,6 +1096,53 @@ async def test_tpi_duty_drives_the_heater_switch(hass, enable_custom_integration
     assert "turn_off" in calls
 
 
+async def test_max_on_percent_caps_the_heater_switch_window(hass, enable_custom_integrations, config_data, freezer):
+    # Raw TPI is 59 % (see test_tpi_duty_drives_the_heater_switch). A cap of 30 % turns the switch off at 3 minutes of the 10-minute window.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    extra = {"comfort_c": 24.0, "heater_algorithm": "tpi", "tpi_coef_int": 0.1, "tpi_coef_ext": 0.01, "max_on_percent": 30.0}
+    entry, calls = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra=extra)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    assert coordinator.data["tpi_output_pct"] == pytest.approx(30.0)
+    assert "turn_on" in calls
+    # The fake switch does not change state, so mark it on to match the turn_on it received.
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    freezer.tick(timedelta(minutes=2.9))
+    await coordinator._pwm_timer(dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert "turn_off" not in calls
+    freezer.tick(timedelta(minutes=0.2))
+    await coordinator._pwm_timer(dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert "turn_off" in calls
+
+
+async def test_tpi_threshold_forces_the_output_off_while_the_room_rises(hass, enable_custom_integrations, config_data, freezer):
+    # Target 24 C, outdoor 5 C. Room 24.4 gives 15 %. Room 24.6 gives 13 % with no threshold.
+    # With high 0.5 and low 0.3, a room rising to 24.6 is 0.6 above target, so the output is forced to 0.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    base = {"comfort_c": 24.0, "heater_algorithm": "tpi", "tpi_coef_int": 0.1, "tpi_coef_ext": 0.01}
+    entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="24.4", extra={**base, "tpi_threshold_high": 0.5, "tpi_threshold_low": 0.3})
+    await refresh(hass, entry)
+    # The first tick has no previous room reading, so there is no trend and the threshold does not apply yet.
+    assert entry.runtime_data.data["tpi_output_pct"] == pytest.approx(15.0, abs=0.5)
+    set_room(hass, "24.6")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["tpi_output_pct"] == pytest.approx(0.0)
+
+
+async def test_tpi_threshold_with_one_value_at_zero_has_no_effect(hass, enable_custom_integrations, config_data, freezer):
+    # Same room as the test above. A low threshold of 0 disables the rule, as in VT, so the output stays at 13 %.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    base = {"comfort_c": 24.0, "heater_algorithm": "tpi", "tpi_coef_int": 0.1, "tpi_coef_ext": 0.01}
+    entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="24.4", extra={**base, "tpi_threshold_high": 0.5, "tpi_threshold_low": 0.0})
+    await refresh(hass, entry)
+    set_room(hass, "24.6")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["tpi_output_pct"] == pytest.approx(13.0, abs=0.5)
+
+
 async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
     # Same inputs as the TPI test. With heater_algorithm "pid" the PID sets the output and tpi_output_pct stays unset.
     extra = {"comfort_c": 24.0, "heater_algorithm": "pid"}

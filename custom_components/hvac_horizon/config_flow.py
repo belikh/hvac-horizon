@@ -19,6 +19,9 @@ from .const import (
     CONF_HEATER_KD,
     CONF_HEATER_KI,
     CONF_TPI_COEF_EXT,
+    CONF_TPI_THRESHOLD_HIGH,
+    CONF_TPI_THRESHOLD_LOW,
+    CONF_MAX_ON_PERCENT,
     CONF_TPI_COEF_INT,
     DEFAULT_TPI_COEF_EXT,
     DEFAULT_TPI_COEF_INT,
@@ -205,6 +208,15 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_TPI_COEF_EXT, default=defaults.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=1, step=0.001, mode="box")
+            ),
+            key(CONF_TPI_THRESHOLD_HIGH): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=5, step=0.1, unit_of_measurement="°C")
+            ),
+            key(CONF_TPI_THRESHOLD_LOW): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=5, step=0.1, unit_of_measurement="°C")
+            ),
+            key(CONF_MAX_ON_PERCENT): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
             key(CONF_WHOLE_HOUSE_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_LOCK_PIN, secret=True): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),

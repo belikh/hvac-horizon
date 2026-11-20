@@ -17,6 +17,7 @@ from custom_components.hvac_horizon.tpi import (
     learn_heat_rate,
     learn_room_rates,
     tpi_on_percent,
+    tpi_threshold_forced_off,
 )
 
 K, G, C = 0.3, 0.2, 1.4
@@ -177,3 +178,26 @@ def test_tpi_on_percent_clamps_to_0_and_100():
     # Documented defaults (0.6, 0.01) saturate at 100 % for a 4 K gap.
     assert tpi_on_percent(24.0, 20.0, 5.0, 0.6, 0.01) == 100.0
     assert tpi_on_percent(24.0, 25.0, 5.0, 0.6, 0.01) == 0.0
+
+
+def test_max_on_percent_caps_the_tpi_output():
+    # Raw rule gives 59 % (0.1 * 4 + 0.01 * 19). A cap of 30 gives 30. No cap leaves the raw value.
+    assert tpi_on_percent(24.0, 20.0, 5.0, 0.1, 0.01) == pytest.approx(59.0)
+    assert tpi_on_percent(24.0, 20.0, 5.0, 0.1, 0.01, max_pct=30.0) == pytest.approx(30.0)
+    assert tpi_on_percent(24.0, 20.0, 5.0, 0.1, 0.01, max_pct=90.0) == pytest.approx(59.0)
+
+
+@pytest.mark.parametrize(
+    ("slope", "room", "high", "low", "forced"),
+    [
+        (0.2, 24.6, 0.5, 0.3, True),  # rising, 0.6 above target, high 0.5: forced off
+        (0.2, 24.4, 0.5, 0.3, False),  # rising but inside the high threshold
+        (-0.2, 24.4, 0.5, 0.3, True),  # falling, 0.4 above target, low 0.3: forced off
+        (-0.2, 24.2, 0.5, 0.3, False),  # falling, inside the low threshold
+        (None, 24.6, 0.5, 0.3, False),  # no previous tick: no trend, no threshold
+        (0.2, 24.6, 0.0, 0.3, False),  # high at 0 disables the rule, as in VT
+        (0.2, 24.6, 0.5, 0.0, False),  # low at 0 disables the rule too
+    ],
+)
+def test_threshold_forces_tpi_off_by_trend(slope, room, high, low, forced):
+    assert tpi_threshold_forced_off(room, 24.0, slope, high, low) is forced
