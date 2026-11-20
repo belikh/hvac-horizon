@@ -73,8 +73,10 @@ def decide(state: RoomState, settings: Settings) -> Action:
         return Action(Mode.OFF, None, f"outdoor {state.outdoor_c:.0f} C below cooling limit")
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
-        if state.room_c > settings.away_c:
-            return Action(Mode.COOL, settings.away_c, "away setback")
+        away_target = settings.eco_c if settings.eco_c is not None else settings.away_c
+        if state.room_c > away_target:
+            reason = "eco when unoccupied" if settings.eco_c is not None else "away setback"
+            return Action(Mode.COOL, away_target, reason)
         return Action(Mode.OFF, None, "away, room within setback")
     if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")

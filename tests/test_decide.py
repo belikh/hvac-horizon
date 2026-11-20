@@ -64,6 +64,22 @@ class SafetyFixTests(unittest.TestCase):
         self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 27.0))
 
 
+class OccupancyEcoTests(unittest.TestCase):
+    def test_unoccupied_with_eco_uses_eco_setpoint(self):
+        s = Settings(comfort_c=24.0, away_c=27.0, eco_c=25.5)
+        a = decide(state(someone_home=False, room_c=26.5), s)
+        self.assertEqual((a.mode, a.setpoint_c, a.reason), (Mode.COOL, 25.5, "eco when unoccupied"))
+
+    def test_unoccupied_without_eco_uses_away_setpoint(self):
+        a = decide(state(someone_home=False, room_c=28.0), S)
+        self.assertEqual((a.mode, a.setpoint_c, a.reason), (Mode.COOL, 27.0, "away setback"))
+
+    def test_occupied_ignores_eco(self):
+        s = Settings(comfort_c=24.0, away_c=27.0, eco_c=25.5)
+        a = decide(state(someone_home=True, room_c=26.0), s)
+        self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 24.0))
+
+
 class PresetTests(unittest.TestCase):
     def test_eco_targets_eco_setpoint(self):
         from custom_components.hvac_horizon.decide import Preset, Settings, preset_setpoint
