@@ -31,3 +31,7 @@ CONF_MIN_ON_MIN = "min_on_min"
 CONF_MIN_OFF_MIN = "min_off_min"
 CONF_CO2 = "co2"
 CONF_PM25 = "pm25"
+CONF_PRICE_CHEAP = "price_cheap"
+CONF_PRICE_EXPENSIVE = "price_expensive"
+DEFAULT_PRICE_CHEAP = 0.15
+DEFAULT_PRICE_EXPENSIVE = 0.40

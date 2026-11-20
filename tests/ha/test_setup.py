@@ -178,7 +178,8 @@ async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_in
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "cool"}) in calls
-    assert ("temp", {"entity_id": CLIMATE, "temperature": 24.0}) in calls
+    # Price 0.28 $/kWh sits inside the 0.15 to 0.40 band, so the target shifts from 24.0 to 24.04 C.
+    assert ("temp", {"entity_id": CLIMATE, "temperature": 24.04}) in calls
 
 
 async def test_flow_accepts_control_options(hass, enable_custom_integrations, config_data):

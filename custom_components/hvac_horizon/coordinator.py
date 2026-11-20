@@ -19,7 +19,7 @@ from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
-from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok
+from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 
@@ -27,6 +27,10 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_CO2,
+    CONF_PRICE_CHEAP,
+    CONF_PRICE_EXPENSIVE,
+    DEFAULT_PRICE_CHEAP,
+    DEFAULT_PRICE_EXPENSIVE,
     CONF_COMFORT_C,
     CONF_MIN_OFF_MIN,
     CONF_PM25,
@@ -252,8 +256,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             precool_start_in_min=precool,
             outdoor_c=outdoor,
         )
+        comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        price = _float(self._optional(CONF_PRICE))
+        target_c = price_shifted_target(
+            comfort,
+            price,
+            cheap_per_kwh=float(self.entry.data.get(CONF_PRICE_CHEAP, DEFAULT_PRICE_CHEAP)),
+            expensive_per_kwh=float(self.entry.data.get(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)),
+        )
+        result["target_c"] = round(target_c, 2)
         settings = Settings(
-            comfort_c=float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+            comfort_c=target_c,
             away_c=float(self.entry.data.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
             window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
         )
