@@ -118,8 +118,8 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Valve anti-seize exercise | RM | pure |
 | TRV offset learning | RM | missing |
 | Radiator and underfloor residual heat | RM | missing |
-| Heat source selection (boiler or AC) | RM | missing |
-| Central boiler activation | VT | missing |
+| Heat source selection (boiler or AC) | RM | drives (outdoor temperature picks the source; the boiler switch follows demand) |
+| Central boiler activation | VT | drives (boiler switch, if configured) |
 | Compressor groups (several AC on one compressor) | RM | missing |
 | Second AC under the same room (multi-device control) | ours | missing (room model is single-device in control) |
 | Multi-room coordination | VT, RM | missing (one room per entry) |
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room.
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, second AC under one room, multi-room.
 
-After the weather, shedding and economizer rows were updated, 17 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather, shedding, economizer, heat-source and boiler rows were updated, 15 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
