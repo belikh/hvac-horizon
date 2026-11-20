@@ -2,7 +2,7 @@
 
 Sources: VT = Versatile Thermostat, RM = RoomMind, CA = ClimateAdvisor, PID = smart_thermostat (ScratMan), ours = this integration's own feature, with no competitor.
 
-Checked against commit eb2b42d. Code paths are under `custom_components/hvac_horizon/` unless a cell names `tests/`. HA tests are in `tests/ha/test_setup.py`. Unit tests are in `tests/test_*.py`. A test named `Class.method` sits in that class.
+Checked against commit 91a007e. Code paths are under `custom_components/hvac_horizon/` unless a cell names `tests/`. HA tests are in `tests/ha/test_setup.py`. Unit tests are in `tests/test_*.py`. A test named `Class.method` sits in that class.
 
 Status values:
 - `drives`: a call writes a device or a setpoint, or a value the control path reads changes that write. The cell cites the call site and the gates.
@@ -81,7 +81,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Accept or dismiss learning suggestions | CA | control. Service `respond_suggestion` (`__init__.py:67-68`) calls `respond_suggestion` (coordinator.py:880-887). It changes only the suggestion baseline. Test: `tests/ha/test_setup.py` test_respond_suggestion_dismiss_records_gain |
 | Model predictive control | RM | drives. `mpc_plan` (features.py:799) runs at coordinator.py:1141-1154 over `MPC_STEPS` (16) of `MPC_STEP_MIN` (15 min, coordinator.py:232-233). Gates: a fit and price slots (1132-1134). `mpc_idle` (features.py:531) turns a cool decision OFF at 1606-1609. The idle step never starts heat, because the heat branch is skipped (1652). The plan's cooling start is in the next row. Heating from the plan is missing (see the heating row). Shown at sensor.py:52. Test: `tests/ha/test_setup.py` test_mpc_idle_step_holds_the_ac_off_when_the_room_is_well_below_target; test_mpc_idle_step_never_starts_heat_with_the_ac |
 | MPC plan starts cooling | RM | drives. Behind option `mpc_start` (const.py:77), `decide` starts a cool from plan step 0 (decide.py:94-97) when plan step 0 is set (coordinator.py:1588). The window pause (decide.py:78-79) and the 16 C outdoor limit (decide.py:80-81) still apply. Limit: in the live path `decide()` already cools whenever the room is above the threshold with no gate, so `mpc_start` changes only the reason text unless a gate is open. Test: `tests/ha/test_setup.py` test_mpc_start_cools_a_hot_room_when_the_plan_runs |
-| MPC plan starts heating | RM | missing. No code starts heat from a plan step. The plan is read only for the cooling start (coordinator.py:1588) and the idle step (1606-1609). Test: none |
+| MPC plan starts heating | RM | drives, behind the flow field `mpc_heat` (default off). `mpc_heat_start` (features.py:536) sets `mpc_heat` at coordinator.py:1654, and `_ac_heat_wanted` (1844-1853) lets the AC heat through `_drive_ac_heat`. The heater switch, when set, keeps heat, and every other gate still applies. Result key `action` reads `heat: mpc start`. Tests: four cases in tests/ha/test_setup.py (MPC heat on and off, heating not allowed, heater switch set). Limit: `mpc_heat` works without `ac_heat`. |
 | Adaptive preheat or pre-cool start | RM, CA | drives. Pre-heat: `_preheat` (coordinator.py:1489-1511) raises the heat target to comfort (1470, 1510). The heater follows (1207) and the AC heat start (`_drive_ac_heat`, 1859-1882) follows. Pre-cool: `_precool_start` (2063-2092) feeds `decide` (decide.py:105-106) through `precool_start_in_min` (1579). Test: `tests/ha/test_setup.py` test_preheat_starts_the_heater_one_heat_up_time_before_comfort; test_preheat_is_off_without_a_learned_heat_model; `tests/test_control.py` PrecoolStartTests.test_start_is_returned_for_a_reachable_deadline |
 | Heating failure detection | VT | control. `_heating_check` (coordinator.py:620-636) and `_report_heating_failure` (638-649) raise the `heating_failure` repair issue. The flag is shown at sensor.py:58. Test: `tests/ha/test_setup.py` test_heating_failure_publishes_and_raises_repair; `tests/test_features.py` SafetyAndBriefingTests.test_heating_failure_after_window_without_rise |
 | Heater switch feedback | PID | published. `switch_feedback` (features.py:212) at coordinator.py:1278. Shown at sensor.py:39. No control path reads it. Test: `tests/ha/test_setup.py` test_heater_feedback_is_set_after_one_driven_tick |
@@ -168,15 +168,14 @@ Rows by status. The five counts add up to the row count.
 
 | Status | Rows |
 | :-- | --: |
-| drives | 75 |
+| drives | 76 |
 | published | 15 |
 | control | 18 |
 | pure | 0 |
-| missing | 1 |
+| missing | 0 |
 | total | 109 |
 
-Rows marked `missing`:
-- MPC plan starts heating: no code starts heat from a plan step.
+Rows marked `missing`: none.
 
 Open items:
 - Radiator residual heat: the radiator gate has not run on a heater in this house.
