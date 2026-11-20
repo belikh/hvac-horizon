@@ -186,6 +186,15 @@ def night_plan(outdoor_low_c: float, indoor_c: float, comfort_c: float, cool_bel
     return "none"
 
 
+def suggestion_visible(suggestion: str | None, dismissed_for_k: float | None, learned_k: float | None) -> str | None:
+    """Return the suggestion unless the user dismissed it at this learned gain (within 1 % relative)."""
+    if suggestion is None or learned_k is None:
+        return None
+    if dismissed_for_k is not None and abs(learned_k - dismissed_for_k) <= 0.01 * max(abs(learned_k), 1e-9):
+        return None
+    return suggestion
+
+
 def learning_suggestion(current_k: float, learned_k: float, tolerance: float = 0.2) -> str | None:
     """Suggest a change when the learned heat gain differs from the current value by more than `tolerance` (relative).
 

@@ -39,6 +39,7 @@ from custom_components.hvac_horizon.features import (
     hot_streak,
     lock_allows_control,
     learning_suggestion,
+    suggestion_visible,
     band_action,
     comfort_band,
     compliance_score,
@@ -161,6 +162,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._dismissed_for_k: float | None = None
         self._timed_preset: str | None = None
         self._timed_started_min: float | None = None
         self._timed_duration_min: float = 0.0
@@ -441,6 +443,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return learning_suggestion(self._baseline_k, self._fit.k)
 
+    def respond_suggestion(self, accept: bool) -> None:
+        """Accept adopts the learned heat gain as the baseline; dismiss hides the suggestion until the gain drifts."""
+        if accept:
+            if self._fit is not None:
+                self._baseline_k = self._fit.k
+            self._dismissed_for_k = None
+        elif self._fit is not None:
+            self._dismissed_for_k = self._fit.k
+
     def _night_plan(self) -> str | None:
         """Overnight plan from the room and outdoor readings. Uses the current outdoor reading as the low until a forecast is wired in."""
         rooms = self._rooms()
@@ -593,7 +604,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["external_change"] = self._external_change()
         result["day_type"] = self._day_type()
         result["night_plan"] = self._night_plan()
-        result["learning_suggestion"] = self._learning_suggestion()
+        result["learning_suggestion"] = suggestion_visible(
+            self._learning_suggestion(),
+            dismissed_for_k=self._dismissed_for_k,
+            learned_k=self._fit.k if self._fit is not None else None,
+        )
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)

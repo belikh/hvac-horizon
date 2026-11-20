@@ -24,6 +24,7 @@ SERVICE_WHAT_IF = "what_if"
 SERVICE_EXPORT_CSV = "export_csv"
 SERVICE_LOCK = "set_lock"
 SERVICE_TIMED = "start_timed_preset"
+SERVICE_RESPOND = "respond_suggestion"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -60,6 +61,9 @@ def _register_services(hass: HomeAssistant) -> None:
         if not changed:
             raise ValueError("lock not changed: wrong PIN, or no PIN configured")
 
+    async def respond(call):
+        _coordinator(call).respond_suggestion(bool(call.data["accept"]))
+
     async def start_timed(call):
         _coordinator(call).start_timed_preset(
             str(call.data["preset"]), float(call.data["minutes"]), dt_util.utcnow().timestamp() / 60.0
@@ -74,6 +78,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
+    hass.services.async_register(DOMAIN, SERVICE_RESPOND, respond)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

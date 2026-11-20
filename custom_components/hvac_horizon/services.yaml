@@ -142,3 +142,19 @@ start_timed_preset:
           min: 1
           max: 720
           unit_of_measurement: min
+
+respond_suggestion:
+  name: Respond to learning suggestion
+  description: Accept the learned heat gain as the new baseline, or dismiss the current suggestion until the gain changes again.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon
+    accept:
+      name: Accept
+      required: true
+      selector:
+        boolean:

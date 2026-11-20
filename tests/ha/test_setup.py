@@ -411,3 +411,20 @@ async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrati
     coordinator.start_timed_preset("eco", 30.0, now_min)
     assert coordinator._effective_preset(now_min, "comfort") == "eco"
     assert coordinator._effective_preset(now_min + 31, "comfort") == "comfort"
+
+
+async def test_respond_suggestion_dismiss_records_gain(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    if coordinator._fit is None:
+        from custom_components.hvac_horizon import Fit
+
+        coordinator._fit = Fit(k=0.3, c=1.5, g=0.0)
+    coordinator.respond_suggestion(False)
+    assert coordinator._dismissed_for_k == coordinator._fit.k
+    coordinator.respond_suggestion(True)
+    assert coordinator._dismissed_for_k is None

@@ -190,6 +190,28 @@ class LearningSuggestionTests(unittest.TestCase):
         self.assertIsNone(learning_suggestion(0.0, 0.3))
 
 
+class SuggestionVisibleTests(unittest.TestCase):
+    def test_visible_when_not_dismissed(self):
+        from custom_components.hvac_horizon.features import suggestion_visible
+
+        self.assertEqual(suggestion_visible("text", None, 0.3), "text")
+
+    def test_hidden_when_dismissed_at_same_gain(self):
+        from custom_components.hvac_horizon.features import suggestion_visible
+
+        self.assertIsNone(suggestion_visible("text", 0.3, 0.3))
+
+    def test_visible_again_when_gain_moved_over_one_percent(self):
+        from custom_components.hvac_horizon.features import suggestion_visible
+
+        self.assertEqual(suggestion_visible("text", 0.3, 0.31), "text")
+
+    def test_none_in_gives_none_out(self):
+        from custom_components.hvac_horizon.features import suggestion_visible
+
+        self.assertIsNone(suggestion_visible(None, None, 0.3))
+
+
 class VacationTests(unittest.TestCase):
     def test_vacation_holds_vacation_temperature(self):
         from custom_components.hvac_horizon.features import vacation_target
