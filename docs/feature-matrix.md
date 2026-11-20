@@ -117,7 +117,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Modulating valve opening | RM, VT | drives (valve entity, if configured) |
 | Valve anti-seize exercise | RM | pure |
 | TRV offset learning | RM | pure (trv_offset and corrected_setpoint; no TRV in the house, so no caller) |
-| Radiator and underfloor residual heat | RM | missing |
+| Radiator and underfloor residual heat | RM | pure (residual_rise and residual_correction; no radiators in the house, so no caller) |
 | Heat source selection (boiler or AC) | RM | drives (outdoor temperature picks the source; the boiler switch follows demand) |
 | Central boiler activation | VT | drives (boiler switch, if configured) |
 | Compressor groups (several AC on one compressor) | RM | drives (starts of two ACs in one room are staggered by 5 minutes; not across rooms) |
