@@ -361,3 +361,39 @@ def ventilation_rate_from_co2(co2_ppm: float | None, low_ppm: float = 800.0, hig
     if co2_ppm >= high_ppm:
         return 1.0
     return (co2_ppm - low_ppm) / (high_ppm - low_ppm)
+
+
+def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: float = 5.0) -> bool:
+    """True when a command must be re-sent to keep the device from timing out. Ported from Versatile Thermostat's keep-alive."""
+    if last_sent_min is None:
+        return True
+    return now_min - last_sent_min >= interval_min
+
+
+def valve_exercise_due(last_moved_days: float, interval_days: float = 7.0) -> bool:
+    """True when an idle valve has not moved for `interval_days`, so it should be cycled to stop seizing.
+
+    Ported from RoomMind's TRV valve protection.
+    """
+    return last_moved_days >= interval_days
+
+
+def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0) -> bool:
+    """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
+    the house must not be sealed, and the AC must not be running.
+
+    Ported from ClimateAdvisor's whole-house fan safety rules.
+    """
+    if outdoor_c is None or house_sealed or hvac_running:
+        return False
+    return indoor_c - outdoor_c >= min_delta_c
+
+
+def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) -> float:
+    """Blend comfort and energy setpoints. `weight` 0 gives comfort, 1 gives the energy setpoint.
+
+    Ported from RoomMind's comfort-versus-energy weight.
+    """
+    if not 0.0 <= weight <= 1.0:
+        raise ValueError("weight must be in [0, 1]")
+    return comfort_c + (energy_c - comfort_c) * weight

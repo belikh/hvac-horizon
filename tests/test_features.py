@@ -392,3 +392,36 @@ class VentilationRateTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             ventilation_rate_from_co2(900.0, low_ppm=1200.0, high_ppm=800.0)
+
+
+class MorePortedFeatureTests(unittest.TestCase):
+    def test_keep_alive(self):
+        from custom_components.hvac_horizon.features import keep_alive_due
+
+        self.assertTrue(keep_alive_due(None, 10.0))
+        self.assertFalse(keep_alive_due(8.0, 10.0))
+        self.assertTrue(keep_alive_due(5.0, 10.0))
+
+    def test_valve_exercise(self):
+        from custom_components.hvac_horizon.features import valve_exercise_due
+
+        self.assertFalse(valve_exercise_due(3.0))
+        self.assertTrue(valve_exercise_due(7.0))
+
+    def test_whole_house_fan(self):
+        from custom_components.hvac_horizon.features import whole_house_fan_allowed
+
+        self.assertTrue(whole_house_fan_allowed(False, False, 18.0, 25.0))
+        self.assertFalse(whole_house_fan_allowed(True, False, 18.0, 25.0))
+        self.assertFalse(whole_house_fan_allowed(False, True, 18.0, 25.0))
+        self.assertFalse(whole_house_fan_allowed(False, False, 24.0, 25.0))
+        self.assertFalse(whole_house_fan_allowed(False, False, None, 25.0))
+
+    def test_comfort_energy_blend(self):
+        from custom_components.hvac_horizon.features import comfort_energy_setpoint
+
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.0), 24.0)
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 1.0), 26.0)
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.5), 25.0)
+        with self.assertRaises(ValueError):
+            comfort_energy_setpoint(24.0, 26.0, 1.5)
