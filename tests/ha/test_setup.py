@@ -2236,6 +2236,62 @@ async def test_learned_room_rate_coefficients_are_published_and_used(hass, enabl
     assert "tpi" not in hass.states.get(entity_id).attributes
 
 
+async def test_online_cool_gain_follows_a_weaker_ac_and_survives_reload(hass, enable_custom_integrations, config_data, freezer):
+    # History fits c = 1.4 K/h per kW. The real AC then cools at 0.7, so each live interval warms faster than predicted.
+    # The cool gain must fall, stay inside its clamp, publish on the status entity, and come back after a reload.
+    import math
+
+    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.tpi import GAIN_MIN, GAIN_STEP_MAX
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    temp, readings = 24.0, []
+    for i in range(800):  # the last reading is at `now`, so the first live tick pairs with it
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac = 1.0 if (i // 6) % 2 == 0 else 0.0
+        readings.append(Entry(t=now - (799 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 * ac, setpoint_c=24.0, mode="cool" if ac else "off"))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac) * (5 / 60)
+    coordinator._entries = readings
+    coordinator._refit()
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+
+    gains = [1.0]
+    room = temp
+    for _ in range(12):
+        outdoor = 30.0
+        room = room + (0.3 * (outdoor - room) + 0.2 - 0.7 * 1.1) * (5 / 60)  # weaker AC, 1.1 kW
+        hass.states.async_set(ROOM_A, f"{room:.4f}", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(ROOM_B, f"{room:.4f}", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(POWER, "1100", {"unit_of_measurement": "W", "device_class": "power"})
+        freezer.tick(timedelta(seconds=300))
+        await refresh(hass, entry)
+        gains.append(hass.states.get(entity_id).attributes["auto_tpi_gains"]["cool"])
+
+    assert gains[-1] < 1.0
+    assert all(later <= earlier + 1e-9 for earlier, later in zip(gains, gains[1:]))  # moves one way
+    assert all(earlier - later <= GAIN_STEP_MAX + 1e-9 for earlier, later in zip(gains, gains[1:]))  # bounded step
+    assert min(gains) >= GAIN_MIN
+    # The forecast uses the scaled cooling: the status c is the fitted c times the gain.
+    published = coordinator.data["room_rate_coefficients"]["c_k_per_h_per_kw"]
+    assert coordinator.data["c"] == pytest.approx(published * gains[-1], rel=1e-3)
+
+    before = gains[-1]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["auto_tpi_gains"]["cool"] == pytest.approx(before)
+
+
 async def test_presence_from_two_sources_uses_any_home_and_the_away_delay(hass, enable_custom_integrations, config_data, freezer):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)

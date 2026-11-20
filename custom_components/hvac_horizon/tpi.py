@@ -1,9 +1,11 @@
-"""Room rate coefficients (k, g, c), fitted offline from AC-off and AC-on intervals.
+"""Room rate coefficients (k, g, c) from the stored history, and an online cooling gain.
 
-This is not Versatile Thermostat's Auto TPI, which adjusts controller gains online during each cycle.
-The AC-off intervals give the heat gain toward outdoors (k) and the constant gain (g). The AC-on intervals,
-with k and g held from the AC-off fit, give the cooling per kW (c). A forecast uses these coefficients when
-they are present.
+learn_room_rates fits k and g from the AC-off intervals, then c from the AC-on intervals. It runs at each refit.
+
+adjust_cool_gain runs once per interval between two readings. It scales the fitted c by a gain that follows the
+AC's measured effect on the room. In cool mode a room that warms faster than predicted lowers the gain, and a room
+that cools faster raises it. The gain stays between GAIN_MIN and GAIN_MAX and moves at most GAIN_STEP_MAX per interval.
+The forecast and the pre-cool estimate use the scaled c. The AC's setpoint and mode are not changed by these values.
 """
 
 from __future__ import annotations
@@ -13,19 +15,44 @@ from dataclasses import dataclass
 from .model import MIN_OUTDOOR_SPREAD_K, Fit, NotEnoughData, Sample, _least_squares
 
 MIN_STATE_SAMPLES = 12  # about one hour of 5-minute samples in each state
+GAIN_MIN = 0.5  # the cool gain never drops below half the fitted cooling
+GAIN_MAX = 1.5  # the cool gain never rises above 1.5 times the fitted cooling
+GAIN_RATE = 0.2  # share of the gap between the gain and the implied gain applied in one interval
+GAIN_STEP_MAX = 0.02  # largest change of the cool gain in one interval
+MIN_AC_DROP_K = 0.01  # cooling per interval below this, at gain 1.0, says nothing about the gain
 
 
 @dataclass(frozen=True)
 class TpiFit:
     k: float  # heat-gain rate toward outdoors, 1/h, from the AC-off intervals
     g: float  # constant gain, K/h, from the AC-off intervals
-    c: float  # cooling effect, K/h per kW, from the AC-on intervals
+    c: float  # cooling effect, K/h per kW, from the AC-on intervals, before the online gain
     samples_off: int
     samples_on: int
 
-    def to_fit(self) -> Fit:
-        """The same coefficients as a model fit, so the forecast can use them."""
-        return Fit(k=self.k, c=self.c, g=self.g, samples=self.samples_off + self.samples_on)
+    def to_fit(self, cool_gain: float = 1.0) -> Fit:
+        """The coefficients as a model fit. `cool_gain` scales c; the forecast passes the online gain."""
+        return Fit(k=self.k, c=self.c * cool_gain, g=self.g, samples=self.samples_off + self.samples_on)
+
+
+def adjust_cool_gain(gain: float, sample: Sample, tpi: TpiFit) -> float:
+    """Return the cool gain after one measured interval.
+
+    The implied gain is the value that would have predicted the measured room change. The gain moves toward it by
+    GAIN_RATE of the gap, by at most GAIN_STEP_MAX, and stays within GAIN_MIN to GAIN_MAX. The gain comes back
+    unchanged when the interval has no AC power or too little predicted cooling.
+    """
+    if sample.power_kw <= 0 or sample.minutes <= 0 or tpi.c <= 0:
+        return gain
+    dt_h = sample.minutes / 60.0
+    drop_at_unit_gain = tpi.c * sample.power_kw * dt_h  # K removed in the interval when the gain is 1.0
+    if drop_at_unit_gain < MIN_AC_DROP_K:
+        return gain
+    rise_without_ac = (tpi.k * (sample.outdoor_c - sample.temp_c) + tpi.g) * dt_h  # K, the AC off
+    measured = sample.temp_next_c - sample.temp_c  # K, as the room changed
+    implied = (rise_without_ac - measured) / drop_at_unit_gain
+    step = max(-GAIN_STEP_MAX, min(GAIN_STEP_MAX, GAIN_RATE * (implied - gain)))
+    return min(GAIN_MAX, max(GAIN_MIN, gain + step))
 
 
 def learn_room_rates(samples: list[Sample]) -> TpiFit:

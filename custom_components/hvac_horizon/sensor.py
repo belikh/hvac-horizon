@@ -122,6 +122,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "investigation_ai_mode": d.get("investigation_ai_mode"),  # the AC mode that answer explains; None with no answer
             "ai_calls_today": d.get("ai_calls_today"),
             "room_rate_coefficients": d.get("room_rate_coefficients"),  # k, g from AC-off, c from AC-on; None until fitted
+            "auto_tpi_gains": d.get("auto_tpi_gains"),  # online cool gain on c, clamped to 0.5 to 1.5; 1.0 until it moves
         }
 
     @property

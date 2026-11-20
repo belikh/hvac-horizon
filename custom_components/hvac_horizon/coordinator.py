@@ -88,7 +88,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, learn_room_rates
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, learn_room_rates
 from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -266,6 +266,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ai_answer: str | None = None
         self._ai_answer_mode: str | None = None  # the AC mode the stored answer explains
         self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
+        self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
@@ -393,11 +394,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
         self._heater_gains = data.get("heater_gains")
+        self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._refit()
 
     def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
         """Forecast minutes, energy and cost for given conditions, using the current fit and price slots."""
-        active = self._tpi.to_fit() if self._tpi is not None else self._fit
+        active = self._active_fit()
         if active is None:
             return {"status": "learning", "reason": self._fit_reason}
         f = forecast(active, room_c, target_c, outdoor_c, power_kw, self._price_forecast(dt_util.utcnow().timestamp()))
@@ -434,6 +436,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Forget the stored samples and the fit. The next cycles start learning again."""
         self._entries = []
         self._fit = None
+        self._auto_tpi_gain = 1.0
         self._fit_reason = "learning reset"
         self._backtest_runs = []
         self._forecast_error_min = None
@@ -484,7 +487,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _save_payload(self) -> dict[str, Any]:
-        return {"entries": [asdict(e) for e in self._entries], "heater_gains": self._heater_gains}
+        return {
+            "entries": [asdict(e) for e in self._entries],
+            "heater_gains": self._heater_gains,
+            "auto_tpi_gains": {"cool": self._auto_tpi_gain},
+        }
 
     async def async_shutdown_store(self) -> None:
         await self._store.async_save(self._save_payload())
@@ -506,6 +513,24 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "ac_2_k_per_h_per_kw": round(found.coef["ac_2"], 4),
             "samples": found.samples,
         }
+
+    def _active_fit(self) -> Fit | None:
+        """The room model for the forecast: the fitted rates with the online cooling gain, else the single-device fit."""
+        if self._tpi is not None:
+            return self._tpi.to_fit(self._auto_tpi_gain)
+        return self._fit
+
+    def _learn_cool_gain(self) -> None:
+        """Move the cool gain toward the value that predicts the last interval. Cool mode, same setpoint, AC running."""
+        if self._tpi is None or len(self._entries) < 2:
+            return
+        a, b = self._entries[-2], self._entries[-1]
+        pairs = samples_from_entries([a, b])
+        if not pairs or a.mode != "cool" or b.mode != "cool" or a.setpoint_c is None or b.setpoint_c is None:
+            return
+        if abs(a.setpoint_c - b.setpoint_c) > 0.1:
+            return
+        self._auto_tpi_gain = adjust_cool_gain(self._auto_tpi_gain, pairs[0], self._tpi)
 
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
@@ -953,6 +978,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             reading = replace(reading, power_mean_w=interval_mean)
             self._entries.append(reading)
             self._entries = self._entries[-MAX_ENTRIES:]
+            self._learn_cool_gain()
             self._samples_since_fit += 1
             if self._samples_since_fit >= FIT_EVERY_N_SAMPLES or self._fit is None:
                 self._refit()
@@ -1648,7 +1674,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _precool_start(self, now: float, rooms: list[float]) -> float | None:
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""
         schedule = self._optional(CONF_SCHEDULE)
-        if schedule is None or self._fit is None:
+        active = self._active_fit()
+        if schedule is None or active is None:
             return None
         raw = schedule.attributes.get("next_event")
         try:
@@ -1666,7 +1693,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if power_kw <= 0:
             return None
         return precool_start_in_min(
-            self._fit,
+            active,
             statistics.median(rooms),
             setpoint,
             outdoor,
@@ -1694,8 +1721,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
             "room_fit": self._room_fit,
             "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
+            "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4)},
         }
-        active = self._tpi.to_fit() if self._tpi is not None else self._fit
+        active = self._active_fit()
         if active is None:
             return result
 
