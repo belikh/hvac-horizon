@@ -799,8 +799,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stalled = []
         for name in names:
             state = self.hass.states.get(name)
-            last = state.last_reported.timestamp() if state is not None else None
-            if sensor_stalled(last, now):
+            # A missing or unavailable sensor is not a stall. _rooms() and _read_inputs() already treat it as no reading.
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+            if sensor_stalled(state.last_reported.timestamp(), now):
                 stalled.append(name)
         return stalled
 
