@@ -21,6 +21,7 @@
 <body>
 <h1>Forecast accuracy</h1>
 <p class="muted" id="status">Loading.</p>
+<ul id="entries"></ul>
 <p>Median absolute error: <strong id="median">-</strong> min</p>
 <table>
   <thead><tr><th>Run</th><th>Predicted, min</th><th>Measured, min</th><th>Error, min</th></tr></thead>
@@ -67,13 +68,40 @@
     });
   }
 
-  if (!entryId) {
-    fail("Add ?entry_id= with the config entry id to the address.");
-    return;
+  function listEntries(token) {
+    fetch("/api/hvac_horizon/entries", { headers: { Authorization: "Bearer " + token } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        return response.json();
+      })
+      .then(function (entries) {
+        if (!entries.length) {
+          fail("No HVAC Horizon entry is loaded.");
+          return;
+        }
+        status.textContent = "Pick an entry to see its forecast accuracy.";
+        var list = document.getElementById("entries");
+        entries.forEach(function (entry) {
+          var item = document.createElement("li");
+          var link = document.createElement("a");
+          link.href = "?entry_id=" + encodeURIComponent(entry.entry_id);
+          link.textContent = entry.title;
+          item.appendChild(link);
+          list.appendChild(item);
+        });
+      })
+      .catch(function (error) {
+        fail("Could not load the entry list (" + error.message + ").");
+      });
   }
+
   var token = accessToken();
   if (!token) {
     fail("Sign in to Home Assistant in this browser, then reload this page.");
+    return;
+  }
+  if (!entryId) {
+    listEntries(token);
     return;
   }
   fetch("/api/hvac_horizon/accuracy/" + encodeURIComponent(entryId), { headers: { Authorization: "Bearer " + token } })

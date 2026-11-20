@@ -8,7 +8,7 @@ from homeassistant.const import Platform
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
-from .accuracy_api import async_register_accuracy_page
+from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
 from .forecast import Forecast, PriceSlot, forecast
 from .model import Fit, NotEnoughData, Sample, fit
@@ -121,6 +121,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.start_power_tracking()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    sync_accuracy_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -130,6 +131,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await entry.runtime_data.async_shutdown()
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        sync_accuracy_panel(hass, exclude_entry_id=entry.entry_id)
         entry.runtime_data.forget_cooling()
         entry.runtime_data.forget_peer_requests()
         await entry.runtime_data.async_heater_off()

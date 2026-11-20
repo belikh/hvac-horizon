@@ -4038,3 +4038,69 @@ async def test_peer_setpoint_stays_alone_without_the_setpoint_mode(hass, enable_
     await refresh(hass, peer)
     assert [sp for sp in setpoints if sp[0] == PEER_CLIMATE] == []
     assert (PEER_VALVE, 100.0) in writes  # the valve request still works with the mode off
+
+
+ACCURACY_PANEL = "hvac-horizon-accuracy"
+
+
+async def test_accuracy_panel_opens_the_page_with_the_entry_id_and_the_page_is_served(hass, hass_client_no_auth, enable_custom_integrations, config_data):
+    from homeassistant.components.frontend import DATA_PANELS
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, accuracy_panel=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    panel = hass.data[DATA_PANELS][ACCURACY_PANEL]
+    assert panel.component_name == "iframe"
+    assert panel.sidebar_title == "HVAC Accuracy"
+    url = panel.config["url"]
+    assert url == f"/hvac_horizon/accuracy.html?entry_id={entry.entry_id}"
+    anonymous = await hass_client_no_auth()
+    page = await anonymous.get(url.split("?", 1)[0])
+    assert page.status == 200
+    assert "Forecast accuracy" in await page.text()
+
+
+async def test_accuracy_panel_lists_the_entries_when_several_have_it(hass, hass_client, enable_custom_integrations, config_data):
+    from homeassistant.components.frontend import DATA_PANELS
+
+    set_inputs(hass)
+    first = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, accuracy_panel=True), unique_id=CLIMATE)
+    first.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(first.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["url"] == f"/hvac_horizon/accuracy.html?entry_id={first.entry_id}"
+    second = MockConfigEntry(domain=DOMAIN, title="Bedroom", data=dict(config_data, accuracy_panel=True), unique_id="climate.bedroom_ac")
+    second.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(second.entry_id)
+    await hass.async_block_till_done()
+    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["url"] == "/hvac_horizon/accuracy.html"
+    client = await hass_client()
+    listed = await (await client.get("/api/hvac_horizon/entries")).json()
+    assert sorted((e["entry_id"], e["title"]) for e in listed) == sorted([(first.entry_id, "Test AC"), (second.entry_id, "Bedroom")])
+
+
+async def test_accuracy_panel_is_removed_when_its_last_entry_unloads(hass, enable_custom_integrations, config_data):
+    from homeassistant.components.frontend import DATA_PANELS
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, accuracy_panel=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ACCURACY_PANEL in hass.data[DATA_PANELS]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ACCURACY_PANEL not in hass.data[DATA_PANELS]
+
+
+async def test_accuracy_panel_stays_off_without_the_option(hass, enable_custom_integrations, config_data):
+    from homeassistant.components.frontend import DATA_PANELS
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ACCURACY_PANEL not in hass.data.get(DATA_PANELS, {})
