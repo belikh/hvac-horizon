@@ -31,6 +31,7 @@ from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Setti
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
+    natural_ventilation_window,
     daily_briefing,
     check_pin,
     heating_failure,
@@ -466,6 +467,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         return night_plan(outdoor, statistics.median(rooms), comfort)
 
+    def _window_advice(self) -> str | None:
+        """Advice to open, close or hold windows from the outdoor reading and the room median. Publishes advice only."""
+        rooms = self._rooms()
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if not rooms or outdoor is None:
+            return None
+        return natural_ventilation_window(outdoor, statistics.median(rooms))
+
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
@@ -618,6 +627,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["vacation"] = vacation_on
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
+        result["window_advice"] = self._window_advice()
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
