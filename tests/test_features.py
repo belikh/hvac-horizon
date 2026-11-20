@@ -6,6 +6,7 @@ from custom_components.hvac_horizon.features import (
     classify_day,
     humidity_action,
     minimum_time_ok,
+    mode_disagrees,
     outdoor_allows,
     timed_preset_active,
     transition_message,
@@ -483,3 +484,20 @@ class TransitionMessageTests(unittest.TestCase):
 
     def test_stays_off(self):
         self.assertIsNone(transition_message(False, False, "on", "off"))
+
+
+class ModeDisagreesTests(unittest.TestCase):
+    def test_differing_modes_without_setpoint_change(self):
+        self.assertTrue(mode_disagrees("cool", "off", False))
+
+    def test_matching_modes(self):
+        self.assertFalse(mode_disagrees("cool", "cool", False))
+
+    def test_setpoint_change(self):
+        self.assertFalse(mode_disagrees("cool", "off", True))
+
+    def test_written_mode_none(self):
+        self.assertFalse(mode_disagrees(None, "off", False))
+
+    def test_actual_mode_none(self):
+        self.assertFalse(mode_disagrees("cool", None, False))

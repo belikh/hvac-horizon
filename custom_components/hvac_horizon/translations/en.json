@@ -59,6 +59,10 @@
     "sensors_stalled": {
       "title": "HVAC Horizon sensors not updating",
       "description": "These sensors have not updated recently: {sensors}. Control uses the last good readings until they recover."
+    },
+    "mode_mismatch": {
+      "title": "HVAC Horizon mode does not match",
+      "description": "The AC is in a different mode than HVAC Horizon last set. Check whether it was changed on the unit or another automation."
     }
   }
 }

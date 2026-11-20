@@ -35,6 +35,7 @@ from custom_components.hvac_horizon.features import (
     check_pin,
     heating_failure,
     inhibited,
+    mode_disagrees,
     hot_streak,
     lock_allows_control,
     learning_suggestion,
@@ -158,6 +159,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._last_written_mode: str | None = None
         self._window_paused = False
         self._lock_notified = False
         self._inhibit_until_min: float | None = None
@@ -477,6 +479,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         return abs(current - self._last_written_setpoint) > 0.05
 
+    def _check_mode(self, actual_mode: str | None) -> None:
+        """Raise a repair when the AC mode differs from the last one written and the setpoint is unchanged."""
+        issue_id = f"{self.entry.entry_id}_mode_mismatch"
+        if mode_disagrees(self._last_written_mode, actual_mode, setpoint_changed=self._external_change()):
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="mode_mismatch",
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not updated recently. Published so the user can see them."""
         names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
@@ -698,6 +711,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
+        self._check_mode(climate.state)
         # Minimum on and off times: do not change state until the current state has lasted long enough.
         wanted_on = action.mode is Mode.COOL
         is_on = climate.state == "cool"
@@ -712,12 +726,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
             if humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                self._last_written_mode = "dry"
                 return
             if climate.state != "off":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                self._last_written_mode = "off"
             return
         if climate.state != "cool":
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
+            self._last_written_mode = "cool"
         current = climate.attributes.get("temperature")
         if current is None or float(current) != float(action.setpoint_c):
             await self.hass.services.async_call(

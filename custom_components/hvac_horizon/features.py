@@ -442,3 +442,13 @@ def transition_message(previous: bool, current: bool, on_text: str, off_text: st
     if previous and not current:
         return off_text
     return None
+
+
+def mode_disagrees(written_mode: str | None, actual_mode: str | None, setpoint_changed: bool) -> bool:
+    """True when the AC mode differs from the last mode written and the setpoint did not change.
+
+    A setpoint change is a manual change handled by inhibition. Ported from Versatile Thermostat's incorrect-state repair.
+    """
+    if written_mode is None or actual_mode is None or setpoint_changed:
+        return False
+    return written_mode != actual_mode
