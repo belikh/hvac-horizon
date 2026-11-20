@@ -146,3 +146,20 @@ class SafetyAndBriefingTests(unittest.TestCase):
         text = daily_briefing("hot", 24.0, "pre-cool at 14:00", 17.5)
         self.assertEqual(text, "Day: hot. Comfort 24.0 C. Next: pre-cool at 14:00. Close windows by 17:30.")
         self.assertEqual(daily_briefing("mild", 23.5, None, None), "Day: mild. Comfort 23.5 C.")
+
+
+class NightPlanTests(unittest.TestCase):
+    def test_precool_when_warm_and_cool_outside(self):
+        from custom_components.hvac_horizon.features import night_plan
+
+        self.assertEqual(night_plan(outdoor_low_c=18.0, indoor_c=25.0, comfort_c=24.0), "pre-cool")
+
+    def test_hold_when_at_comfort(self):
+        from custom_components.hvac_horizon.features import night_plan
+
+        self.assertEqual(night_plan(outdoor_low_c=22.0, indoor_c=23.5, comfort_c=24.0), "hold")
+
+    def test_none_when_warm_and_outside_still_warm(self):
+        from custom_components.hvac_horizon.features import night_plan
+
+        self.assertEqual(night_plan(outdoor_low_c=23.0, indoor_c=25.0, comfort_c=24.0), "none")

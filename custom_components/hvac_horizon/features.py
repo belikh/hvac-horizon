@@ -163,3 +163,16 @@ def daily_briefing(day_type: str, comfort_c: float, next_action: str | None, win
         minute = int(round((window_close_h - int(window_close_h)) * 60))
         parts.append(f"Close windows by {hour:02d}:{minute:02d}.")
     return " ".join(parts)
+
+
+def night_plan(outdoor_low_c: float, indoor_c: float, comfort_c: float, cool_below_c: float = 20.0) -> str:
+    """Overnight plan from the forecast low and the room temperature. Ported from ClimateAdvisor's night strategy.
+
+    Returns "pre-cool", "hold" or "none". Pre-cool when the room is above comfort and the outdoor low
+    is cool enough to flush heat overnight. Hold when the room is already at comfort. None otherwise.
+    """
+    if indoor_c > comfort_c and outdoor_low_c <= cool_below_c:
+        return "pre-cool"
+    if indoor_c <= comfort_c:
+        return "hold"
+    return "none"
