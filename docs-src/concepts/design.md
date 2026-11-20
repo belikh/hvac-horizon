@@ -29,7 +29,9 @@ The price forecast can mix slot lengths. A slot lasts until the next start time.
 
 One node per room:
 
-    dT/dt = k (T_out - T) - c P + g
+```text
+dT/dt = k (T_out - T) - c P + g
+```
 
 - `P` is the AC input in kW.
 - `k` is the heat gain from outdoors, in 1/h.
