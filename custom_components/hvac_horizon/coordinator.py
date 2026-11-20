@@ -34,6 +34,7 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     check_pin,
     heating_failure,
+    switch_feedback,
     inhibited,
     mode_disagrees,
     hot_streak,
@@ -162,6 +163,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._heater_commanded_on: bool | None = None
         self._dismissed_for_k: float | None = None
         self._timed_preset: str | None = None
         self._timed_started_min: float | None = None
@@ -332,6 +334,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._tuner = None
         switch = self.entry.data.get(CONF_HEATER_SWITCH)
         if switch and self._tuner is not None:
+            self._heater_commanded_on = bool(want_on)
             self.hass.async_create_task(
                 self.hass.services.async_call("switch", "turn_on" if want_on else "turn_off", {"entity_id": switch}, blocking=True)
             )
@@ -632,6 +635,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
         result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
         result["heating_failure"] = self._heating_check(now)
+        heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
+        heater_state = self.hass.states.get(heater_switch) if heater_switch else None
+        result["heater_feedback"] = switch_feedback(
+            self._heater_commanded_on if heater_switch else None,
+            heater_state.state if heater_state is not None else None,
+        )
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
         if self.entry.data.get(CONF_CONTROL):

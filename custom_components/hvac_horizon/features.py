@@ -142,6 +142,20 @@ def heating_failure(heater_on_min: float, temp_rise_c: float, window_min: float 
     return heater_on_min >= window_min and temp_rise_c < min_rise_c
 
 
+def switch_feedback(commanded_on: bool | None, actual_state: str | None) -> str:
+    """Compare the heater switch's actual state with the last commanded state.
+
+    Returns "not_configured", "unavailable", "match" or "mismatch".
+    """
+    if commanded_on is None:
+        return "not_configured"
+    if actual_state is None or actual_state in ("unavailable", "unknown"):
+        return "unavailable"
+    if (actual_state == "on" and commanded_on) or (actual_state == "off" and not commanded_on):
+        return "match"
+    return "mismatch"
+
+
 def sensor_stalled(last_update_s: float | None, now_s: float, stall_s: float = 900.0) -> bool:
     """True when a sensor has not updated for `stall_s` seconds, or has never updated."""
     if last_update_s is None:

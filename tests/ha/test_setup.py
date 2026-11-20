@@ -428,3 +428,20 @@ async def test_respond_suggestion_dismiss_records_gain(hass, enable_custom_integ
     assert coordinator._dismissed_for_k == coordinator._fit.k
     coordinator.respond_suggestion(True)
     assert coordinator._dismissed_for_k is None
+
+
+async def test_heater_feedback_is_published(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("switch.test_heater", "off")
+    hass.services.async_register("switch", "turn_on", lambda call: None)
+    hass.services.async_register("switch", "turn_off", lambda call: None)
+    data = {**config_data, "heater_switch": "switch.test_heater"}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    value = entry.runtime_data.data["heater_feedback"]
+    print("heater_feedback =", value)
+    assert value in {"not_configured", "unavailable", "match", "mismatch"}

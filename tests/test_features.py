@@ -8,6 +8,7 @@ from custom_components.hvac_horizon.features import (
     minimum_time_ok,
     mode_disagrees,
     outdoor_allows,
+    switch_feedback,
     timed_preset_active,
     timed_preset_name,
     transition_message,
@@ -535,3 +536,17 @@ class TimedPresetNameTests(unittest.TestCase):
 
     def test_active_without_timed_preset_returns_normal(self):
         self.assertEqual(timed_preset_name(True, None, "comfort"), "comfort")
+
+
+class SwitchFeedbackTests(unittest.TestCase):
+    def test_not_configured(self):
+        self.assertEqual(switch_feedback(None, "on"), "not_configured")
+
+    def test_unavailable(self):
+        self.assertEqual(switch_feedback(True, "unavailable"), "unavailable")
+
+    def test_match(self):
+        self.assertEqual(switch_feedback(False, "off"), "match")
+
+    def test_mismatch(self):
+        self.assertEqual(switch_feedback(True, "off"), "mismatch")
