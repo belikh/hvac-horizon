@@ -10,6 +10,15 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_AWAY_C,
+    CONF_COMFORT_C,
+    CONF_CONTROL,
+    CONF_PRESENCE,
+    CONF_WINDOW,
+    CONF_WINDOW_DELAY_MIN,
+    DEFAULT_AWAY_C,
+    DEFAULT_COMFORT_C,
+    DEFAULT_WINDOW_DELAY_MIN,
     CONF_CLIMATE,
     CONF_ENERGY,
     CONF_HUMIDITY,
@@ -47,6 +56,18 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_ENERGY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
+            key(CONF_WINDOW): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+            key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+            vol.Optional(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            vol.Optional(CONF_AWAY_C, default=defaults.get(CONF_AWAY_C, DEFAULT_AWAY_C)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=16, max=32, step=0.5, unit_of_measurement="°C")
+            ),
+            vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
+            ),
+            vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
         }
     )
 

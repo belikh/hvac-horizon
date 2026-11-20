@@ -177,3 +177,13 @@ async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_in
     await hass.async_block_till_done()
     assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "cool"}) in calls
     assert ("temp", {"entity_id": CLIMATE, "temperature": 24.0}) in calls
+
+
+async def test_flow_accepts_control_options(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    data = dict(config_data, comfort_c=24.0, away_c=27.0, window_delay_min=10, control=False)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], data)
+    assert result["type"] == "create_entry"
+    assert result["data"]["comfort_c"] == 24.0
+    assert result["data"]["control"] is False

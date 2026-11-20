@@ -11,7 +11,13 @@
           "outdoor": "Outdoor temperature sensor",
           "price": "Electricity price sensor (optional)",
           "humidity": "Outdoor humidity sensor (optional)",
-          "energy": "Energy counter (optional, kWh)"
+          "energy": "Energy counter (optional, kWh)",
+          "window": "Window or door sensor (optional)",
+          "presence": "Presence sensor, on means home (optional)",
+          "comfort_c": "Comfort setpoint (°C)",
+          "away_c": "Away setpoint (°C)",
+          "window_delay_min": "Minutes a window may stay open before the AC pauses",
+          "control": "Let HVAC Horizon control the AC (off = observe only)"
         }
       },
       "reconfigure": {
@@ -24,7 +30,13 @@
           "outdoor": "Outdoor temperature sensor",
           "price": "Electricity price sensor (optional)",
           "humidity": "Outdoor humidity sensor (optional)",
-          "energy": "Energy counter (optional, kWh)"
+          "energy": "Energy counter (optional, kWh)",
+          "window": "Window or door sensor (optional)",
+          "presence": "Presence sensor, on means home (optional)",
+          "comfort_c": "Comfort setpoint (°C)",
+          "away_c": "Away setpoint (°C)",
+          "window_delay_min": "Minutes a window may stay open before the AC pauses",
+          "control": "Let HVAC Horizon control the AC (off = observe only)"
         }
       }
     },
