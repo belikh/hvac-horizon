@@ -883,3 +883,18 @@ class RoomDevicesTests(unittest.TestCase):
 
     def test_empty_dict_gives_empty_lists(self):
         self.assertEqual(room_devices({}), {"cooling": [], "heating": [], "valves": []})
+
+
+class ComfortEnergyBlendTests(unittest.TestCase):
+    def test_blend_endpoints_and_midpoint(self):
+        from custom_components.hvac_horizon.features import comfort_energy_setpoint
+
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.0), 24.0)
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 1.0), 26.0)
+        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.5), 25.0)
+
+    def test_weight_outside_zero_to_one_raises(self):
+        from custom_components.hvac_horizon.features import comfort_energy_setpoint
+
+        with self.assertRaises(ValueError):
+            comfort_energy_setpoint(24.0, 26.0, 1.5)

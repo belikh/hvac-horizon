@@ -1713,3 +1713,40 @@ async def test_heater_pid_integral_is_frozen_while_the_band_forces_output_to_zer
     # The band overrides the PID request in the drive step, so the switch output (_pwm_pct_now) is 0.
     assert coordinator._pwm_pct_now == 0.0
     assert coordinator._heater_pid._integral == pytest.approx(before)
+
+
+def _register_climate_fakes(hass):
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+
+
+async def test_comfort_energy_weight_moves_the_cooling_target(hass, enable_custom_integrations, config_data):
+    # Comfort 24 C, eco 26 C, weight 1: the target is 26 C, so a room at 25 C is below it and the AC stays off.
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    data = {k: v for k, v in config_data.items() if k != CONF_PRICE}  # no price, so the price shift leaves comfort alone
+    data.update(control=True, eco_c=26.0, comfort_energy_weight=1.0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    hass.states.async_set(ROOM_A, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data._settings.comfort_c == 26.0
+    assert entry.runtime_data._settings.eco_c == 26.0
+
+
+async def test_comfort_energy_weight_off_keeps_comfort_target(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    data = {k: v for k, v in config_data.items() if k != CONF_PRICE}
+    data.update(control=True, eco_c=26.0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    _register_climate_fakes(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data._settings.comfort_c == 24.0

@@ -36,6 +36,7 @@ from .const import (
     CONF_WHOLE_HOUSE_POWER,
     CONF_SCHEDULE_BLOCKS,
     CONF_ECO_C,
+    CONF_COMFORT_ENERGY_WEIGHT,
     CONF_BOILER,
     CONF_DEHUMIDIFIER,
     CONF_HUMIDIFIER,
@@ -184,6 +185,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_ECO_C, default=defaults.get(CONF_ECO_C, DEFAULT_COMFORT_C + 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
+            ),
+            key(CONF_COMFORT_ENERGY_WEIGHT): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=1, step=0.05, mode="slider")
             ),
             key(CONF_BOOST_C, default=defaults.get(CONF_BOOST_C, DEFAULT_COMFORT_C - 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")

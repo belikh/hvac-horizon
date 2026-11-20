@@ -518,6 +518,16 @@ def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: f
     return indoor_c - outdoor_c >= min_delta_c
 
 
+def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) -> float:
+    """Blend comfort and energy setpoints. `weight` 0 gives comfort, 1 gives the energy setpoint.
+
+    Ported from RoomMind's comfort-versus-energy weight.
+    """
+    if not 0.0 <= weight <= 1.0:
+        raise ValueError("weight must be in [0, 1]")
+    return comfort_c + (energy_c - comfort_c) * weight
+
+
 def transition_message(previous: bool, current: bool, on_text: str, off_text: str) -> str | None:
     """Return `on_text` when a state turns True, `off_text` when it turns False, None when unchanged.
 

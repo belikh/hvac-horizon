@@ -79,7 +79,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -88,6 +88,7 @@ from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, sol
 
 from .const import (
     CONF_BOOST_C,
+    CONF_COMFORT_ENERGY_WEIGHT,
     CONF_ECO_C,
     CONF_HEATER_KP,
     CONF_HEATER_KI,
@@ -1109,6 +1110,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         someone_home = presence is None or presence.state in ("on", "home")
         someone_home = effective_home(someone_home, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.
+        energy_weight = float(self.entry.data.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
+        eco_c = _optional_float(self.entry.data.get(CONF_ECO_C))
+        if energy_weight > 0 and eco_c is not None:
+            comfort = comfort_energy_setpoint(comfort, eco_c, min(max(energy_weight, 0.0), 1.0))
         price = _float(self._optional(CONF_PRICE))
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         target_c = vacation_target(
