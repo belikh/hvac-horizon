@@ -53,6 +53,7 @@ from custom_components.hvac_horizon.const import (
     CONF_PRICE,
     CONF_ROOM_SENSORS,
     DOMAIN,
+    PWM_WINDOW_MIN,
 )
 
 CLIMATE = "climate.test_ac"
@@ -1933,6 +1934,55 @@ async def test_closed_gate_still_turns_the_heater_switch_off_during_inhibit(hass
     await refresh(hass, entry)
     assert coordinator._heater_gated
     assert "turn_off" in calls
+
+
+async def test_manual_change_inhibit_blocks_heat_on_but_not_the_room_cutoff(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0", heater_state="off")
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    # A manual AC setpoint change arms the inhibit. The coordinator last wrote 24 C, and the device now reports 22 C.
+    coordinator._last_written_setpoint = 24.0
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    coordinator.set_heater_output(40.0)
+    calls.clear()
+    await refresh(hass, entry)
+    assert coordinator.data["action"] == "inhibited after a manual change"
+    assert coordinator._pwm_on_now is True
+    assert "turn_on" not in calls, "heat on must wait out the inhibit window"
+
+    # The heater runs. The room passes the heat threshold inside the window, so the output drops to 0.
+    hass.states.async_set(HEATER, "on")
+    hass.states.async_set(ROOM_A, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    calls.clear()
+    await refresh(hass, entry)
+    assert coordinator._pwm_on_now is False
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+
+
+async def test_inhibit_still_sends_the_heater_off_edge_of_the_pwm_window(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0", heater_state="on")
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    calls.clear()
+    coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    coordinator._heater_gated = False
+    coordinator._pwm_pct_now = 30.0
+    coordinator._pwm_step(dt_util.utcnow().timestamp())
+    await coordinator._drive_heater_switch()
+    await hass.async_block_till_done()
+    assert calls == []  # the heater is already on, so the on edge sends nothing
+
+    window_s = PWM_WINDOW_MIN * 60.0
+    freezer.tick(timedelta(seconds=0.3 * window_s))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert coordinator._pwm_on_now is False
+    assert calls == ["turn_off"]
+    assert "turn_on" not in calls
 
 
 # The AC cools above these values. Eco and boost use the setpoints set in the entry; comfort is 24 C.

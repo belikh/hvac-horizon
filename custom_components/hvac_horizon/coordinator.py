@@ -720,8 +720,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         switch = self._heater_switch()
         if not switch:
             return
-        if not self._heater_gated and inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
-            # The inhibit window after a manual change keeps the switch as it is. A closed gate still turns it off.
+        if self._pwm_on_now and inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            # The inhibit window after a manual change blocks heat on only. Every off command goes through.
             return
         command_on = apply_polarity(self._pwm_on_now, bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
         await self._command_heater(switch, command_on)
