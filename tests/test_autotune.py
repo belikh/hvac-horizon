@@ -23,3 +23,37 @@ class AutotuneTests(unittest.TestCase):
             ultimate_gain(0.0, 1.0)
         with self.assertRaises(ValueError):
             ziegler_nichols(0.0, 0.4)
+
+
+class RelayTunerTests(unittest.TestCase):
+    def test_relay_switches_around_setpoint(self):
+        from custom_components.hvac_horizon.autotune import RelayTuner
+
+        t = RelayTuner(setpoint_c=22.0, hysteresis_c=0.3)
+        self.assertTrue(t.step(21.5, 0.0))
+        self.assertFalse(t.step(22.4, 0.1))
+        self.assertFalse(t.step(22.0, 0.2))
+        self.assertTrue(t.step(21.6, 0.3))
+
+    def test_result_after_enough_oscillation(self):
+        import math as m
+
+        from custom_components.hvac_horizon.autotune import RelayTuner
+
+        t = RelayTuner(setpoint_c=22.0, hysteresis_c=0.2, min_peaks=4)
+        now = 0.0
+        for i in range(400):
+            temp = 22.0 + 0.5 * m.sin(i / 10.0)
+            t.step(temp, now)
+            now += 1.0 / 60.0
+        self.assertTrue(t.done)
+        g = t.result()
+        self.assertIsNotNone(g)
+        self.assertGreater(g.kp, 0.0)
+
+    def test_no_result_before_enough_peaks(self):
+        from custom_components.hvac_horizon.autotune import RelayTuner
+
+        t = RelayTuner(setpoint_c=22.0, min_peaks=4)
+        t.step(21.0, 0.0)
+        self.assertIsNone(t.result())
