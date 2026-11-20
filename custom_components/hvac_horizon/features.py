@@ -694,15 +694,15 @@ def shed_restore(total_w: float, max_w: float, shed_loads: list[tuple[str, float
     """Entity ID of the shed load to switch back on this cycle, or None.
 
     `shed_loads` holds (entity_id, watts) for the loads this integration shed, lowest priority first.
-    Only the highest priority load is considered, so loads return one per cycle. It returns when the
-    house stays at or below 90 percent of `max_w` with its watts added, so a restore does not trigger a shed.
+    The highest priority load whose watts fit comes back first. A load fits when the house stays at or
+    below 90 percent of `max_w` with its watts added, so a restore does not trigger a shed. One load per cycle.
     """
     if max_w <= 0:
         raise ValueError("max_w must be positive")
-    if not shed_loads:
-        return None
-    entity_id, watts = shed_loads[-1]
-    return entity_id if total_w + watts <= max_w * SHED_RESTORE_FRACTION else None
+    for entity_id, watts in reversed(shed_loads):
+        if total_w + watts <= max_w * SHED_RESTORE_FRACTION:
+            return entity_id
+    return None
 
 
 def stagger_allowed(

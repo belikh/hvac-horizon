@@ -2615,3 +2615,46 @@ async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custo
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", no_prices=True)
     assert "mpc_plan" not in entry.runtime_data.data
     assert modes == ["cool"]
+
+
+async def test_a_high_priority_load_too_big_to_return_does_not_block_a_smaller_one(hass, enable_custom_integrations, config_data):
+    # Limit 4000 W, restore ceiling 3600 W. The high load is 3000 W and cannot return at 2000 W (5000 W is over the ceiling).
+    # The low load is 500 W and fits (2500 W), so it comes back.
+    set_inputs(hass)
+    calls = []
+
+    async def record_on(call):
+        calls.append(("on", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "on")
+
+    async def record_off(call):
+        calls.append(("off", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "off")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("sensor.test_house_power", "5000", {"unit_of_measurement": "W"})
+    hass.states.async_set("switch.test_low", "on")
+    hass.states.async_set("switch.test_high", "on")
+    data = dict(
+        config_data,
+        control=True,
+        whole_house_power="sensor.test_house_power",
+        shed_max_w=4000,
+        shed_loads=["switch.test_low|500", "switch.test_high|3000"],
+    )
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == [("off", "switch.test_low"), ("off", "switch.test_high")]
+
+    hass.states.async_set("sensor.test_house_power", "2000", {"unit_of_measurement": "W"})
+    await refresh(hass, entry)
+    assert calls[2:] == [("on", "switch.test_low")]
+    assert entry.runtime_data.data["restored"] == "switch.test_low"

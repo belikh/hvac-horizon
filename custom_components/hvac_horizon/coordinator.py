@@ -1131,9 +1131,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._drive_shed(to_shed)
                 shed_now = [(entity_id, watts) for entity_id, watts, _ in loads if entity_id in self._shed_loads]
                 restore = shed_restore(total_w, float(max_w), shed_now)
-                if restore is not None:
+                if restore is not None and await self._drive_restore(restore):
                     result["restored"] = restore
-                    await self._drive_restore(restore)
             self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
             self._ac_cooling_tick = False
             if self.entry.data.get(CONF_CONTROL):
@@ -1203,20 +1202,23 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
             self._shed_loads.add(entity_id)
 
-    async def _drive_restore(self, entity_id: str) -> None:
+    async def _drive_restore(self, entity_id: str) -> bool:
         """Switch a load back on after the power limit shed it. Runs only with control on, unlocked and not inhibited.
 
-        The record is dropped once the load is on, whether this call turned it on or the user did.
+        Returns True when this call sent the turn-on command. The record is dropped once the load is on,
+        whether this call turned it on or the user did.
         """
         if not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked):
-            return
+            return False
         if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
-            return
+            return False
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
-            return  # keep the record until the load reports again
+            return False  # keep the record until the load reports again
+        sent = state.state != "on"
         await self._drive_switch(entity_id, True)
         self._shed_loads.discard(entity_id)
+        return sent
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""
