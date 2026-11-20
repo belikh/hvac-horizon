@@ -1490,6 +1490,18 @@ async def test_empty_house_heater_runs_below_the_frost_floor(hass, enable_custom
     assert "turn_on" in calls
 
 
+async def test_heat_target_never_exceeds_the_cool_threshold(hass, enable_custom_integrations, config_data):
+    """A heat setpoint above the cooling threshold would run the heater and the AC in one band."""
+    entry, _ = await setup_heater(hass, config_data, extra={CONF_ECO_C: 26.0, CONF_BOOST_C: 22.0, "heat_boost_c": 25.0})
+    hass.states.async_set(PRICE, "0.275", hass.states.get(PRICE).attributes)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    cool_on = entry.runtime_data.data["cool_on_above_c"]
+    heat_on = entry.runtime_data.data["heat_on_below_c"]
+    assert cool_on == pytest.approx(22.0)
+    assert heat_on <= cool_on - 0.5 + 1e-9
+
+
 async def test_boost_turns_the_heater_switch_on_in_a_cold_room(hass, enable_custom_integrations, config_data):
     # Boost heats to comfort (24 C here, no boost_c set): the threshold is 23.5 C, so a 22.9 C room gets heat.
     entry, calls = await setup_heater(hass, config_data, room="22.9")

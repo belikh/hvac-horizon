@@ -1384,6 +1384,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["heat_up_min"] = None
         if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < comfort_raw:
             heat_target_c, result["preheat"], result["heat_up_min"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
+        # The heater never aims above the cooling threshold. Otherwise the heater and the AC would both run
+        # in one band (for example, boost heat 25 C with boost cooling at 23 C).
+        heat_target_c = min(heat_target_c, self._cool_above_c)
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
