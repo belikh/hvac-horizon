@@ -295,3 +295,21 @@ def compliance_score(in_band_minutes: float, total_minutes: float) -> float | No
     if in_band_minutes < 0 or in_band_minutes > total_minutes:
         raise ValueError("in-band minutes must be between 0 and the total")
     return round(100.0 * in_band_minutes / total_minutes, 1)
+
+
+def weather_day_summary(highs_c: list[float]) -> dict[str, int]:
+    """Count of each day class across the forecast highs. Ported from ClimateAdvisor's forecast summary."""
+    counts: dict[str, int] = {d.value: 0 for d in DayType}
+    for high in highs_c:
+        counts[classify_day(high).value] += 1
+    return counts
+
+
+def hot_streak(highs_c: list[float], threshold_c: float = 30.0, min_days: int = 3) -> bool:
+    """True when at least `min_days` consecutive forecast days reach `threshold_c`. Triggers pre-cooling over a heatwave."""
+    run = 0
+    for high in highs_c:
+        run = run + 1 if high >= threshold_c else 0
+        if run >= min_days:
+            return True
+    return False

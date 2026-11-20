@@ -303,3 +303,17 @@ class ComplianceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             compliance_score(130.0, 120.0)
+
+
+class WeatherSummaryTests(unittest.TestCase):
+    def test_day_counts(self):
+        from custom_components.hvac_horizon.features import weather_day_summary
+
+        counts = weather_day_summary([31.0, 26.0, 20.0, 14.0, 8.0, 31.5])
+        self.assertEqual(counts, {"hot": 2, "warm": 1, "mild": 1, "cool": 1, "cold": 1})
+
+    def test_hot_streak_needs_consecutive_days(self):
+        from custom_components.hvac_horizon.features import hot_streak
+
+        self.assertTrue(hot_streak([31.0, 32.0, 30.5, 20.0]))
+        self.assertFalse(hot_streak([31.0, 20.0, 31.0, 32.0]))
