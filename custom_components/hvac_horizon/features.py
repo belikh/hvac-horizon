@@ -9,6 +9,7 @@ import math
 import statistics
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from custom_components.hvac_horizon.const import CONF_CLIMATE, CONF_CLIMATE_2, CONF_HEATER_SWITCH, CONF_VALVE
 
@@ -411,14 +412,6 @@ def compliance_score(in_band_minutes: float, total_minutes: float) -> float | No
     return round(100.0 * in_band_minutes / total_minutes, 1)
 
 
-def weather_day_summary(highs_c: list[float]) -> dict[str, int]:
-    """Count of each day class across the forecast highs. Ported from ClimateAdvisor's forecast summary."""
-    counts: dict[str, int] = {d.value: 0 for d in DayType}
-    for high in highs_c:
-        counts[classify_day(high).value] += 1
-    return counts
-
-
 def forecast_highs(forecast_items: list[dict]) -> list[float]:
     """Daily highs from Home Assistant forecast dicts. Items without a numeric "temperature" are skipped."""
     highs: list[float] = []
@@ -514,14 +507,6 @@ def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: fl
     return now_min - last_sent_min >= interval_min
 
 
-def valve_exercise_due(last_moved_days: float, interval_days: float = 7.0) -> bool:
-    """True when an idle valve has not moved for `interval_days`, so it should be cycled to stop seizing.
-
-    Ported from RoomMind's TRV valve protection.
-    """
-    return last_moved_days >= interval_days
-
-
 def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0) -> bool:
     """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
     the house must not be sealed, and the AC must not be running.
@@ -531,16 +516,6 @@ def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: f
     if outdoor_c is None or house_sealed or hvac_running:
         return False
     return indoor_c - outdoor_c >= min_delta_c
-
-
-def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) -> float:
-    """Blend comfort and energy setpoints. `weight` 0 gives comfort, 1 gives the energy setpoint.
-
-    Ported from RoomMind's comfort-versus-energy weight.
-    """
-    if not 0.0 <= weight <= 1.0:
-        raise ValueError("weight must be in [0, 1]")
-    return comfort_c + (energy_c - comfort_c) * weight
 
 
 def transition_message(previous: bool, current: bool, on_text: str, off_text: str) -> str | None:
@@ -755,6 +730,11 @@ def learned_solar_scale(modelled_kw: list[float], measured_kw: list[float], min_
     return max(0.1, min(10.0, statistics.median(ratios)))
 
 
+def house_mode_from_store(store: dict[str, Any]) -> str:
+    """The house-wide mode set by the set_house_mode service. Defaults to "home"."""
+    return str(store.get("house_mode", "home"))
+
+
 def effective_home(room_home: bool, house_mode: str) -> bool:
     """Return False when the house mode is "away", otherwise the room's own presence."""
     if house_mode not in ("home", "away"):
@@ -775,61 +755,6 @@ def coil_dry_due(was_cooling: bool, now_cooling: bool, dry_started_min: float | 
     if dry_started_min is None:
         return was_cooling and not now_cooling
     return now_min - dry_started_min < dry_minutes
-
-
-def trv_offset(trv_c: list[float], room_c: list[float], max_abs_k: float = 5.0) -> float | None:
-    """Median of (TRV reading minus room reading) over paired samples. Ported from RoomMind's head offset tracker.
-
-    A TRV's own sensor sits on the radiator and reads differently from the room sensor. Differences larger than
-    max_abs_k in absolute value are dropped as outliers. Returns None when no differences remain.
-    Raises ValueError when the lists differ in length.
-
-    Pure logic with no caller yet: the house has no TRVs, so nothing in the coordinator uses this.
-    """
-    if len(trv_c) != len(room_c):
-        raise ValueError("trv_c and room_c must have the same length")
-    diffs = [t - r for t, r in zip(trv_c, room_c)]
-    kept = [d for d in diffs if abs(d) <= max_abs_k]
-    if not kept:
-        return None
-    return statistics.median(kept)
-
-
-def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
-    """Setpoint to send to a TRV: setpoint_c minus the learned offset, so a TRV reading high gets a lower setpoint.
-
-    Returns setpoint_c unchanged when offset_k is None. Pure logic with no caller yet (no TRV in the house).
-    """
-    if offset_k is None:
-        return setpoint_c
-    return setpoint_c - offset_k
-
-
-def residual_rise(peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0) -> float:
-    """Extra room temperature rise in kelvin still to come after a heater stops.
-
-    The rise decays exponentially: peak_rise_k * exp(-minutes_since_off / tau_min).
-    Ported from RoomMind's radiator and underfloor residual heat model.
-    Raises ValueError when minutes_since_off < 0, tau_min <= 0 or peak_rise_k < 0.
-    Pure logic with no caller yet: the house has no radiators or underfloor heating.
-    """
-    if minutes_since_off < 0:
-        raise ValueError("minutes_since_off must be >= 0")
-    if tau_min <= 0:
-        raise ValueError("tau_min must be > 0")
-    if peak_rise_k < 0:
-        raise ValueError("peak_rise_k must be >= 0")
-    return peak_rise_k * math.exp(-minutes_since_off / tau_min)
-
-
-def residual_correction(
-    room_c: float, peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0
-) -> float:
-    """Room temperature minus the residual rise, so a still-warm room reads cooler and avoids overshoot.
-
-    Pure logic with no caller yet: the house has no radiators or underfloor heating.
-    """
-    return room_c - residual_rise(peak_rise_k, minutes_since_off, tau_min)
 
 
 def room_devices(entry_data: dict) -> dict[str, list[str]]:

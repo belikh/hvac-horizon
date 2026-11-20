@@ -1,11 +1,9 @@
-import math
 import unittest
 
 from custom_components.hvac_horizon.features import (
     apply_polarity,
     boost_output,
     clamp_output,
-    corrected_setpoint,
     coil_dry_due,
     DayType,
     air_quality_ventilation,
@@ -26,15 +24,12 @@ from custom_components.hvac_horizon.features import (
     mode_disagrees,
     outdoor_allows,
     pwm_on,
-    residual_correction,
-    residual_rise,
     shed_plan,
     stagger_allowed,
     switch_feedback,
     timed_preset_active,
     timed_preset_name,
     transition_message,
-    trv_offset,
     valve_opening_pct,
 )
 
@@ -365,11 +360,6 @@ class ComplianceTests(unittest.TestCase):
 
 
 class WeatherSummaryTests(unittest.TestCase):
-    def test_day_counts(self):
-        from custom_components.hvac_horizon.features import weather_day_summary
-
-        counts = weather_day_summary([31.0, 26.0, 20.0, 14.0, 8.0, 31.5])
-        self.assertEqual(counts, {"hot": 2, "warm": 1, "mild": 1, "cool": 1, "cold": 1})
 
     def test_hot_streak_needs_consecutive_days(self):
         from custom_components.hvac_horizon.features import hot_streak
@@ -504,12 +494,6 @@ class MorePortedFeatureTests(unittest.TestCase):
         self.assertFalse(keep_alive_due(8.0, 10.0))
         self.assertTrue(keep_alive_due(5.0, 10.0))
 
-    def test_valve_exercise(self):
-        from custom_components.hvac_horizon.features import valve_exercise_due
-
-        self.assertFalse(valve_exercise_due(3.0))
-        self.assertTrue(valve_exercise_due(7.0))
-
     def test_whole_house_fan(self):
         from custom_components.hvac_horizon.features import whole_house_fan_allowed
 
@@ -518,16 +502,6 @@ class MorePortedFeatureTests(unittest.TestCase):
         self.assertFalse(whole_house_fan_allowed(False, True, 18.0, 25.0))
         self.assertFalse(whole_house_fan_allowed(False, False, 24.0, 25.0))
         self.assertFalse(whole_house_fan_allowed(False, False, None, 25.0))
-
-    def test_comfort_energy_blend(self):
-        from custom_components.hvac_horizon.features import comfort_energy_setpoint
-
-        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.0), 24.0)
-        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 1.0), 26.0)
-        self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.5), 25.0)
-        with self.assertRaises(ValueError):
-            comfort_energy_setpoint(24.0, 26.0, 1.5)
-
 
 class TransitionMessageTests(unittest.TestCase):
     def test_turns_on(self):
@@ -877,54 +851,6 @@ class BoostOutputTest(unittest.TestCase):
     def test_nan_raises_value_error(self):
         with self.assertRaises(ValueError):
             boost_output("comfort", float("nan"))
-
-
-class TrvOffsetTests(unittest.TestCase):
-    def test_constant_offset(self):
-        self.assertEqual(trv_offset([21.0, 22.0, 23.0], [20.0, 21.0, 22.0]), 1.0)
-
-    def test_outlier_dropped(self):
-        self.assertEqual(trv_offset([21.0, 21.0, 40.0], [20.0, 20.0, 20.0]), 1.0)
-
-    def test_empty_gives_none(self):
-        self.assertIsNone(trv_offset([], []))
-
-    def test_mismatched_lengths_raise(self):
-        with self.assertRaises(ValueError):
-            trv_offset([21.0], [20.0, 20.0])
-
-    def test_corrected_setpoint_subtracts_offset(self):
-        self.assertEqual(corrected_setpoint(21.0, 1.5), 19.5)
-
-    def test_corrected_setpoint_none_unchanged(self):
-        self.assertEqual(corrected_setpoint(21.0, None), 21.0)
-
-
-class ResidualHeatTests(unittest.TestCase):
-    def test_rise_at_zero_minutes_equals_peak(self):
-        self.assertEqual(residual_rise(3.0, 0.0), 3.0)
-
-    def test_rise_after_one_tau_is_peak_times_exp_minus_one(self):
-        self.assertAlmostEqual(residual_rise(3.0, 20.0, 20.0), 3.0 * math.exp(-1))
-
-    def test_correction_subtracts_rise(self):
-        self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 19.0)
-
-    def test_negative_minutes_raises(self):
-        with self.assertRaises(ValueError):
-            residual_rise(2.0, -1.0)
-
-    def test_zero_tau_raises(self):
-        with self.assertRaises(ValueError):
-            residual_rise(2.0, 5.0, 0.0)
-
-    def test_negative_tau_raises(self):
-        with self.assertRaises(ValueError):
-            residual_rise(2.0, 5.0, -5.0)
-
-    def test_negative_peak_raises(self):
-        with self.assertRaises(ValueError):
-            residual_rise(-1.0, 5.0)
 
 
 class RoundToStepTests(unittest.TestCase):

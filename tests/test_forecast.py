@@ -2,7 +2,7 @@ import math
 import unittest
 
 from custom_components.hvac_horizon import Fit, PriceSlot, forecast
-from custom_components.hvac_horizon.forecast import equilibrium_c
+from custom_components.hvac_horizon.forecast import _equilibrium_c
 
 FIT = Fit(k=0.4, c=1.5, samples=200)
 
@@ -25,7 +25,7 @@ class ForecastTests(unittest.TestCase):
     def test_time_matches_closed_form(self):
         # Exact solution: T(t) = T_eq + (T0 - T_eq) * exp(-k t).
         t0, target, out, p = 28.0, 26.5, 30.0, 1.1  # equilibrium 25.9 C, so 26.5 is reachable
-        t_eq = equilibrium_c(FIT, out, p)
+        t_eq = _equilibrium_c(FIT, out, p)
         t_closed_h = math.log((t0 - t_eq) / (target - t_eq)) / FIT.k
         f = forecast(FIT, t0, target, out, p, [])
         self.assertTrue(f.reachable)

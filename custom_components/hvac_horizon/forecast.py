@@ -38,7 +38,7 @@ class Forecast:
     reason: str  # short text for the sensor attribute
 
 
-def equilibrium_c(fit: Fit, outdoor_c: float, running_power_kw: float) -> float:
+def _equilibrium_c(fit: Fit, outdoor_c: float, running_power_kw: float) -> float:
     """Temperature where the room stops changing under this power.
 
     With k > 0 this is outdoor + (g - c P) / k. With k = 0 the room keeps moving:
@@ -72,7 +72,7 @@ def forecast(
     if temp_c <= target_c:
         return Forecast(True, 0.0, 0.0, 0.0, math.nan, "already at or below setpoint")
 
-    t_eq = equilibrium_c(fit, outdoor_c, running_power_kw)
+    t_eq = _equilibrium_c(fit, outdoor_c, running_power_kw)
     if t_eq >= target_c:
         return Forecast(
             False, None, None, None, t_eq,

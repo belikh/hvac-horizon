@@ -28,10 +28,6 @@ SERVICE_RESPOND = "respond_suggestion"
 SERVICE_HOUSE_MODE = "set_house_mode"
 
 
-def house_mode(hass: HomeAssistant) -> str:
-    return hass.data.get(DOMAIN, {}).get("house_mode", "home")
-
-
 def _register_services(hass: HomeAssistant) -> None:
     if hass.services.has_service(DOMAIN, SERVICE_RESET):
         return

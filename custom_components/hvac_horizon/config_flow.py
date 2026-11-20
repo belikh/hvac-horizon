@@ -34,6 +34,7 @@ from .const import (
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
     CONF_WHOLE_HOUSE_POWER,
+    CONF_SCHEDULE_BLOCKS,
     CONF_ECO_C,
     CONF_BOILER,
     CONF_DEHUMIDIFIER,
@@ -70,12 +71,41 @@ from .const import (
 )
 
 
+MISSING = object()  # marks a key() call with no schema default
+SCHEDULE_PRESETS = ("comfort", "eco", "boost", "away")
+
+
+def _schedule_block_problem(value: Any) -> str | None:
+    """Return why a schedule block list is invalid, or None when it is valid.
+
+    The list holds {start_h, end_h, preset} dicts. Hours run from 0 to 24. A block with end_h below
+    start_h crosses midnight. The form is a plain object field, so the flow checks the list itself.
+    """
+    if not isinstance(value, list):
+        return "schedule blocks must be a list"
+    for block in value:
+        if not isinstance(block, dict) or set(block) != {"start_h", "end_h", "preset"}:
+            return f"each block needs exactly start_h, end_h and preset: {block}"
+        for hour in ("start_h", "end_h"):
+            h = block[hour]
+            if isinstance(h, bool) or not isinstance(h, (int, float)) or not 0 <= h <= 24:
+                return f"{hour} must be a number from 0 to 24: {h}"
+        if block["start_h"] == block["end_h"]:
+            return f"start_h and end_h must differ: {block}"
+        if block["preset"] not in SCHEDULE_PRESETS:
+            return f"preset must be one of {', '.join(SCHEDULE_PRESETS)}: {block['preset']}"
+    return None
+
+
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
-    def key(name: str, required: bool = False):
+    def key(name: str, required: bool = False, default: Any = MISSING, secret: bool = False):
         marker = vol.Required if required else vol.Optional
-        if name in defaults and defaults[name]:
-            return marker(name, description={"suggested_value": defaults[name]})
-        return marker(name)
+        kwargs: dict[str, Any] = {}
+        if name in defaults and defaults[name] is not None and not secret:
+            kwargs["description"] = {"suggested_value": defaults[name]}
+        if default is MISSING:
+            return marker(name, **kwargs)
+        return marker(name, default=default, **kwargs)
 
     return vol.Schema(
         {
@@ -123,66 +153,71 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
             key(CONF_VACATION): selector.EntitySelector(selector.EntitySelectorConfig(domain=["input_boolean", "switch"])),
-            vol.Optional(CONF_VACATION_C): selector.NumberSelector(
+            key(CONF_VACATION_C): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=30, step=0.5, unit_of_measurement="°C")
             ),
             key(CONF_HEATER_SWITCH): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
-            vol.Optional(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
-            vol.Optional(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
-            vol.Optional(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),
+            key(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
+            key(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
+            key(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),
             key(CONF_WHOLE_HOUSE_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
-            vol.Optional(CONF_LOCK_PIN): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
-            vol.Optional(CONF_COIL_DRY, default=defaults.get(CONF_COIL_DRY, False)): selector.BooleanSelector(),
-            vol.Optional(CONF_HOUSE_SEALED, default=defaults.get(CONF_HOUSE_SEALED, False)): selector.BooleanSelector(),
-            vol.Optional(CONF_PRICE_CHEAP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
-            vol.Optional(CONF_PRICE_EXPENSIVE): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
-            vol.Optional(CONF_MIN_ON_MIN): selector.NumberSelector(
+            key(CONF_LOCK_PIN, secret=True): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
+            key(CONF_COIL_DRY, default=defaults.get(CONF_COIL_DRY, False)): selector.BooleanSelector(),
+            key(CONF_HOUSE_SEALED, default=defaults.get(CONF_HOUSE_SEALED, False)): selector.BooleanSelector(),
+            key(CONF_PRICE_CHEAP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
+            key(CONF_PRICE_EXPENSIVE): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
+            key(CONF_MIN_ON_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
             ),
-            vol.Optional(CONF_MIN_OFF_MIN): selector.NumberSelector(
+            key(CONF_MIN_OFF_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
             ),
-            vol.Optional(CONF_AWAY_DELAY_MIN): selector.NumberSelector(
+            key(CONF_AWAY_DELAY_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=240, step=1, unit_of_measurement="min")
             ),
-            vol.Optional(CONF_SHED_MAX_W): selector.NumberSelector(
+            key(CONF_SHED_MAX_W): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")
             ),
-            vol.Optional(CONF_SHED_LOADS): selector.TextSelector(selector.TextSelectorConfig(multiple=True)),
-            vol.Optional(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
+            key(CONF_SHED_LOADS): selector.TextSelector(selector.TextSelectorConfig(multiple=True)),
+            key(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),
-            vol.Optional(CONF_ECO_C, default=defaults.get(CONF_ECO_C, DEFAULT_COMFORT_C + 1.0)): selector.NumberSelector(
+            key(CONF_ECO_C, default=defaults.get(CONF_ECO_C, DEFAULT_COMFORT_C + 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),
-            vol.Optional(CONF_BOOST_C, default=defaults.get(CONF_BOOST_C, DEFAULT_COMFORT_C - 1.0)): selector.NumberSelector(
+            key(CONF_BOOST_C, default=defaults.get(CONF_BOOST_C, DEFAULT_COMFORT_C - 1.0)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),
-            vol.Optional(CONF_AWAY_C, default=defaults.get(CONF_AWAY_C, DEFAULT_AWAY_C)): selector.NumberSelector(
+            key(CONF_AWAY_C, default=defaults.get(CONF_AWAY_C, DEFAULT_AWAY_C)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=32, step=0.5, unit_of_measurement="°C")
             ),
-            vol.Optional(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)): selector.NumberSelector(
+            key(CONF_WINDOW_DELAY_MIN, default=defaults.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=120, step=1, unit_of_measurement="min")
             ),
-            vol.Optional(CONF_WINDOW_AZIMUTH, default=defaults.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH)): selector.NumberSelector(
+            key(CONF_WINDOW_AZIMUTH, default=defaults.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=360, step=1, unit_of_measurement="°")
             ),
-            vol.Optional(CONF_WINDOW_AREA_M2): selector.NumberSelector(
+            key(CONF_WINDOW_AREA_M2): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50, step=0.1, unit_of_measurement="m²")
             ),
-            vol.Optional(CONF_IRRADIANCE): selector.EntitySelector(
+            key(CONF_IRRADIANCE): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="irradiance")
             ),
-            vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
-            vol.Optional(CONF_HEATER_INVERTED, default=defaults.get(CONF_HEATER_INVERTED, False)): selector.BooleanSelector(),
-            vol.Optional(CONF_OUTPUT_MIN): selector.NumberSelector(
+            key(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
+            key(CONF_HEATER_INVERTED, default=bool(defaults.get(CONF_HEATER_INVERTED, False))): selector.BooleanSelector(),
+            key(CONF_OUTPUT_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
-            vol.Optional(CONF_OUTPUT_MAX): selector.NumberSelector(
+            key(CONF_OUTPUT_MAX): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
+            key(CONF_SCHEDULE_BLOCKS, default=list): selector.ObjectSelector(),
         }
     )
+
+
+# Field names in the form. A reconfigure submit that omits one of these clears it, except the lock PIN.
+FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
 
 
 class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -190,6 +225,10 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None:
+            if _schedule_block_problem(user_input.get(CONF_SCHEDULE_BLOCKS, [])):
+                return self.async_show_form(
+                    step_id="user", data_schema=_schema(user_input), errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
+                )
             await self.async_set_unique_id(user_input[CONF_CLIMATE])
             self._abort_if_unique_id_configured()
             climate = self.hass.states.get(user_input[CONF_CLIMATE])
@@ -200,7 +239,19 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
         entry = self._get_reconfigure_entry()
         if user_input is not None:
-            return self.async_update_reload_and_abort(entry, data_updates=user_input)
+            if _schedule_block_problem(user_input.get(CONF_SCHEDULE_BLOCKS, [])):
+                return self.async_show_form(
+                    step_id="reconfigure",
+                    data_schema=_schema(user_input),
+                    errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"},
+                )
+            # data_updates merges, so a field left out of the submit would keep its old value. Build the
+            # whole data dict instead. The lock PIN is kept when the PIN box is left blank.
+            data = {k: v for k, v in entry.data.items() if k not in FORM_FIELDS}
+            if CONF_LOCK_PIN in entry.data and not user_input.get(CONF_LOCK_PIN):
+                user_input = {**user_input, CONF_LOCK_PIN: entry.data[CONF_LOCK_PIN]}
+            data.update(user_input)
+            return self.async_update_reload_and_abort(entry, data=data)
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_schema(dict(entry.data)),

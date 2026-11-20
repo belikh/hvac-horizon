@@ -51,8 +51,23 @@ STATUS_KEYS: dict[str, str] = {
     "heat_source": "Heat source",
     "boiler_demand": "Boiler demand",
     "whole_house_fan": "Whole-house fan",
+    "heating_failure": "Heating failure",
+    "heater_pid_output": "Heater PID output",
+    "cool_on_above_c": "Cool above",
+    "heat_on_below_c": "Heat below",
+    "backtest_runs": "Backtest runs",
 }
-STATUS_UNITS = {"target_c": "°C", "compliance_pct": "%", "safety_output_pct": "%", "valve_opening_pct": "%", "solar_gain_kw": "kW", "price_used_per_kwh": None}
+STATUS_UNITS = {
+    "target_c": "°C",
+    "cool_on_above_c": "°C",
+    "heat_on_below_c": "°C",
+    "compliance_pct": "%",
+    "safety_output_pct": "%",
+    "valve_opening_pct": "%",
+    "heater_pid_output": "%",
+    "solar_gain_kw": "kW",
+    "price_used_per_kwh": None,
+}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -87,7 +102,14 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         if self._key != "status" or self.coordinator.data is None:
             return None
         d = self.coordinator.data
-        return {"reason": d.get("reason"), "k_per_h": d.get("k"), "c_k_per_kw": d.get("c"), "g_k_per_h": d.get("g")}
+        return {
+            "reason": d.get("reason"),
+            "k_per_h": d.get("k"),
+            "c_k_per_kw": d.get("c"),
+            "g_k_per_h": d.get("g"),
+            "autotune": d.get("autotune"),  # kp, ki, kd after a relay test; None before
+            "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed
+        }
 
     @property
     def native_value(self):

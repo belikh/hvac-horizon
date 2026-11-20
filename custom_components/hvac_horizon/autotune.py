@@ -19,14 +19,14 @@ class Gains:
     kd: float  # hours
 
 
-def ultimate_gain(relay_amplitude_pct: float, input_amplitude_k: float) -> float:
+def _ultimate_gain(relay_amplitude_pct: float, input_amplitude_k: float) -> float:
     """Ku from the relay output amplitude (percent) and the input swing amplitude (kelvin)."""
     if relay_amplitude_pct <= 0 or input_amplitude_k <= 0:
         raise ValueError("amplitudes must be positive")
     return 4.0 * relay_amplitude_pct / (math.pi * input_amplitude_k)
 
 
-def ziegler_nichols(ku: float, tu_h: float) -> Gains:
+def _ziegler_nichols(ku: float, tu_h: float) -> Gains:
     """Classic PID rules: Kp = 0.6 Ku, Ti = Tu / 2, Td = Tu / 8. Returns Ki and Kd in the same units as the PID class."""
     if ku <= 0 or tu_h <= 0:
         raise ValueError("Ku and Tu must be positive")
@@ -36,7 +36,7 @@ def ziegler_nichols(ku: float, tu_h: float) -> Gains:
     return Gains(kp=kp, ki=kp / ti, kd=kp * td)
 
 
-def period_from_peaks(peak_times_h: list[float]) -> float | None:
+def _period_from_peaks(peak_times_h: list[float]) -> float | None:
     """Mean time between consecutive peaks. None with fewer than two peaks."""
     if len(peak_times_h) < 2:
         return None
@@ -87,8 +87,8 @@ class RelayTuner:
         """Gains from the recorded peaks, or None until enough peaks are recorded."""
         if not self.done:
             return None
-        period = period_from_peaks(self._peaks_h)
+        period = _period_from_peaks(self._peaks_h)
         amplitude = sum(abs(s) for s in self._swing[-3:]) / min(3, len(self._swing))
         if period is None or amplitude <= 0:
             return None
-        return ziegler_nichols(ultimate_gain(self.relay_pct, amplitude), period)
+        return _ziegler_nichols(_ultimate_gain(self.relay_pct, amplitude), period)

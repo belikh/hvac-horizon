@@ -1,65 +1,15 @@
-"""Build fit samples from aligned history, and check forecasts on held-out cool-downs.
+"""Find cool-downs in aligned samples and backtest the room model on them.
 
-Input is a wide CSV, one row per interval of equal length, with columns:
-
-    time        ISO 8601 timestamp with its UTC offset
-    room_c      room temperature, degrees C (fused reading)
-    outdoor_c   outdoor temperature, degrees C
-    power_w     mean AC power over the interval, watts
-
-Empty cells mean no reading. Rows with any empty cell are skipped.
+A cool-down is a run of AC-on intervals that starts at least `margin_c` above the target and reaches it.
+The backtest fits the model on the samples before each cool-down, then predicts that cool-down.
 """
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
-from pathlib import Path
 
 from .forecast import forecast
-from .model import Fit, NotEnoughData, Sample, fit
-
-
-@dataclass(frozen=True)
-class Row:
-    time: str
-    room_c: float
-    outdoor_c: float
-    power_w: float
-
-
-def read_rows(path: Path) -> list[Row]:
-    rows: list[Row] = []
-    with path.open(newline="") as fh:
-        for rec in csv.DictReader(fh):
-            try:
-                rows.append(
-                    Row(
-                        time=rec["time"],
-                        room_c=float(rec["room_c"]),
-                        outdoor_c=float(rec["outdoor_c"]),
-                        power_w=float(rec["power_w"]),
-                    )
-                )
-            except (KeyError, ValueError, TypeError):
-                continue  # empty or non-numeric cell: skip the row
-    return rows
-
-
-def samples_from_rows(rows: list[Row], step_min: float) -> list[Sample]:
-    """One sample per pair of consecutive rows. The row at i gives the start state of interval i."""
-    samples = []
-    for a, b in zip(rows, rows[1:]):
-        samples.append(
-            Sample(
-                minutes=step_min,
-                temp_c=a.room_c,
-                temp_next_c=b.room_c,
-                outdoor_c=a.outdoor_c,
-                power_kw=a.power_w / 1000.0,
-            )
-        )
-    return samples
+from .model import NotEnoughData, Sample, fit
 
 
 @dataclass(frozen=True)
@@ -75,7 +25,7 @@ class Cooldown:
     mean_outdoor_c: float
 
 
-def find_cooldowns(samples: list[Sample], target_c: float, margin_c: float = 1.0) -> list[Cooldown]:
+def _find_cooldowns(samples: list[Sample], target_c: float, margin_c: float = 1.0) -> list[Cooldown]:
     """Find AC-on runs that start at least `margin_c` above the target and reach it."""
     found = []
     i = 0
@@ -114,34 +64,6 @@ def find_cooldowns(samples: list[Sample], target_c: float, margin_c: float = 1.0
 
 
 @dataclass(frozen=True)
-class Check:
-    start: int
-    actual_min: float
-    predicted_min: float | None
-    error_min: float | None  # predicted minus actual, None when unreachable
-    reachable: bool
-
-
-def check_cooldowns(fit: Fit, cooldowns: list[Cooldown]) -> list[Check]:
-    """Predict each cool-down from its start state and compare the minutes with the measured run."""
-    out = []
-    for cd in cooldowns:
-        f = forecast(
-            fit,
-            temp_c=cd.start_c,
-            target_c=cd.target_c,
-            outdoor_c=cd.mean_outdoor_c,
-            running_power_kw=cd.mean_power_kw,
-            prices=[],
-        )
-        if f.reachable and f.minutes is not None:
-            out.append(Check(cd.start, cd.actual_min, f.minutes, f.minutes - cd.actual_min, True))
-        else:
-            out.append(Check(cd.start, cd.actual_min, None, None, False))
-    return out
-
-
-@dataclass(frozen=True)
 class BacktestRun:
     start: int
     actual_min: float
@@ -156,7 +78,7 @@ def backtest(samples: list[Sample], target_c: float, min_train: int = 60, margin
     A run with too little earlier data is kept with `predicted_min` None.
     """
     out: list[BacktestRun] = []
-    for cd in find_cooldowns(samples, target_c, margin_c):
+    for cd in _find_cooldowns(samples, target_c, margin_c):
         if cd.start < min_train:
             out.append(BacktestRun(cd.start, cd.actual_min, None, None))
             continue

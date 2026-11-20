@@ -18,8 +18,11 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon.const import (
+    CONF_HEATER_INVERTED,
     CONF_HEATER_SWITCH,
     CONF_CLIMATE,
+    CONF_LOCK_PIN,
+    CONF_SCHEDULE_BLOCKS,
     CONF_OUTDOOR,
     CONF_VACATION,
     CONF_POWER,
@@ -897,12 +900,7 @@ def test_every_conf_key_is_in_the_flow_schema():
     from custom_components.hvac_horizon import config_flow
 
     text = Path(config_flow.__file__).with_name("const.py").read_text()
-    # CONF_SCHEDULE_BLOCKS is edited through the schedule service, not the flow.
-    values = {
-        m.group(2)
-        for m in re.finditer(r'^(CONF_[A-Z0-9_]+)\s*=\s*"([^"]+)"', text, re.M)
-        if m.group(1) != "CONF_SCHEDULE_BLOCKS"
-    }
+    values = {m.group(2) for m in re.finditer(r'^(CONF_[A-Z0-9_]+)\s*=\s*"([^"]+)"', text, re.M)}
     schema_keys = {str(k) for k in config_flow._schema({}).schema}
     missing = sorted(values - schema_keys)
     assert not missing, f"CONF_* keys with no config flow field: {missing}"
@@ -1242,3 +1240,194 @@ async def test_heater_threshold_is_below_ac_threshold_on_every_preset(hass, enab
     assert heat_on < cool_on
     assert cool_on - heat_on == pytest.approx(0.5)
 
+
+
+async def test_boost_drives_heater_output_to_100(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data._pwm_output_pct == 100.0
+
+
+async def test_window_pauses_control_only_after_the_delay(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass.states.async_set(WINDOW, "on")
+    entry, _ = await setup_heater(hass, config_data, extra={"window": WINDOW})
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    # Default window delay is 10 minutes. The window opened at 10:00.
+    freezer.tick(timedelta(minutes=9))
+    await refresh(hass, entry)
+    assert coordinator._window_paused is False
+    freezer.tick(timedelta(minutes=2))
+    await refresh(hass, entry)
+    assert coordinator._window_paused is True
+
+
+async def test_heater_and_threshold_sensors_publish_state(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    registry = er.async_get(hass)
+    for key in ("heating_failure", "heater_pid_output", "cool_on_above_c", "heat_on_below_c", "backtest_runs"):
+        eid = registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_{key}")
+        assert eid is not None, key
+        state = hass.states.get(eid)
+        assert state is not None and state.state not in ("unavailable", "unknown"), (key, state)
+    status = hass.states.get(registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_status"))
+    # No relay test has run, so the attribute is present and empty.
+    assert "autotune" in status.attributes and status.attributes["autotune"] is None
+
+
+async def test_status_attributes_show_autotune_and_malformed_shed_entries(hass, enable_custom_integrations, config_data):
+    from types import SimpleNamespace
+
+    entry, _ = await setup_heater(
+        hass,
+        config_data,
+        extra={"whole_house_power": POWER, "shed_max_w": 500, "shed_loads": ["switch.heater_x|not-a-number"]},
+    )
+    entry.runtime_data._autotune_result = SimpleNamespace(kp=1.25, ki=2.5, kd=0.5)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["shed_skipped"] == "malformed load: switch.heater_x|not-a-number"
+    registry = er.async_get(hass)
+    status = hass.states.get(registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_status"))
+    assert status.attributes["autotune"] == {"kp": 1.25, "ki": 2.5, "kd": 0.5}
+    assert status.attributes["shed_skipped"] == "malformed load: switch.heater_x|not-a-number"
+
+
+async def _reconfigure(hass, entry, submitted):
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == "form"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], submitted)
+    await hass.async_block_till_done()
+    assert result["type"] == "abort" and result["reason"] == "reconfigure_successful", result
+
+
+async def test_reconfigure_clears_a_field_left_out_of_the_submit(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert CONF_PRICE in entry.data
+    submitted = {k: v for k, v in config_data.items() if k != CONF_PRICE}
+    await _reconfigure(hass, entry, submitted)
+    assert CONF_PRICE not in entry.data
+
+
+async def test_reconfigure_keeps_inverted_heater_when_the_submit_omits_it(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    data = {**config_data, CONF_HEATER_INVERTED: True}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await _reconfigure(hass, entry, dict(config_data))
+    assert entry.data[CONF_HEATER_INVERTED] is True
+
+
+async def test_reconfigure_keeps_the_lock_pin_when_the_box_is_blank(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    data = {**config_data, CONF_LOCK_PIN: "4321"}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await _reconfigure(hass, entry, dict(config_data))
+    assert entry.data[CONF_LOCK_PIN] == "4321"
+
+
+async def test_stored_schedule_block_sets_the_preset(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    blocks = [{"start_h": 0.0, "end_h": 24.0, "preset": "eco"}]
+    data = {**config_data, CONF_SCHEDULE_BLOCKS: blocks}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data._preset_now == "eco"
+
+
+async def test_manual_setpoint_is_overwritten_after_the_inhibit_ends(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    sent = []
+
+    async def ignore_mode(call):
+        pass
+
+    async def record_temp(call):
+        # The fake device takes the value it is sent, as a real AC does.
+        sent.append(call.data["temperature"])
+        hass.states.async_set(CLIMATE, "cool", {"temperature": call.data["temperature"], "friendly_name": "Test AC", "target_temp_step": 0.5})
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    # The room is 26 C and comfort is 24 C. A device at 22 C forces the first write of 24 C.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    await refresh(hass, entry)
+    assert sent == [24.0]
+
+    # Someone sets 22 C by hand. The next cycle starts the 30 minute inhibition.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
+    await refresh(hass, entry)
+    assert sent == [24.0]
+    assert coordinator._inhibit_until_min is not None
+
+    # Inside the 30 minute window nothing is sent, not even the keep-alive.
+    freezer.tick(timedelta(minutes=20))
+    await refresh(hass, entry)
+    assert sent == [24.0]
+
+    freezer.tick(timedelta(minutes=11))
+    await refresh(hass, entry)
+    assert sent == [24.0, 24.0], "the coordinator should write its setpoint again after the inhibition"
+
+    # A second manual change starts a new 30 minute inhibition.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 0.5})
+    await refresh(hass, entry)
+    assert sent == [24.0, 24.0]
+    assert coordinator._inhibit_until_min > dt_util.utcnow().timestamp() / 60.0
+
+
+async def test_reconfigure_rejects_a_malformed_schedule_list(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    blocks = [{"start_h": 0.0, "end_h": 24.0, "preset": "eco"}]
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, CONF_SCHEDULE_BLOCKS: blocks}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await entry.start_reconfigure_flow(hass)
+    bad = {**config_data, CONF_SCHEDULE_BLOCKS: [{"start_h": 0.0, "end_h": 25.0, "preset": "eco"}]}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], bad)
+    assert result["type"] == "form"
+    assert result["errors"] == {CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
+    assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
+
+
+async def test_reconfigure_stores_a_valid_schedule_list(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    blocks = [{"start_h": 22.0, "end_h": 6.0, "preset": "eco"}]
+    await _reconfigure(hass, entry, {**config_data, CONF_SCHEDULE_BLOCKS: blocks})
+    assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
+
+
+async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data, heater_state="on")
+    await refresh(hass, entry)
+    assert entry.runtime_data._pwm_output_pct > 0.0
+    await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data._pwm_output_pct == 0.0

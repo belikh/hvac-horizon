@@ -52,10 +52,10 @@ def cool_above_c(settings: Settings, someone_home: bool) -> float:
     """Room temperature above which decide() cools. Away uses eco when set, else the away setback."""
     if not someone_home:
         return settings.eco_c if settings.eco_c is not None else settings.away_c
-    return preset_setpoint(settings)
+    return _preset_setpoint(settings)
 
 
-def preset_setpoint(settings: Settings) -> float:
+def _preset_setpoint(settings: Settings) -> float:
     """The setpoint the active preset asks for. Eco and boost fall back to comfort when unset."""
     if settings.preset is Preset.ECO:
         return settings.eco_c if settings.eco_c is not None else settings.comfort_c

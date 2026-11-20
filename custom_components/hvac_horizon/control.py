@@ -25,7 +25,7 @@ def _shift(slots: list[PriceSlot], offset_min: float) -> list[PriceSlot]:
     return [PriceSlot(s.start_min - offset_min, s.duration_min, s.price_per_kwh) for s in slots]
 
 
-def plan_precool(
+def _plan_precool(
     fit: Fit,
     room_c: float,
     setpoint_c: float,
@@ -69,5 +69,5 @@ def precool_start_in_min(
     """
     if minutes_to_deadline is None or minutes_to_deadline <= 0:
         return None
-    plan = plan_precool(fit, room_c, setpoint_c, outdoor_c, running_power_kw, minutes_to_deadline, prices)
+    plan = _plan_precool(fit, room_c, setpoint_c, outdoor_c, running_power_kw, minutes_to_deadline, prices)
     return None if plan is None else plan.start_in_min

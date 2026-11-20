@@ -79,7 +79,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -249,6 +249,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._window_paused = False
         self._lock_notified = False
         self._inhibit_until_min: float | None = None
+        self._inhibited_for_setpoint: float | None = None  # the manual value that last armed the inhibition
         self._last_written_setpoint: float | None = None
         self._autotune_result = None
         self._last_good_price_at: float | None = None
@@ -478,7 +479,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         window = self._optional(CONF_WINDOW)
         return (
             (window is not None and window.state == "on")
-            or self.hass.data.get(DOMAIN, {}).get("house_mode", "home") == "away"
+            or house_mode_from_store(self.hass.data.get(DOMAIN, {})) == "away"
             or not result.get("heating_allowed", True)
             or not lock_allows_control(self._locked)
             or bool(result["sensors_stalled"])
@@ -738,13 +739,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             persistent_notification.async_dismiss(self.hass, issue_id)
             self._stall_reported = False
 
-    def _external_change(self) -> bool:
-        """True when the climate setpoint differs from the last one this integration wrote (someone changed it by hand)."""
+    def _device_setpoint(self) -> float | None:
+        """The setpoint the climate entity reports, or None when it reports none."""
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         if climate is None or climate.attributes.get("temperature") is None:
-            return False
-        current = float(climate.attributes["temperature"])
-        if self._last_written_setpoint is None:
+            return None
+        return float(climate.attributes["temperature"])
+
+    def _external_change(self) -> bool:
+        """True when the climate setpoint differs from the last one this integration wrote (someone changed it by hand)."""
+        current = self._device_setpoint()
+        if current is None or self._last_written_setpoint is None:
             return False
         return abs(current - self._last_written_setpoint) > 0.05
 
@@ -951,13 +956,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pid_out = self._heater_pid.update(
                 self._cool_above_c, statistics.median(pid_rooms), SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor
             )
-            self.set_heater_output(pid_out)
+            self.set_heater_output(boost_output(self._preset_now or "", pid_out))
             result["heater_pid_output"] = round(pid_out, 2)
         elif heater_configured and not inhibit_active:
             # The PID cannot run (no room or outdoor reading). A stale output must not keep the heater on.
-            self.set_heater_output(0.0)
-        if heater_configured and not self._heater_gated and not inhibit_active and self._preset_now == "boost":
-            self.set_heater_output(100.0)
+            # Boost still heats: boost_output returns 100 in boost and 0 otherwise.
+            self.set_heater_output(boost_output(self._preset_now or "", 0.0))
         valve_rooms = self._rooms()
         valve_opening = None
         if valve_rooms:
@@ -1069,7 +1073,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         presence = self._optional(CONF_PRESENCE)
         # A binary presence sensor reports "on" for home. A person or tracker reports "home".
         someone_home = presence is None or presence.state in ("on", "home")
-        someone_home = effective_home(someone_home, self.hass.data.get(DOMAIN, {}).get("house_mode", "home"))
+        someone_home = effective_home(someone_home, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         price = _float(self._optional(CONF_PRICE))
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
@@ -1118,7 +1122,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         now_min = now / 60.0
         if self._external_change():
-            self._inhibit_until_min = now_min + INHIBIT_MIN
+            # Arm the inhibition once per manual value. Re-arming on every cycle would keep the AC silent
+            # for as long as the manual setpoint stands.
+            manual = self._device_setpoint()
+            if manual != self._inhibited_for_setpoint:
+                self._inhibit_until_min = now_min + INHIBIT_MIN
+                self._inhibited_for_setpoint = manual
+        else:
+            self._inhibited_for_setpoint = None
         if inhibited(now_min, self._inhibit_until_min):
             result["action"] = "inhibited after a manual change"
             return
@@ -1134,6 +1145,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": self._last_written_setpoint}, blocking=True
             )
             self._last_sent_min = now_min
+            self._inhibited_for_setpoint = None  # the resend answers the manual change
         rooms = self._rooms()
         if not rooms:
             return
@@ -1145,7 +1157,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
         window_delay_min = float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
         self._notify_transition(
-            "window", "_window_paused", window_open_min >= window_delay_min,
+            "window", "_window_paused", window_open_pause(window_open_min, window_delay_min),
             "HVAC Horizon paused control: a window is open.", "HVAC Horizon resumed control: the window is closed.",
         )
         precool = self._precool_start(now, rooms)
@@ -1236,6 +1248,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._last_written_setpoint = setpoint
             self._last_sent_min = now / 60.0
+            self._inhibited_for_setpoint = None  # our write answers the manual change
 
     async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:
         """Run the AC in dry mode for 20 minutes after cooling stops. Returns True when it handled the cycle.

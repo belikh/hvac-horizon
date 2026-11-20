@@ -41,7 +41,7 @@ def _running_kw(power_w: float) -> float:
     return kw if kw >= RUNNING_MIN_KW else 0.0
 
 
-def interval_power_kw(a: Entry, b: Entry) -> float:
+def _interval_power_kw(a: Entry, b: Entry) -> float:
     """Mean AC power between two readings, in kW.
 
     Uses the energy counter when both readings have one, because it averages the
@@ -72,7 +72,7 @@ def samples_from_entries(entries: list[Entry]) -> list[Sample]:
                 temp_c=a.room_c,
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
-                power_kw=interval_power_kw(a, b),
+                power_kw=_interval_power_kw(a, b),
             )
         )
     return out
@@ -113,7 +113,7 @@ MIN_CYCLE_SAMPLES = 36  # three hours of 5-minute samples per state
 MIN_CYCLES = 3  # distinct AC-on runs
 
 
-def resample_states(points: list[tuple[float, float]], start: float, end: float, step: float = STEP_S) -> list[tuple[float, float | None]]:
+def _resample_states(points: list[tuple[float, float]], start: float, end: float, step: float = STEP_S) -> list[tuple[float, float | None]]:
     """Last known value on a fixed grid. `points` are (time, value) state changes in any order.
 
     Each grid time takes the most recent state at or before it. Grid times before the first state get None.
@@ -150,9 +150,9 @@ def entries_from_history(
     """
     if not rooms:
         return []
-    room_grids = [resample_states(points, start, end, step) for points in rooms]
-    outdoor_grid = resample_states(outdoor, start, end, step)
-    power_grid = resample_states(power, start, end, step)
+    room_grids = [_resample_states(points, start, end, step) for points in rooms]
+    outdoor_grid = _resample_states(outdoor, start, end, step)
+    power_grid = _resample_states(power, start, end, step)
     out: list[Entry] = []
     for idx, (t, out_v) in enumerate(outdoor_grid):
         if out_v is None or power_grid[idx][1] is None:

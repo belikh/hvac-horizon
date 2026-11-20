@@ -54,7 +54,10 @@
           "price_expensive": "Expensive price threshold",
           "min_on_min": "Minimum AC on time (min)",
           "min_off_min": "Minimum AC off time (min)",
-          "away_delay_min": "Minutes without presence before away mode"
+          "away_delay_min": "Minutes without presence before away mode",
+          "schedule_blocks": "Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional)",
+          "dehumidifier": "Dehumidifier switch (optional)",
+          "fan": "Room fan switch (optional)"
         }
       },
       "reconfigure": {
@@ -110,13 +113,19 @@
           "price_expensive": "Expensive price threshold",
           "min_on_min": "Minimum AC on time (min)",
           "min_off_min": "Minimum AC off time (min)",
-          "away_delay_min": "Minutes without presence before away mode"
+          "away_delay_min": "Minutes without presence before away mode",
+          "schedule_blocks": "Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional)",
+          "dehumidifier": "Dehumidifier switch (optional)",
+          "fan": "Room fan switch (optional)"
         }
       }
     },
     "abort": {
       "already_configured": "This AC is already set up.",
       "reconfigure_successful": "Settings updated. Stored samples are kept."
+    },
+    "error": {
+      "invalid_schedule_blocks": "Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
     }
   },
   "issues": {
