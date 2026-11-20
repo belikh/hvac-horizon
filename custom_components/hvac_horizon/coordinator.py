@@ -1515,6 +1515,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (
             preset_name == Preset.BOOST.value
             and bool(result.get("heating_allowed", True))
+            and (self._heater_switch() is not None or bool(self.entry.data.get(CONF_AC_HEAT)) or bool(self.entry.data.get(CONF_MPC_HEAT_PLAN)))
             and settings.boost_c is not None
             and heat_target_c + DEFAULT_HEATER_DEADBAND_C > settings.boost_c
         ):

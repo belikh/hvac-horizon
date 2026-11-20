@@ -4304,3 +4304,32 @@ async def test_accuracy_panel_stays_off_without_the_option(hass, enable_custom_i
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert ACCURACY_PANEL not in hass.data.get(DATA_PANELS, {})
+
+
+async def test_boost_on_an_ac_only_entry_cools_to_boost_setpoint(hass, enable_custom_integrations, config_data):
+    """No heat path (no heater switch, ac_heat and mpc_heat_plan off): boost must not lift the cool threshold."""
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "24.5", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "24.5", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, control=True, boost_c=23.0)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(23.0)
+    assert "cool" in modes
