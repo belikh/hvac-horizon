@@ -1472,3 +1472,41 @@ async def test_pwm_timer_does_not_command_the_heater_during_a_relay_test(hass, e
     calls.clear()
     await coordinator._pwm_timer(dt_util.utcnow())
     assert calls == []
+
+
+def set_room(hass, temp: str) -> None:
+    hass.states.async_set(ROOM_A, temp, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, temp, {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+
+async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, enable_custom_integrations, config_data, freezer):
+    import math
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator.start_autotune(24.0)
+    # One reading per 5 minute cycle, a 1 K swing with a one hour period. The test completes after about five hours.
+    # The outdoor sensor is refreshed too: a sensor that stops updating for 15 minutes closes the heater gate.
+    # Home Assistant keeps last_updated when neither the state nor an attribute changes, so the tick is an attribute.
+    for tick in range(120):
+        set_room(hass, f"{24.0 + math.sin(2 * math.pi * tick / 12):.3f}")
+        hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature", "tick": tick})
+        freezer.tick(timedelta(minutes=5))
+        await refresh(hass, entry)
+        if coordinator._autotune_result is not None:
+            break
+    tuned = coordinator._autotune_result
+    assert tuned is not None
+    assert coordinator._heater_pid.kp == pytest.approx(tuned.kp)
+    assert coordinator._heater_pid.ki == pytest.approx(tuned.ki)
+    assert coordinator._heater_pid.kd == pytest.approx(tuned.kd)
+
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=5))
+    await refresh(hass, entry)
+    restarted = entry.runtime_data._heater_pid
+    assert restarted.kp == pytest.approx(tuned.kp)
+    assert restarted.ki == pytest.approx(tuned.ki)
+    assert restarted.kd == pytest.approx(tuned.kd)

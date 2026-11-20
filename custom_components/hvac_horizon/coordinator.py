@@ -225,6 +225,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._stall_reported = False
         self._locked = False
         self._heater_pid: Pid | None = None
+        self._heater_gains: dict[str, float] | None = None  # kp, ki, kd from the last relay test; stored, used before the options
         self._was_cooling: bool = False
         self._dry_started_min: float | None = None
         self._solar_pairs: list[tuple[float, float]] = []
@@ -354,6 +355,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
+        self._heater_gains = data.get("heater_gains")
         self._refit()
 
     def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
@@ -424,12 +426,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return want_on
 
     def _finish_relay(self) -> None:
-        """Keep the result and end the test. The heater stays off this step and the PWM path resumes on the next."""
-        self._autotune_result = self._tuner.result()
+        """End the test and keep its gains. The heater stays off this step and the PWM path resumes on the next."""
+        result = self._tuner.result()
         self._tuner = None
+        self._autotune_result = result
+        if result is not None:
+            self._heater_gains = {"kp": result.kp, "ki": result.ki, "kd": result.kd}
+            if self._heater_pid is not None:
+                self._heater_pid.set_gains(kp=result.kp, ki=result.ki, kd=result.kd)
+            self._store.async_delay_save(self._save_payload, 0)
 
     def _save_payload(self) -> dict[str, Any]:
-        return {"entries": [asdict(e) for e in self._entries]}
+        return {"entries": [asdict(e) for e in self._entries], "heater_gains": self._heater_gains}
 
     async def async_shutdown_store(self) -> None:
         await self._store.async_save(self._save_payload())
@@ -958,10 +966,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._heater_pid.reset()
         elif heater_configured and pid_rooms and pid_outdoor is not None and not inhibit_active:
             if self._heater_pid is None:
+                tuned = self._heater_gains or {}
                 self._heater_pid = Pid(
-                    float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)),
-                    float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)),
-                    float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)),
+                    float(tuned.get("kp", self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP))),
+                    float(tuned.get("ki", self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI))),
+                    float(tuned.get("kd", self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD))),
                     ke=0.0,
                     out_min=0.0,
                     out_max=100.0,
