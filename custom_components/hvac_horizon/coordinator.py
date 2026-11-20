@@ -76,7 +76,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -950,6 +950,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         preset_name = scheduled_preset(dt_util.now().hour + dt_util.now().minute / 60.0, blocks)
         preset_name = self._effective_preset(now_min, preset_name)
         result["preset"] = preset_name
+        if preset_name:
+            # Boost forces the heater PID output to 100 %. The AC is on/off with no PID loop
+            # here, so this applies to the heater output only. It sets the PWM output, no switch.
+            self.set_heater_output(boost_output(preset_name, self._pwm_output_pct))
         settings = Settings(
             comfort_c=target_c,
             preset=Preset(preset_name) if preset_name in {p.value for p in Preset} else Preset.COMFORT,

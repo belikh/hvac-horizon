@@ -2,6 +2,7 @@ import unittest
 
 from custom_components.hvac_horizon.features import (
     apply_polarity,
+    boost_output,
     clamp_output,
     coil_dry_due,
     DayType,
@@ -845,3 +846,18 @@ class CoilDryDueTest(unittest.TestCase):
     def test_bad_dry_minutes_raises(self):
         with self.assertRaises(ValueError):
             coil_dry_due(True, False, None, 100.0, 0.0)
+
+
+class BoostOutputTest(unittest.TestCase):
+    def test_boost_gives_full_output(self):
+        self.assertEqual(boost_output("boost", 20.0), 100.0)
+
+    def test_comfort_passes_value_through(self):
+        self.assertEqual(boost_output("comfort", 42.5), 42.5)
+
+    def test_value_above_100_is_clamped(self):
+        self.assertEqual(boost_output("comfort", 150.0), 100.0)
+
+    def test_nan_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            boost_output("comfort", float("nan"))

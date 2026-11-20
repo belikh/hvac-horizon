@@ -710,6 +710,18 @@ def clamp_output(pct: float, lo: float = 0.0, hi: float = 100.0) -> float:
     return max(lo, min(hi, pct))
 
 
+def boost_output(preset: str, pid_output_pct: float) -> float:
+    """Heater output for the PWM pattern: 100.0 in boost, else the PID output clamped to [0, 100].
+
+    Ported from the PID thermostat's boost handling. Raises ValueError when the output is NaN.
+    """
+    if math.isnan(pid_output_pct):
+        raise ValueError("pid_output_pct must not be NaN")
+    if preset == "boost":
+        return 100.0
+    return max(0.0, min(100.0, pid_output_pct))
+
+
 def learned_solar_scale(modelled_kw: list[float], measured_kw: list[float], min_irradiance_kw: float = 0.05) -> float | None:
     """Median of modelled/measured solar gain, clamped to [0.1, 10.0]. Ported from RoomMind's solar sensor manager.
 
