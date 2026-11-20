@@ -2326,3 +2326,67 @@ async def test_stall_output_turns_the_heater_off_even_without_the_gate(hass, ena
     assert entry.runtime_data.data["safety_output_pct"] == 0.0
     assert "turn_off" in calls
     assert "turn_on" not in calls
+
+
+MOTION = "binary_sensor.test_motion"
+PRESENCE = "binary_sensor.test_presence"
+
+
+async def _motion_setup(hass, config_data, **extra):
+    """Observe-only entry with a motion sensor, a presence source and an eco setpoint of 26 C."""
+    set_inputs(hass)
+    hass.states.async_set(PRESENCE, "on")
+    hass.states.async_set(MOTION, "on")
+    # No price sensor: a price shifts the target off 24.0 C, and these tests read the exact setpoint.
+    base = {k: v for k, v in config_data.items() if k != CONF_PRICE}
+    data = {**base, "motion": MOTION, "presence": PRESENCE, "eco_c": 26.0, "comfort_c": 24.0, "away_c": 27.0, **extra}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def test_motion_on_makes_the_room_occupied_even_when_presence_is_away(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data)
+    # Presence goes away after its 30 minute delay. Motion stays on, so the room is still occupied.
+    hass.states.async_set(PRESENCE, "off")
+    freezer.tick(timedelta(minutes=31))
+    hass.states.async_set(MOTION, "on")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == 24.0  # comfort, not the 26 C eco setpoint
+
+
+async def test_motion_idle_past_the_delay_uses_eco(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == 24.0
+    hass.states.async_set(MOTION, "off")
+    freezer.tick(timedelta(minutes=29))  # inside the 30 minute default delay
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["motion_preset"] == "home"
+    assert entry.runtime_data.data["cool_on_above_c"] == 24.0
+    freezer.tick(timedelta(minutes=2))  # 31 minutes idle
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["motion_preset"] == "away"
+    assert entry.runtime_data.data["cool_on_above_c"] == 26.0
+
+
+async def test_motion_idle_past_the_delay_uses_the_away_setback_without_eco(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data, eco_c=None)
+    hass.states.async_set(MOTION, "off")
+    freezer.tick(timedelta(minutes=31))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == 27.0
+
+
+async def test_motion_away_delay_is_a_flow_field(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data, motion_away_min=5)
+    hass.states.async_set(MOTION, "off")
+    freezer.tick(timedelta(minutes=6))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["cool_on_above_c"] == 26.0

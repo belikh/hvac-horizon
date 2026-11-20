@@ -61,6 +61,7 @@
           "min_on_min": "Minimum AC on time (min)",
           "min_off_min": "Minimum AC off time (min)",
           "away_delay_min": "Minutes without presence before away mode",
+          "motion_away_min": "Minutes without motion before the room counts as unoccupied",
           "schedule_blocks": "Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional)",
           "dehumidifier": "Dehumidifier switch (optional)",
           "fan": "Room fan switch (optional)"
@@ -126,6 +127,7 @@
           "min_on_min": "Minimum AC on time (min)",
           "min_off_min": "Minimum AC off time (min)",
           "away_delay_min": "Minutes without presence before away mode",
+          "motion_away_min": "Minutes without motion before the room counts as unoccupied",
           "schedule_blocks": "Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional)",
           "dehumidifier": "Dehumidifier switch (optional)",
           "fan": "Room fan switch (optional)"

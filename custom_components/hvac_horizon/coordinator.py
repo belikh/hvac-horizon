@@ -117,6 +117,8 @@ from .const import (
     CONF_CLIMATE,
     CONF_CLIMATE_2,
     CONF_AWAY_DELAY_MIN,
+    CONF_MOTION_AWAY_MIN,
+    DEFAULT_MOTION_AWAY_MIN,
     CONF_CO2,
     CONF_LOCK_PIN,
     CONF_HOUSE_SEALED,
@@ -1017,15 +1019,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         step_min=MPC_STEP_MIN,
                     )
                 ]
-        # Motion preset is published only; it does not yet drive the setpoint preset.
+        # The motion preset sets occupancy in _plan_control. The idle clock starts at the first tick, as presence does.
         motion_state = self._optional(CONF_MOTION)
         motion_on: bool | None = None
         if motion_state is not None and motion_state.state in ("on", "off"):
             motion_on = motion_state.state == "on"
+        if self._last_motion_at is None:
+            self._last_motion_at = now
         if motion_on:
             self._last_motion_at = now
-        minutes_since = (now - self._last_motion_at) / 60.0 if self._last_motion_at is not None else 1e9
-        result["motion_preset"] = motion_preset(motion_on, minutes_since)
+        motion_delay_min = max(1.0, float(self.entry.data.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)))
+        result["motion_preset"] = motion_preset(motion_on, (now - self._last_motion_at) / 60.0, away_delay_min=motion_delay_min)
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
@@ -1211,6 +1215,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now_min = now / 60.0
         # Home when any presence source is home. Away only after every source has been away for the away delay.
         someone_home = self._occupancy_mode(now) == "home"
+        if result.get("motion_preset") is not None:
+            # With a motion sensor, motion decides: on or recent is home, idle past the delay is away.
+            someone_home = result["motion_preset"] == "home"
         someone_home = effective_home(someone_home, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.

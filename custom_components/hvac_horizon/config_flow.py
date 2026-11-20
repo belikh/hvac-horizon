@@ -32,6 +32,8 @@ from .const import (
     CONF_OUTPUT_MAX,
     CONF_COVER,
     CONF_MOTION,
+    CONF_MOTION_AWAY_MIN,
+    DEFAULT_MOTION_AWAY_MIN,
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
     CONF_WHOLE_HOUSE_POWER,
@@ -189,6 +191,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_AWAY_DELAY_MIN): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=240, step=1, unit_of_measurement="min")
+            ),
+            key(CONF_MOTION_AWAY_MIN, default=defaults.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=240, step=1, unit_of_measurement="min")
             ),
             key(CONF_SHED_MAX_W): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=50000, step=50, unit_of_measurement="W")
