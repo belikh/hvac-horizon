@@ -85,6 +85,13 @@ def timed_preset_active(started_at_min: float | None, now_min: float, duration_m
     return 0.0 <= now_min - started_at_min < duration_min
 
 
+def timed_preset_name(active: bool, timed_preset: str | None, normal_preset: str) -> str:
+    """The timed preset while it is active, otherwise the normal preset."""
+    if active and timed_preset is not None:
+        return timed_preset
+    return normal_preset
+
+
 def price_shifted_target(comfort_c: float, price_per_kwh: float | None, cheap_per_kwh: float, expensive_per_kwh: float, max_shift_c: float = 1.0) -> float:
     """Move the target by up to `max_shift_c` with the electricity price.
 

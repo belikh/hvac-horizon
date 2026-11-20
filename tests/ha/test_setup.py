@@ -392,3 +392,22 @@ async def test_mode_mismatch_raises_and_clears_repair_issue(hass, enable_custom_
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
     coordinator._check_mode("cool")
     assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+
+    async def ignore(call):
+        pass
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    now_min = 1_000_000.0
+    coordinator.start_timed_preset("eco", 30.0, now_min)
+    assert coordinator._effective_preset(now_min, "comfort") == "eco"
+    assert coordinator._effective_preset(now_min + 31, "comfort") == "comfort"

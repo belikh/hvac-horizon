@@ -9,6 +9,7 @@ from custom_components.hvac_horizon.features import (
     mode_disagrees,
     outdoor_allows,
     timed_preset_active,
+    timed_preset_name,
     transition_message,
 )
 
@@ -501,3 +502,14 @@ class ModeDisagreesTests(unittest.TestCase):
 
     def test_actual_mode_none(self):
         self.assertFalse(mode_disagrees("cool", None, False))
+
+
+class TimedPresetNameTests(unittest.TestCase):
+    def test_active_returns_timed_preset(self):
+        self.assertEqual(timed_preset_name(True, "eco", "comfort"), "eco")
+
+    def test_inactive_returns_normal_preset(self):
+        self.assertEqual(timed_preset_name(False, "eco", "comfort"), "comfort")
+
+    def test_active_without_timed_preset_returns_normal(self):
+        self.assertEqual(timed_preset_name(True, None, "comfort"), "comfort")

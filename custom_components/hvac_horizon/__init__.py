@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.const import Platform
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .coordinator import HorizonCoordinator
@@ -22,6 +23,7 @@ SERVICE_AUTOTUNE = "start_autotune"
 SERVICE_WHAT_IF = "what_if"
 SERVICE_EXPORT_CSV = "export_csv"
 SERVICE_LOCK = "set_lock"
+SERVICE_TIMED = "start_timed_preset"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -58,6 +60,11 @@ def _register_services(hass: HomeAssistant) -> None:
         if not changed:
             raise ValueError("lock not changed: wrong PIN, or no PIN configured")
 
+    async def start_timed(call):
+        _coordinator(call).start_timed_preset(
+            str(call.data["preset"]), float(call.data["minutes"]), dt_util.utcnow().timestamp() / 60.0
+        )
+
     from homeassistant.core import SupportsResponse
 
     hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
@@ -66,6 +73,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
+    hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

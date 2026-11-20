@@ -56,6 +56,8 @@ from custom_components.hvac_horizon.features import (
     safety_output,
     scheduled_preset,
     sensor_stalled,
+    timed_preset_active,
+    timed_preset_name,
     transition_message,
 )
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
@@ -159,6 +161,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._timed_preset: str | None = None
+        self._timed_started_min: float | None = None
+        self._timed_duration_min: float = 0.0
         self._last_written_mode: str | None = None
         self._window_paused = False
         self._lock_notified = False
@@ -274,6 +279,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cost": None if f.cost is None else round(f.cost, 3),
             "reason": f.reason,
         }
+
+    def start_timed_preset(self, preset: str, minutes: float, now_min: float) -> None:
+        """Hold `preset` for `minutes`, then fall back to the normal preset."""
+        self._timed_preset = preset
+        self._timed_started_min = now_min
+        self._timed_duration_min = minutes
+
+    def _effective_preset(self, now_min: float, normal: str) -> str:
+        active = timed_preset_active(self._timed_started_min, now_min, self._timed_duration_min)
+        return timed_preset_name(active, self._timed_preset, normal)
 
     def set_lock(self, locked: bool, pin: str | None) -> bool:
         """Lock or unlock control. Unlocking needs the configured PIN. Returns True when the lock changed."""
@@ -677,6 +692,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
         ]
         preset_name = scheduled_preset(dt_util.now().hour + dt_util.now().minute / 60.0, blocks)
+        preset_name = self._effective_preset(now_min, preset_name)
         result["preset"] = preset_name
         settings = Settings(
             comfort_c=target_c,
