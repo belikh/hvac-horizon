@@ -2555,3 +2555,67 @@ async def test_fan_is_left_alone_when_the_ac_is_not_cooling(hass, enable_custom_
 
 async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integrations, config_data):
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []
+
+
+async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False):
+    """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
+
+    The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
+    deadband is 0.5 K, so a room at 23.0 C is below the idle limit of 23.54 C and a room at 23.8 C is not.
+    """
+    from custom_components.hvac_horizon import coordinator as coordinator_module
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+    from custom_components.hvac_horizon.model import Fit
+
+    # The price fixture starts at 08:10 UTC. Slots that have ended are dropped, so the clock sits before them.
+    freezer.move_to("2026-11-20T08:00:00+00:00")
+    monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=0.5, g=0.0)))
+    monkeypatch.setattr(HorizonCoordinator, "_precool_start", lambda self, now, rooms: 0.0)
+    if plan is not None:
+        monkeypatch.setattr(coordinator_module, "mpc_plan", lambda *args, **kwargs: list(plan))
+    if no_prices:
+        monkeypatch.setattr(HorizonCoordinator, "_price_forecast", lambda self, now: [])
+    set_inputs(hass)
+    _set_ac_rooms(hass, room)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def record_temp(call):
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, modes
+
+
+async def test_mpc_idle_step_holds_the_ac_off_when_the_room_is_well_below_target(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", plan=[False] * 16)
+    assert "cool" not in modes
+    assert entry.runtime_data.data["action"].startswith("off: mpc idle")
+
+
+async def test_mpc_run_step_keeps_the_pre_cool_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", plan=[True] * 16)
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+
+
+async def test_mpc_idle_step_inside_the_deadband_keeps_the_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.8", plan=[False] * 16)
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+
+
+async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", no_prices=True)
+    assert "mpc_plan" not in entry.runtime_data.data
+    assert modes == ["cool"]

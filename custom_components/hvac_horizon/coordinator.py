@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -208,6 +208,7 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
 
 MPC_STEP_MIN = 15.0
 MPC_STEPS = 16  # 4 hours
+MPC_DEADBAND_C = 0.5  # the plan idles a cool decision only when the room is this far below the cool threshold
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 
@@ -997,29 +998,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
             result["heating_allowed"] = outdoor_allows("heat", outdoor_now)
-        if self._fit is not None and outdoor_now is not None and rooms_econ:
-            slots = self._price_forecast(now)
-            if slots:
-                step_prices: list[float] = []
-                last = slots[0].price_per_kwh
-                for step in range(MPC_STEPS):
-                    found = price_at(slots, step * MPC_STEP_MIN)
-                    last = last if found is None else found
-                    step_prices.append(last)
-                result["mpc_plan"] = [
-                    bool(a)
-                    for a in mpc_plan(
-                        self._fit.k,
-                        self._fit.c,
-                        self._fit.g,
-                        statistics.median(rooms_econ),
-                        float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
-                        outdoor_now,
-                        running_power_kw(self._entries, now) or 0.0,
-                        step_prices,
-                        step_min=MPC_STEP_MIN,
-                    )
-                ]
         # The motion preset sets occupancy in _plan_control. The idle clock starts at the first tick, as presence does.
         motion_state = self._optional(CONF_MOTION)
         motion_on: bool | None = None
@@ -1050,6 +1028,30 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
         result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
         self._plan_control(now, result)
+        # The plan aims at the effective cool threshold that _plan_control just set, so it matches the decision.
+        if self._fit is not None and outdoor_now is not None and rooms_econ:
+            slots = self._price_forecast(now)
+            if slots:
+                step_prices: list[float] = []
+                last = slots[0].price_per_kwh
+                for step in range(MPC_STEPS):
+                    found = price_at(slots, step * MPC_STEP_MIN)
+                    last = last if found is None else found
+                    step_prices.append(last)
+                result["mpc_plan"] = [
+                    bool(a)
+                    for a in mpc_plan(
+                        self._fit.k,
+                        self._fit.c,
+                        self._fit.g,
+                        statistics.median(rooms_econ),
+                        self._cool_above_c,
+                        outdoor_now,
+                        running_power_kw(self._entries, now) or 0.0,
+                        step_prices,
+                        step_min=MPC_STEP_MIN,
+                    )
+                ]
         pid_rooms = self._rooms()
         pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool(self._heater_switch())
@@ -1355,6 +1357,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             action = decide(state, self._settings)
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
+        # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
+        # Without a plan (no fit or no price slots) the decision stands.
+        plan = result.get("mpc_plan")
+        if plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), self._cool_above_c, MPC_DEADBAND_C):
+            action = Action(Mode.OFF, None, "mpc idle: room below target")
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
         result["daily_briefing"] = daily_briefing(

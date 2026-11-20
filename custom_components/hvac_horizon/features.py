@@ -482,6 +482,11 @@ def fan_mode_for_gap(gap_c: float, available: list[str] | None, high_above_c: fl
     return None
 
 
+def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c: float) -> bool:
+    """True when the plan's next step is idle and the room is more than `deadband_c` below the cool threshold."""
+    return not plan_run_now and room_c < cool_above_c - deadband_c
+
+
 def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:
     """True when the room is above the humidity band and no cooling is needed (cool gap at or below zero).
 
