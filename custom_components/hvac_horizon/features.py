@@ -124,3 +124,42 @@ def scheduled_preset(now_h: float, blocks: list[ScheduleBlock], default: str = "
         elif now_h >= block.start_h or now_h < block.end_h:
             return block.preset
     return default
+
+
+def heating_failure(heater_on_min: float, temp_rise_c: float, window_min: float = 30.0, min_rise_c: float = 0.2) -> bool:
+    """True when the heater has run for `window_min` or longer and the room has risen less than `min_rise_c`.
+
+    Ported from the heating failure detection in Versatile Thermostat. Only meaningful while the heater is commanded on.
+    """
+    return heater_on_min >= window_min and temp_rise_c < min_rise_c
+
+
+def sensor_stalled(last_update_s: float | None, now_s: float, stall_s: float = 900.0) -> bool:
+    """True when a sensor has not updated for `stall_s` seconds, or has never updated."""
+    if last_update_s is None:
+        return True
+    return now_s - last_update_s >= stall_s
+
+
+def safety_output(sensor_stalled_flag: bool, requested_pct: float, fallback_pct: float = 0.0, minimum_pct: float = 0.0) -> float:
+    """Output to use. When the sensor has stalled, use the fallback, but never below the minimum.
+
+    Ported from the safety fallback in Versatile Thermostat.
+    """
+    if not 0.0 <= minimum_pct <= 100.0 or not 0.0 <= fallback_pct <= 100.0:
+        raise ValueError("percentages must be in [0, 100]")
+    if sensor_stalled_flag:
+        return max(fallback_pct, minimum_pct)
+    return max(min(requested_pct, 100.0), minimum_pct)
+
+
+def daily_briefing(day_type: str, comfort_c: float, next_action: str | None, window_close_h: float | None) -> str:
+    """One-line plan for the day. Ported from the daily briefing in ClimateAdvisor."""
+    parts = [f"Day: {day_type}.", f"Comfort {comfort_c:.1f} C."]
+    if next_action:
+        parts.append(f"Next: {next_action}.")
+    if window_close_h is not None:
+        hour = int(window_close_h) % 24
+        minute = int(round((window_close_h - int(window_close_h)) * 60))
+        parts.append(f"Close windows by {hour:02d}:{minute:02d}.")
+    return " ".join(parts)

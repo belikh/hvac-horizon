@@ -114,3 +114,35 @@ class ScheduleTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             scheduled_preset(24.0, [])
+
+
+class SafetyAndBriefingTests(unittest.TestCase):
+    def test_heating_failure_after_window_without_rise(self):
+        from custom_components.hvac_horizon.features import heating_failure
+
+        self.assertTrue(heating_failure(35.0, 0.05))
+        self.assertFalse(heating_failure(35.0, 0.5))
+        self.assertFalse(heating_failure(10.0, 0.0))
+
+    def test_sensor_stall(self):
+        from custom_components.hvac_horizon.features import sensor_stalled
+
+        self.assertTrue(sensor_stalled(None, 1000.0))
+        self.assertTrue(sensor_stalled(0.0, 1000.0, stall_s=900.0))
+        self.assertFalse(sensor_stalled(500.0, 1000.0, stall_s=900.0))
+
+    def test_safety_output_on_stall_and_minimum(self):
+        from custom_components.hvac_horizon.features import safety_output
+
+        self.assertEqual(safety_output(True, 80.0, fallback_pct=20.0), 20.0)
+        self.assertEqual(safety_output(False, 5.0, minimum_pct=10.0), 10.0)
+        self.assertEqual(safety_output(False, 150.0), 100.0)
+        with self.assertRaises(ValueError):
+            safety_output(False, 50.0, fallback_pct=120.0)
+
+    def test_daily_briefing_text(self):
+        from custom_components.hvac_horizon.features import daily_briefing
+
+        text = daily_briefing("hot", 24.0, "pre-cool at 14:00", 17.5)
+        self.assertEqual(text, "Day: hot. Comfort 24.0 C. Next: pre-cool at 14:00. Close windows by 17:30.")
+        self.assertEqual(daily_briefing("mild", 23.5, None, None), "Day: mild. Comfort 23.5 C.")
