@@ -69,6 +69,7 @@ STATUS_KEYS: dict[str, str] = {
     "trv_offset_k": "TRV offset",
     "room_fit": "Two-device room fit",
     "forecast_days": "Forecast day counts",
+    "dispatch": "Room dispatch",
 }
 STATUS_UNITS = {
     "target_c": "°C",

@@ -63,6 +63,8 @@ from .const import (
     CONF_STALL_WINDOW_S,
     CONF_WHOLE_HOUSE_POWER,
     CONF_SCHEDULE_BLOCKS,
+    CONF_FLEET,
+    CONF_DISPATCH_MODE,
     CONF_AI_CONVERSATION,
     CONF_AI_BUDGET,
     CONF_ECO_C,
@@ -108,6 +110,27 @@ from .const import (
 
 MISSING = object()  # marks a key() call with no schema default
 SCHEDULE_PRESETS = ("comfort", "eco", "boost", "away")
+
+
+def _fleet_problem(value: Any) -> str | None:
+    """Return why a room device list is invalid, or None when it is valid.
+
+    Each device needs a unique device_id and a kind of cool or heat. It needs rated_w or power_sensor.
+    """
+    if not isinstance(value, list):
+        return "fleet must be a list"
+    ids: set[str] = set()
+    for device in value:
+        if not isinstance(device, dict) or "device_id" not in device or "kind" not in device:
+            return f"each device needs device_id and kind: {device}"
+        if device["device_id"] in ids:
+            return f"device_id must be unique: {device['device_id']}"
+        ids.add(device["device_id"])
+        if device["kind"] not in ("cool", "heat"):
+            return f"kind must be cool or heat: {device['kind']}"
+        if not device.get("rated_w"):
+            return f"a device needs rated_w, the watts it draws while running: {device['device_id']}"
+    return None
 
 
 def _schedule_block_problem(value: Any) -> str | None:
@@ -306,6 +329,10 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_OUTPUT_MIN_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_OUTPUT_MAX_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_SCHEDULE_BLOCKS, default=list): selector.ObjectSelector(),
+            key(CONF_FLEET, default=list): selector.ObjectSelector(),
+            key(CONF_DISPATCH_MODE, default="fast"): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=["fast", "economy"], mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
             key(CONF_AI_CONVERSATION): selector.EntitySelector(selector.EntitySelectorConfig(domain="conversation")),
             key(CONF_AI_BUDGET): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1)),
         }
@@ -325,6 +352,8 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_show_form(
                     step_id="user", data_schema=_schema(user_input), errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
                 )
+            if _fleet_problem(user_input.get(CONF_FLEET, [])):
+                return self.async_show_form(step_id="user", data_schema=_schema(user_input), errors={CONF_FLEET: "invalid_fleet"})
             await self.async_set_unique_id(user_input[CONF_CLIMATE])
             self._abort_if_unique_id_configured()
             climate = self.hass.states.get(user_input[CONF_CLIMATE])

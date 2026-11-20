@@ -120,6 +120,8 @@ PWM_WINDOW_MIN = 10.0  # heater PWM window in minutes
 # CO2 fan window. The control tick is 5 minutes, so a 10 minute window samples only two points and gives 0, 50 or 100 percent.
 # A 60 minute window samples 12 points, so the duty resolves in steps of 1/12.
 FAN_PWM_WINDOW_MIN = 60.0
+CONF_DISPATCH_MODE = "dispatch_mode"  # "fast" or "economy": how room devices are chosen for the need
+CONF_FLEET = "fleet"  # list of room devices: {device_id, kind, rated_w, power_sensor, last_resort, last_resort_gap_k, priority}
 CONF_STALL_WINDOW_S = "stall_window_s"  # seconds without a report before a sensor counts as stalled; default SENSOR_STALL_S (900)
 CONF_SHED_MAX_W = "shed_max_w"  # optional whole-house maximum in watts
 CONF_COMPRESSOR_GROUP = "compressor_group"  # optional name; entries with the same name share one 5-minute gap between AC starts

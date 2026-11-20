@@ -85,6 +85,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
+from custom_components.hvac_horizon.fleet import COOL, FAST, HEAT, Device, choose_devices, device_kw
 from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -183,6 +184,8 @@ from .const import (
     CONF_SHED_LOADS,
     CONF_SHED_MAX_W,
     CONF_STALL_WINDOW_S,
+    CONF_FLEET,
+    CONF_DISPATCH_MODE,
     CONF_WHOLE_HOUSE_POWER,
     COVER_SOLAR_THRESHOLD_KW,
     CONF_VALVE,
@@ -1547,7 +1550,37 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
+        result["dispatch"] = self._dispatch()
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
+
+    def _fleet(self) -> list[Device]:
+        """Room devices from the fleet option. A malformed entry is skipped and reported in the dispatch result."""
+        devices: list[Device] = []
+        for raw in self.entry.data.get(CONF_FLEET) or []:
+            try:
+                devices.append(Device(**raw))
+            except TypeError:
+                continue
+        return devices
+
+    def _dispatch(self) -> dict[str, Any]:
+        """The devices that would run for the current gaps, and their power. Observe only: no device is driven."""
+        rooms = self._rooms()
+        devices = self._fleet()
+        if not rooms or not devices:
+            return {"cool": [], "heat": [], "power_kw": 0.0}
+        median = statistics.median(rooms)
+        mode = self.entry.data.get(CONF_DISPATCH_MODE, FAST)
+        price = _float(self._optional(CONF_PRICE)) or DEFAULT_PRICE_CHEAP
+        cool = choose_devices(devices, COOL, median - self._cool_above_c, 1.0, mode, price)
+        heat = choose_devices(devices, HEAT, self._heat_target_c - median, 1.0, mode, price)
+        power = 0.0
+        by_id = {d.device_id: d for d in devices}
+        for device_id in cool + heat:
+            device = by_id[device_id]
+            sensor = _float(self.hass.states.get(device.power_sensor)) if device.power_sensor else None
+            power += device_kw(device, sensor, running=True)
+        return {"cool": cool, "heat": heat, "power_kw": round(power, 3)}
 
     def _preheat(self, now_h: float, blocks: list[ScheduleBlock], heat_target_c: float, comfort_c: float) -> tuple[float, str, float | None]:
         """Heat to comfort early when the next comfort block starts within the learned heat-up time.

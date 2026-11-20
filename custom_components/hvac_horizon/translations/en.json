@@ -43,6 +43,8 @@
           "valve": "Valve or TRV opening number (optional)",
           "trv_temperature": "TRV own temperature sensor (optional, needs a valve). A TRV that reads warmer than the room opens the valve more. Each 1 K of offset (TRV minus room) moves the valve opening by 100 percentage points, clamped to 0 to 100.",
           "whole_house_power": "Whole-house power sensor (optional)",
+          "fleet": "Room devices: a list of {device_id, kind (cool or heat), rate_k_per_h_per_kw, rated_w, power_sensor (optional)}",
+          "dispatch_mode": "Device choice: fast (highest effect first) or economy (lowest cost per kelvin)",
           "stall_window_s": "Seconds without a report before a sensor counts as stalled (default 900)",
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
@@ -131,6 +133,8 @@
           "valve": "Valve or TRV opening number (optional)",
           "trv_temperature": "TRV own temperature sensor (optional, needs a valve). A TRV that reads warmer than the room opens the valve more. Each 1 K of offset (TRV minus room) moves the valve opening by 100 percentage points, clamped to 0 to 100.",
           "whole_house_power": "Whole-house power sensor (optional)",
+          "fleet": "Room devices: a list of {device_id, kind (cool or heat), rate_k_per_h_per_kw, rated_w, power_sensor (optional)}",
+          "dispatch_mode": "Device choice: fast (highest effect first) or economy (lowest cost per kelvin)",
           "stall_window_s": "Seconds without a report before a sensor counts as stalled (default 900)",
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
@@ -183,6 +187,7 @@
       "reconfigure_successful": "Settings updated. Stored samples are kept."
     },
     "error": {
+      "invalid_fleet": "Room devices must be a list. Each needs a unique device_id, kind cool or heat, and rated_w.",
       "invalid_schedule_blocks": "Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
     }
   },

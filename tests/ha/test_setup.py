@@ -4469,3 +4469,16 @@ async def test_stale_room_with_unavailable_room_stops_the_ac(hass, enable_custom
     await refresh(hass, entry)
     assert ROOM_A in entry.runtime_data.data["sensors_stalled"]
     assert "off" in modes
+
+
+async def test_dispatch_publishes_the_devices_chosen_for_a_hot_room(hass, enable_custom_integrations, config_data):
+    """Two AC units in one room: the dispatch result names the units chosen for the gap, observe only."""
+    fleet = [
+        {"device_id": "ac_small", "kind": "cool", "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0},
+        {"device_id": "ac_big", "kind": "cool", "rate_k_per_h_per_kw": 2.0, "rated_w": 3500.0},
+    ]
+    entry, _ = await setup_heater(hass, config_data, room="27.0", extra={"fleet": fleet, "dispatch_mode": "fast"})
+    await refresh(hass, entry)
+    dispatch = entry.runtime_data.data["dispatch"]
+    assert dispatch["cool"][0] == "ac_big"
+    assert dispatch["power_kw"] > 0
