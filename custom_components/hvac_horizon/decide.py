@@ -27,11 +27,32 @@ class RoomState:
     current_setpoint_c: float | None = None
 
 
+class Preset(str, Enum):
+    COMFORT = "comfort"
+    ECO = "eco"
+    BOOST = "boost"
+    AWAY = "away"
+
+
 @dataclass(frozen=True)
 class Settings:
     comfort_c: float
     away_c: float
     window_delay_min: float = 10.0
+    eco_c: float | None = None  # setpoint for eco, a few degrees above comfort; None when unset
+    boost_c: float | None = None  # setpoint for boost, a few degrees below comfort; None when unset
+    preset: Preset = Preset.COMFORT
+
+
+def preset_setpoint(settings: Settings) -> float:
+    """The setpoint the active preset asks for. Eco and boost fall back to comfort when unset."""
+    if settings.preset is Preset.ECO:
+        return settings.eco_c if settings.eco_c is not None else settings.comfort_c
+    if settings.preset is Preset.BOOST:
+        return settings.boost_c if settings.boost_c is not None else settings.comfort_c
+    if settings.preset is Preset.AWAY:
+        return settings.away_c
+    return settings.comfort_c
 
 
 @dataclass(frozen=True)
@@ -51,6 +72,7 @@ def decide(state: RoomState, settings: Settings) -> Action:
         return Action(Mode.OFF, None, "away, room within setback")
     if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
-    if state.room_c > settings.comfort_c:
-        return Action(Mode.COOL, settings.comfort_c, "above comfort")
-    return Action(Mode.OFF, None, "at or below comfort")
+    target = preset_setpoint(settings)
+    if state.room_c > target:
+        return Action(Mode.COOL, target, f"above {settings.preset.value} target")
+    return Action(Mode.OFF, None, f"at or below {settings.preset.value} target")

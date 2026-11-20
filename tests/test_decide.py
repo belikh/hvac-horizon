@@ -62,3 +62,24 @@ class SafetyFixTests(unittest.TestCase):
     def test_away_holds_setback_for_a_hot_room(self):
         a = decide(state(someone_home=False, room_c=28.0), S)
         self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 27.0))
+
+
+class PresetTests(unittest.TestCase):
+    def test_eco_targets_eco_setpoint(self):
+        from custom_components.hvac_horizon.decide import Preset, Settings, preset_setpoint
+
+        s = Settings(comfort_c=24.0, away_c=27.0, eco_c=25.5, preset=Preset.ECO)
+        self.assertEqual(preset_setpoint(s), 25.5)
+        self.assertEqual(decide(state(room_c=26.0), s).setpoint_c, 25.5)
+
+    def test_boost_targets_boost_setpoint(self):
+        from custom_components.hvac_horizon.decide import Preset, Settings, preset_setpoint
+
+        s = Settings(comfort_c=24.0, away_c=27.0, boost_c=22.0, preset=Preset.BOOST)
+        self.assertEqual(preset_setpoint(s), 22.0)
+
+    def test_eco_falls_back_to_comfort_when_unset(self):
+        from custom_components.hvac_horizon.decide import Preset, Settings, preset_setpoint
+
+        s = Settings(comfort_c=24.0, away_c=27.0, preset=Preset.ECO)
+        self.assertEqual(preset_setpoint(s), 24.0)
