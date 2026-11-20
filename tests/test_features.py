@@ -950,10 +950,11 @@ class ResidualHeatTests(unittest.TestCase):
 
         self.assertAlmostEqual(_residual_rise(3.0, 20.0, 20.0), 3.0 * math.exp(-1))
 
-    def test_correction_subtracts_rise(self):
+    def test_correction_adds_rise(self):
+        # The gate sees the room warmer by the rise still to come, so the heater cuts off earlier.
         from custom_components.hvac_horizon.features import residual_correction
 
-        self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 19.0)
+        self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 23.0)
 
     def test_bad_inputs_raise(self):
         from custom_components.hvac_horizon.features import _residual_rise

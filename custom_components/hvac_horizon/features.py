@@ -842,9 +842,11 @@ def _residual_rise(peak_rise_k: float, minutes_since_off: float, tau_min: float 
 def residual_correction(
     room_c: float, peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0
 ) -> float:
-    """Room temperature minus the residual rise, so a still-warm room reads cooler and avoids overshoot.
+    """Room temperature plus the residual rise still to come, so the heater gate reads the room warmer.
+
+    The heater cuts off earlier, because the radiators keep adding heat after it stops.
     """
-    return room_c - _residual_rise(peak_rise_k, minutes_since_off, tau_min)
+    return room_c + _residual_rise(peak_rise_k, minutes_since_off, tau_min)
 
 
 def room_devices(entry_data: dict) -> dict[str, list[str]]:

@@ -620,7 +620,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         room_c = statistics.median(rooms) if rooms else None
         gate_c = room_c
         if room_c is not None and self.entry.data.get(CONF_RADIATORS) and self._heater_stopped_min is not None:
-            # Radiators keep giving heat after the heater stops. The residual correction reads the room cooler by that heat.
+            # Radiators keep giving heat after the heater stops. The residual correction reads the room warmer by that heat.
             gate_c = residual_correction(room_c, DEFAULT_RESIDUAL_PEAK_K, now / 60.0 - self._heater_stopped_min, RESIDUAL_TAU_MIN)
         pct = self._pwm_output_pct
         if driving and (self._heater_gated or self._ac_cooling_tick or gate_c is None or gate_c >= self._heat_on_below_c):

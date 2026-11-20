@@ -1835,26 +1835,26 @@ async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrat
     assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 23.0))
 
 
-async def test_radiator_residual_heat_holds_the_heater_gate_open(hass, enable_custom_integrations, config_data, freezer):
-    # Room 24 C is above the heat threshold of 23.5 C. With radiators, the residual correction reads 23 C, so the
-    # output is not forced to zero and the heater pulses. Without radiators the same room forces it off.
+async def test_radiator_residual_heat_closes_the_heater_gate_early(hass, enable_custom_integrations, config_data, freezer):
+    # Room 23 C is below the heat threshold of 23.5 C. The heater stopped now, so the radiators still add 1 K.
+    # The gate reads the room at 24 C and forces the output to zero. Without radiators the heater stays on.
     freezer.move_to("2026-11-20T10:00:00+00:00")
-    entry, _ = await setup_heater(hass, config_data, outdoor="10.0", room="24.0", extra={"radiators": True})
+    entry, _ = await setup_heater(hass, config_data, outdoor="10.0", room="23.0", extra={"radiators": True})
     coordinator = entry.runtime_data
     now = dt_util.utcnow().timestamp()
     coordinator._pwm_output_pct = 50.0
     coordinator._heater_stopped_min = now / 60.0
     result: dict = {}
     await coordinator._async_heater_step(now, result)
-    assert result["heater_pwm_on"] is True
+    assert result["heater_pwm_on"] is False
 
-    entry2, _ = await setup_heater(hass, dict(config_data), outdoor="10.0", room="24.0")
+    entry2, _ = await setup_heater(hass, dict(config_data), outdoor="10.0", room="23.0")
     other = entry2.runtime_data
     other._pwm_output_pct = 50.0
     other._heater_stopped_min = now / 60.0
     result2: dict = {}
     await other._async_heater_step(now, result2)
-    assert result2["heater_pwm_on"] is False
+    assert result2["heater_pwm_on"] is True
 
 
 async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_integrations, config_data, freezer):
