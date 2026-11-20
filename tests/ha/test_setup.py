@@ -1953,3 +1953,46 @@ async def test_learned_tpi_coefficients_are_published_and_used(hass, enable_cust
     assert entry.runtime_data.data["k"] == pytest.approx(round(coordinator._tpi.k, 4))
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
     assert hass.states.get(entity_id).attributes["tpi"]["c_k_per_h_per_kw"] == pytest.approx(published["c_k_per_h_per_kw"])
+
+
+async def test_presence_from_two_sources_uses_any_home_and_the_away_delay(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    hass.states.async_set("binary_sensor.test_presence", "on")
+    hass.states.async_set("person.test_partner", "not_home")
+    data = dict(config_data, presence=["binary_sensor.test_presence", "person.test_partner"])
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator._someone_home is True
+
+    # Both sources away: still home inside the 30 minute delay, away after it.
+    hass.states.async_set("binary_sensor.test_presence", "off")
+    freezer.tick(timedelta(minutes=10))
+    await refresh(hass, entry)
+    assert coordinator._someone_home is True
+    freezer.tick(timedelta(minutes=25))
+    await refresh(hass, entry)
+    assert coordinator._someone_home is False
+    assert coordinator.data["occupancy"] == "away"
+
+    # The person arrives. The second source alone makes the house home again.
+    hass.states.async_set("person.test_partner", "home")
+    await refresh(hass, entry)
+    assert coordinator._someone_home is True
+    assert coordinator.data["occupancy"] == "home"
+
+
+async def test_single_presence_string_still_works(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    hass.states.async_set("binary_sensor.test_presence", "off")
+    data = dict(config_data, presence="binary_sensor.test_presence")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data._someone_home is True  # inside the away delay after setup

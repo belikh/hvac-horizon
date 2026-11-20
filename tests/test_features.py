@@ -972,3 +972,13 @@ class ForecastDayCountTests(unittest.TestCase):
 
         counts = weather_day_summary([31.0, 26.0, 20.0, 14.0, 8.0, 31.5])
         self.assertEqual(counts, {"hot": 2, "warm": 1, "mild": 1, "cool": 1, "cold": 1})
+
+
+class PresenceSourcesTests(unittest.TestCase):
+    def test_list_string_and_empty_values(self):
+        from custom_components.hvac_horizon.features import presence_sources
+
+        self.assertEqual(presence_sources(["binary_sensor.a", "person.b"]), ["binary_sensor.a", "person.b"])
+        self.assertEqual(presence_sources("binary_sensor.a"), ["binary_sensor.a"])
+        self.assertEqual(presence_sources(None), [])
+        self.assertEqual(presence_sources([]), [])

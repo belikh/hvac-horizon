@@ -277,6 +277,15 @@ def vacation_target(vacation_on: bool, vacation_c: float, normal_target_c: float
     return vacation_c if vacation_on else normal_target_c
 
 
+def presence_sources(value: Any) -> list[str]:
+    """Presence entity ids from the stored value. Accepts a list (current), one id string (older entries), or None."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [str(item) for item in value if item]
+
+
 def presence_mode(home_states: list[bool], away_delay_min: float, minutes_since_last_home: float) -> str:
     """Occupancy mode from several presence sources. 'home' if any source is home. 'away' only after the delay.
 

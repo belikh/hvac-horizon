@@ -71,6 +71,7 @@ from custom_components.hvac_horizon.features import (
     mould_target,
     surface_humidity,
     presence_mode,
+    presence_sources,
     learned_solar_scale,
     sun_heat_gain,
     vacation_target,
@@ -729,8 +730,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _occupancy_mode(self, now: float) -> str:
         """Home or away from the optional presence sources. Tracks the last time any source was home."""
-        sources = [self._optional(CONF_PRESENCE)] if self.entry.data.get(CONF_PRESENCE) else []
-        home = [s.state in ("on", "home") for s in sources if s is not None]
+        states = [self.hass.states.get(entity) for entity in presence_sources(self.entry.data.get(CONF_PRESENCE))]
+        home = [s.state in ("on", "home") for s in states if s is not None]
         if any(home):
             self._last_home_at = now
         since = 0.0 if self._last_home_at is None else (now - self._last_home_at) / 60.0
@@ -1175,9 +1176,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         `_heat_on_below_c`, one deadband lower. Both come from the same settings, so they never disagree.
         """
         now_min = now / 60.0
-        presence = self._optional(CONF_PRESENCE)
-        # A binary presence sensor reports "on" for home. A person or tracker reports "home".
-        someone_home = presence is None or presence.state in ("on", "home")
+        # Home when any presence source is home. Away only after every source has been away for the away delay.
+        someone_home = self._occupancy_mode(now) == "home"
         someone_home = effective_home(someone_home, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.

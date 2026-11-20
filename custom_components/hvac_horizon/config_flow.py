@@ -154,7 +154,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_MOTION): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class="motion")
             ),
-            key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+            key(CONF_PRESENCE): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["binary_sensor", "device_tracker", "person"], multiple=True)
+            ),
             key(CONF_VALVE): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_TRV_TEMPERATURE): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
