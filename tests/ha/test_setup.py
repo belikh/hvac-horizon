@@ -1283,7 +1283,7 @@ async def test_window_actuator_obeys_its_gates(hass, enable_custom_integrations,
     assert calls == ([("open", "cover.test_window")] if gate == "none" else [])
 
 
-@pytest.mark.parametrize("gate", ["house_away", "locked", "stalled"])
+@pytest.mark.parametrize("gate", ["locked", "stalled"])
 async def test_window_actuator_closes_after_a_gate_closes_when_the_advice_ends(hass, enable_custom_integrations, config_data, freezer, gate):
     # Outdoor 18 C opens the window. A gate then applies while the advice still says open, so the window stays open.
     # When outdoor reaches 26 C the advice ends, and the close is sent although the gate still applies.
@@ -1292,8 +1292,6 @@ async def test_window_actuator_closes_after_a_gate_closes_when_the_advice_ends(h
     extra = {"window_actuator": "cover.test_window", "lock_pin": "1234"}
     entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra=extra)
     assert calls == [("open", "cover.test_window")]
-    if gate == "house_away":
-        await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
     if gate == "locked":
         await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
     if gate == "stalled":
@@ -1304,6 +1302,18 @@ async def test_window_actuator_closes_after_a_gate_closes_when_the_advice_ends(h
     hass.states.async_set(OUTDOOR, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert entry.runtime_data.data["window_advice"] == "close"
+    assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
+
+
+async def test_house_away_closes_a_window_the_advice_still_opens(hass, enable_custom_integrations, config_data, freezer):
+    # Outdoor 18 C opens the window and the advice stays open. House away ends the open advice, so the close is sent.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    assert calls == [("open", "cover.test_window")]
+    await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["window_advice"] == "open"
     assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
 
 
