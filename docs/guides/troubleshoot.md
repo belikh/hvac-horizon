@@ -4,7 +4,7 @@
 
 ## Sensor stalled
 
-A sensor counts as stalled when its `last_reported` time is older than the stall window. The default window is 900 seconds. The form accepts 300 to 3600 seconds. A sensor that has never reported counts as stalled. `unavailable` and `unknown` do not count as stalled. They count as no reading.
+A sensor counts as stalled when its `last_reported` time is older than the stall window. The default window is 900 seconds. The form accepts 300 to 3600 seconds. `unavailable` and `unknown` do not count as stalled. They count as no reading.
 
 The check reads `last_reported`, not `last_updated`. Home Assistant keeps `last_updated` when a sensor repeats its value. A steady reading would look stalled.
 
@@ -27,7 +27,9 @@ Check each listed sensor in **Developer tools > States**. Fix the sensor or its 
 
 The action reads `inhibited after a manual change` when a manual change is active. A manual change is a device setpoint that differs from the last value HVAC Horizon wrote, by more than 0.05 K.
 
-After a manual change, HVAC Horizon sends no commands for 30 minutes. Keep-alive writes pause too. Each new manual value starts a new 30-minute window. The window ends on its own. Stalls still stop the AC during it.
+After a manual change, HVAC Horizon sends no commands for 30 minutes. Keep-alive writes pause too. Each new manual value starts a new 30-minute window. The window ends on its own.
+
+Three commands still go out during the window: a stall stop for the AC, every heater turn-off, and a window close.
 
 ## Minimum on and off times
 
@@ -49,13 +51,13 @@ See [Services and presets](services-and-presets.md) for the error text on a wron
 
 ## Reasons for the AC action
 
-The action text names the decision for the tick. The code writes these texts.
+The control step writes one action text per tick. The `investigation` attribute of the Status sensor lists the recent actions. The Daily briefing sensor shows the action in its `Next` part. Ticks that return early from the control step do not set the Daily briefing. This covers `locked` and `inhibited after a manual change`.
 
 | Text | Cause |
 | :--- | :--- |
 | `off: window open N min` | The window has been open for at least `window_delay_min`. |
 | `off: outdoor N C below cooling limit` | Outdoor temperature is below 16 °C. |
-| `cool: waiting for minimum time` | The mode change is held by `min_on_min` or `min_off_min`. |
+| `off: waiting for minimum time`, `cool: waiting for minimum time` or `heat: waiting for minimum time` | The mode change is held by `min_on_min` or `min_off_min`. The prefix is the wanted mode. |
 | `cool: waiting for compressor group` | Another entry in the same `compressor_group` started the AC less than 5 minutes ago. |
 | `off: sensor stalled` | A stall is blocking the AC. |
 | `off: no room reading` | No room has a valid reading for the stall window. |
@@ -65,11 +67,11 @@ The action text names the decision for the tick. The code writes these texts.
 
 HVAC Horizon raises three repair issues. None has a fix flow. Each clears when its cause ends.
 
-| Issue | Raised when | Check |
-| :--- | :--- | :--- |
-| `HVAC Horizon sensors not updating` | A room or outdoor sensor is stalled. | The sensors listed in the issue. |
-| `HVAC Horizon heater is not warming the room` | The heater has been on for 60 minutes, and the room rose less than 0.5 °C. | The heater, its plug and its switch. |
-| `HVAC Horizon mode does not match` | The AC mode differs from the last mode written, and the setpoint did not change. | The AC unit and any other automation that changes its mode. |
+| Issue | Key | Raised when | Check |
+| :--- | :--- | :--- | :--- |
+| `HVAC Horizon sensors not updating` | `sensors_stalled` | A room or outdoor sensor is stalled. | The sensors listed in the issue. |
+| `HVAC Horizon heater is not warming the room` | `heating_failure` | The heater has been on for 60 minutes, and the room rose less than 0.5 °C. | The heater, its plug and its switch. |
+| `HVAC Horizon mode does not match` | `mode_mismatch` | The AC mode differs from the last mode written, and the setpoint did not change. | The AC unit and any other automation that changes its mode. |
 
 **See also**
 

@@ -26,7 +26,7 @@ An unoccupied room cools to `eco_c` when set. Otherwise it cools to `away_c`. It
 
 Boost with a heater and heating allowed raises its cooling target to the heat target plus 0.5 K. The AC then does not cool while the heater heats.
 
-The vacation switch sets its own targets, separate from the presets. While it is on, cooling holds `vacation_c` and heating holds the 16 °C frost floor.
+The vacation switch sets its own targets, separate from the presets. While it is on, `vacation_c` replaces the comfort target. Occupancy and the preset still choose the cooling threshold, so an unoccupied house cools to `eco_c` or `away_c`. Heating holds the 16 °C frost floor.
 
 ## Schedule blocks
 
@@ -53,7 +53,7 @@ Before a comfort block, the heater starts early when the learned heat-up time ne
 
 ## Services
 
-All services take `entry_id`, the HVAC Horizon entry. Services marked response only return data and set nothing.
+Every service except `set_house_mode` takes `entry_id`, the HVAC Horizon entry. Services marked response only return data and set nothing.
 
 | Service | Fields | What it does |
 | :-- | :-- | :-- |
@@ -78,7 +78,7 @@ The lock needs a PIN in the form. Without one, `set_lock` with `locked: true` fa
 lock not changed: wrong PIN, or no PIN configured
 ```
 
-The lock lasts until Home Assistant restarts. A restart unlocks the entry. Locking stops every AC command and sets the heater output to 0.
+The lock is held in memory and is not saved. Reloading the entry or restarting Home Assistant unlocks it. Locking stops every AC command and sets the heater output to 0.
 
 ### House mode
 

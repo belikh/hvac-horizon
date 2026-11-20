@@ -47,11 +47,13 @@ To run one file, call pytest directly.
 
 | Path | Runs | Checks |
 | :-- | :-- | :-- |
-| `tests/test_*.py` | Unit tests, with no Home Assistant import | The pure modules, such as `decide.py`, `features.py`, `model.py` and `tpi.py`. |
+| `tests/test_*.py` | Unit tests, with no Home Assistant fixtures | The pure modules, such as `decide.py`, `features.py`, `model.py` and `tpi.py`. |
 | `tests/ha/test_config_flow.py` | Home Assistant | The setup and reconfigure forms. |
 | `tests/ha/test_setup.py` | Home Assistant | Setup, one refresh, control, services and unload. |
 | `tests/test_no_dead_code.py` | Unit | Every public module-level function is used. |
 | `tests/test_published_keys.py` | Unit | Every key the coordinator publishes is shown or read back. |
+
+Importing any package module runs `__init__.py`, which imports Home Assistant. The unit tests therefore also need the venv.
 
 `tests/ha/` has no `__init__.py`. The standard `unittest` run does not collect it. Use pytest for those tests.
 
@@ -84,7 +86,7 @@ Review the matrix one row at a time. Check each cited line and test against the 
 The repository has no release workflow. Release by hand with these steps.
 
 1. Set `version` in `custom_components/hvac_horizon/manifest.json`.
-2. Set `version` in `docs.config.json` to the same value. No test checks that the two match.
+2. Set `version` in `docs.config.json` to the same value. No test checks that the two match. At this commit both files read `0.2.0`.
 3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports.
 4. Run the suite with `scripts/check.sh`.
 5. Commit the version change, then push it.

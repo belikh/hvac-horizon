@@ -45,6 +45,19 @@ Every optional field is off until you set it, unless the table gives a default. 
 
 The price thresholds use the same unit as the price sensor, per kWh. Between the thresholds the shift is linear.
 
+### Humidity and air quality
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `humidity` | Outdoor humidity sensor (optional) | none | Stored with each reading. |
+| `room_humidity` | Room humidity sensor (optional) | none | Keeps room humidity between 40 and 60 %. Above 60 % the dehumidifier runs. Below 40 % the humidifier runs. Sets the drying status. |
+| `dehumidifier` | Dehumidifier switch (optional) | none | On while room humidity is above 60 %. |
+| `humidifier` | Humidifier switch (optional) | none | On while room humidity is below 40 %. |
+| `co2` | CO2 sensor (optional) | none | Above 1000 ppm the room fan runs. |
+| `pm25` | PM2.5 sensor (optional) | none | Above 25 µg/m³ the room fan runs. |
+| `fan` | Room fan switch (optional) | none | Runs for ventilation. |
+| `dry_for_humidity` | Use the AC dry mode when humid | off | Above 60 % room humidity, with no dehumidifier set, the AC runs dry mode. Dry mode uses a lot of water. |
+
 ### Presence, motion and windows
 
 | Field | Form label | Default | Effect |
@@ -93,7 +106,44 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | `lock_pin` | Lock PIN (optional) | none | Needed to lock control. See [[guides/troubleshoot]]. |
 | `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel | off | Adds this entry to one shared sidebar panel. |
 
-The form also has fields for fans, humidity, CO2, PM2.5, boilers, valves, a second AC, load shedding, a peer room and an AI conversation agent. Each label says what its field does.
+### Other fields
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `climate_2` | Second AC in the same room (optional) | none | Adds a second cooling device to the room model. |
+| `power_2` | Second AC power sensor, W (optional) | none | Power of the second AC. With `climate_2` and this field, the two-device fit runs. |
+| `weather` | Weather entity for the forecast (optional) | none | Supplies the daily highs. The day type and the heatwave status use them. |
+| `whole_house_power` | Whole-house power sensor (optional) | none | Total house power, W. Used with `shed_max_w`. |
+| `shed_max_w` | Power limit in watts (optional) | none | House limit, W. Above it, the loads in `shed_loads` switch off. |
+| `shed_loads` | Loads to shed, as entity_id\|watts, lowest priority first (optional) | none | One `entity_id\|watts` entry per load. The first entry sheds first. |
+| `compressor_group` | Compressor group name (optional) | none | Entries with the same name keep 5 minutes between their AC starts. |
+| `valve` | Valve or TRV opening number (optional) | none | Opening in percent. Fully open 1 K below the target, closed at the target. |
+| `trv_temperature` | TRV own temperature sensor (optional, needs a valve) | none | The TRV's own reading, compared with the room. Each 1 K of offset moves the opening by 100 points, clamped to 0 to 100. |
+| `peer_entry` | Peer entry, the entry_id or title of another HVAC Horizon entry (optional) | none | When this room is 2 K warmer, the peer entry's valve opens. |
+| `peer_setpoint_mode` | Peer setpoint mode | off | With a peer entry, a room 2 K warmer lowers the peer's cool setpoint by 1 K instead of opening its valve. |
+| `boiler` | Boiler switch (optional) | none | On when the heat source is the boiler, at 5 °C outdoors or below, and the room is below comfort minus 1 K. |
+| `window_actuator` | Window actuator, a cover or switch (optional) | none | Opens on natural ventilation or economizer advice. Closes when the advice ends. |
+| `economizer_fan` | Economizer fan assist | off | Runs the fan switch in the economizer fan assist phase. Needs home, unlocked and no stalled sensor. |
+| `night_plan_act` | Night plan acts on the AC | off | Pre-cool cools to comfort. Hold stops a cool start. |
+| `mpc_heat_plan` | Heat plan starts AC heat | off | With the AC as heat source, no heater switch and someone home, the heat plan starts AC heat when its first step says heat. |
+| `ac_heat` | Let the AC heat | off | Lets the AC heat when the heat source is the AC and no heater switch is set. |
+| `radiators` | Heater is radiators or underfloor heat | off | Counts the residual heat after the heater stops: a 1 K peak that decays over 20 minutes. |
+| `heater_kp` | Heater PID proportional gain | 20 | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |
+| `heater_ki` | Heater PID integral gain (per hour) | 60 | Same rule as `heater_kp`. |
+| `heater_kd` | Heater PID derivative time (hours) | 0.5 | Same rule as `heater_kp`. |
+| `tpi_coef_int` | TPI coefficient for the room gap (per K) | 0.6 | TPI gain on the room gap. |
+| `tpi_coef_ext` | TPI coefficient for the outdoor gap (per K) | 0.01 | TPI gain on the outdoor gap. |
+| `tpi_threshold_high` | TPI high threshold, K above target while the room rises | none | With the low threshold, forces the TPI output to 0. Both must be above 0 to apply. |
+| `tpi_threshold_low` | TPI low threshold, K above target while the room falls | none | With the high threshold, forces the TPI output to 0. Both must be above 0 to apply. |
+| `max_on_percent` | TPI maximum on-percent | none, no cap | Caps the TPI output, 0 to 100 %. |
+| `whole_house_fan` | Whole-house fan switch (optional) | none | On when outdoors are at least 2 K cooler than indoors, the house is not sealed and the AC is off. |
+| `house_sealed` | House is sealed | off | Stops the whole-house fan. |
+| `coil_dry` | Dry the AC coil after cooling | off | Runs the AC dry mode for 20 minutes after cooling. |
+| `auto_fan` | Set the AC fan mode from the room gap | off | Sets the AC fan mode from the gap to the target while cooling. |
+| `ai_conversation` | AI conversation agent for the investigator (optional) | none | Writes the investigator answer when the AC mode changes, within the daily budget. |
+| `ai_budget_per_day` | Model calls per day for the investigator | none, 0 is off | Daily limit on model calls. |
+
+The form also has `accuracy_panel`, which is in the heater and limits table above.
 
 ## Observe only and control
 
@@ -109,7 +159,7 @@ To turn control on:
 
 The form reports `Settings updated. Stored samples are kept.` when the save works.
 
-With control on, `target_c` and `preset` on the Status sensor show the planned values. With control off, `target_c` shows the comfort setpoint.
+With control on, the Target temperature and Preset sensors show the planned values. With control off, Target temperature shows the comfort setpoint and Preset shows `comfort`.
 
 ## Change settings later
 
