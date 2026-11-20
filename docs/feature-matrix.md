@@ -89,7 +89,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Whole-house fan control | CA | drives (switch, if configured) |
 | Whole-house fan safety rule | CA | drives (through the fan switch) |
 | Natural ventilation timing | CA | published (window advice; windows not driven) |
-| Economizer (two-phase window cooling) | CA | missing |
+| Economizer (two-phase window cooling) | CA | published (open-windows and fan-assist advice; windows and fan not driven) |
 | Solar gain from irradiance and window area | RM | published |
 | Solar sensor learning | RM | missing |
 | Cover or blind control | RM | drives (cover entity, if configured) |
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, economizer, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room.
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room.
 
-After the weather and shedding rows were updated, 18 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather, shedding and economizer rows were updated, 17 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
