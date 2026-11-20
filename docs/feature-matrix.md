@@ -91,7 +91,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Natural ventilation timing | CA | published (window advice; windows not driven) |
 | Economizer (two-phase window cooling) | CA | published (open-windows and fan-assist advice; windows and fan not driven) |
 | Solar gain from irradiance and window area | RM | published |
-| Solar sensor learning | RM | missing |
+| Solar sensor learning | RM | pure (scale function and tests exist; no modelled series feeds it, so it always publishes None) |
 | Cover or blind control | RM | drives (cover entity, if configured) |
 
 ## Air quality, humidity and mould
