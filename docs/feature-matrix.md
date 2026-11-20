@@ -44,7 +44,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Vacation mode holds vacation temperature | RM | drives |
 | Comfort-energy weight blend | RM | pure |
 | Outdoor cooling limit | RM | drives |
-| Heating above outdoor limit blocked | RM | missing (no heating decision yet) |
+| Heating above outdoor limit blocked | RM | drives (boiler demand gated above 22 C outdoors) |
 
 ## Occupancy, windows and presence
 
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
+heater polarity, output clamps, boost PID, motion presets, occupancy eco, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
 
 After the weather, shedding, economizer, heat-source, boiler, second-AC, compressor-staggering and MPC rows were updated, 12 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
