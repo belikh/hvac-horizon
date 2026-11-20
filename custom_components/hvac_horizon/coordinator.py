@@ -32,6 +32,7 @@ from custom_components.hvac_horizon.features import (
     drying_needed,
     fan_speed_from_gap,
     stale_price_fallback,
+    ventilation_rate_from_co2,
     mould_risk,
     surface_humidity,
     presence_mode,
@@ -417,6 +418,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_good_price_at = now
         age_min = 0.0 if self._last_good_price_at is None else (now - self._last_good_price_at) / 60.0
         result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
+        result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
