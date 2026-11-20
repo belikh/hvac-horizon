@@ -39,3 +39,6 @@ CONF_SCHEDULE_BLOCKS = "schedule_blocks"  # list of {start_h, end_h, preset}; em
 CONF_HEATER_SWITCH = "heater_switch"  # optional switch for the heater plug
 CONF_FAN = "fan"  # optional switch for the room fan
 CONF_DEHUMIDIFIER = "dehumidifier"  # optional switch for a dehumidifier
+CONF_VACATION = "vacation"  # optional input_boolean or switch that enables vacation mode
+CONF_VACATION_C = "vacation_c"
+DEFAULT_VACATION_C = 16.0

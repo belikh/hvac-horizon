@@ -25,6 +25,7 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     heating_failure,
     learning_suggestion,
+    vacation_target,
     night_plan,
     safety_output,
     scheduled_preset,
@@ -38,6 +39,9 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_CO2,
+    CONF_VACATION,
+    CONF_VACATION_C,
+    DEFAULT_VACATION_C,
     CONF_DEHUMIDIFIER,
     CONF_FAN,
     CONF_HEATER_SWITCH,
@@ -316,6 +320,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["day_type"] = self._day_type()
         result["night_plan"] = self._night_plan()
         result["learning_suggestion"] = self._learning_suggestion()
+        vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
+        result["vacation"] = vacation_on
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
@@ -348,11 +354,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         price = _float(self._optional(CONF_PRICE))
-        target_c = price_shifted_target(
+        vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
+        target_c = vacation_target(
+            vacation_on,
+            float(self.entry.data.get(CONF_VACATION_C, DEFAULT_VACATION_C)),
+            price_shifted_target(
             comfort,
             price,
             cheap_per_kwh=float(self.entry.data.get(CONF_PRICE_CHEAP, DEFAULT_PRICE_CHEAP)),
             expensive_per_kwh=float(self.entry.data.get(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)),
+            ),
         )
         result["target_c"] = round(target_c, 2)
         blocks = [
