@@ -482,3 +482,13 @@ def mode_disagrees(written_mode: str | None, actual_mode: str | None, setpoint_c
     if written_mode is None or actual_mode is None or setpoint_changed:
         return False
     return written_mode != actual_mode
+
+
+def pwm_on(output_pct: float, window_min: float, elapsed_min: float) -> bool:
+    """Time-proportional output: on for the first output_pct % of each window."""
+    if not 0 <= output_pct <= 100:
+        raise ValueError("output_pct must be between 0 and 100")
+    if window_min <= 0:
+        raise ValueError("window_min must be positive")
+    position = (elapsed_min % window_min) / window_min
+    return position < output_pct / 100.0

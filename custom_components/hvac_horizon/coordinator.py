@@ -35,6 +35,7 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     check_pin,
     heating_failure,
+    pwm_on,
     switch_feedback,
     inhibited,
     mode_disagrees,
@@ -69,6 +70,7 @@ from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 
 from .const import (
+    PWM_WINDOW_MIN,
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_AWAY_DELAY_MIN,
@@ -165,6 +167,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._pwm_output_pct: float = 0.0
         self._last_sent_min: float | None = None
         self._heater_commanded_on: bool | None = None
         self._dismissed_for_k: float | None = None
@@ -449,6 +452,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return learning_suggestion(self._baseline_k, self._fit.k)
 
+    def set_heater_output(self, pct: float) -> None:
+        self._pwm_output_pct = max(0.0, min(100.0, pct))
+
     def respond_suggestion(self, accept: bool) -> None:
         """Accept adopts the learned heat gain as the baseline; dismiss hides the suggestion until the gain drifts."""
         if accept:
@@ -647,6 +653,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
         result["ventilation_rate"] = round(ventilation_rate_from_co2(_float(self._optional(CONF_CO2))), 3)
         result["heating_failure"] = self._heating_check(now)
+        # Publishes the PWM pattern only. This path does not drive the heater switch;
+        # only the autotune path does.
+        heater_on = pwm_on(self._pwm_output_pct, PWM_WINDOW_MIN, now / 60.0)
+        result["heater_pwm_on"] = heater_on
         heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(

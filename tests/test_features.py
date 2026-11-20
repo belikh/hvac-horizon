@@ -8,6 +8,7 @@ from custom_components.hvac_horizon.features import (
     minimum_time_ok,
     mode_disagrees,
     outdoor_allows,
+    pwm_on,
     switch_feedback,
     timed_preset_active,
     timed_preset_name,
@@ -550,3 +551,29 @@ class SwitchFeedbackTests(unittest.TestCase):
 
     def test_mismatch(self):
         self.assertEqual(switch_feedback(True, "off"), "mismatch")
+
+
+class PwmTests(unittest.TestCase):
+    def test_zero_is_always_off(self):
+        self.assertFalse(any(pwm_on(0, 10, m / 2) for m in range(40)))
+
+    def test_hundred_is_always_on(self):
+        self.assertTrue(all(pwm_on(100, 10, m / 2) for m in range(40)))
+
+    def test_forty_on_at_three_minutes(self):
+        self.assertTrue(pwm_on(40, 10, 3))
+
+    def test_forty_off_at_five_minutes(self):
+        self.assertFalse(pwm_on(40, 10, 5))
+
+    def test_output_above_100_raises(self):
+        with self.assertRaises(ValueError):
+            pwm_on(101, 10, 1)
+
+    def test_negative_output_raises(self):
+        with self.assertRaises(ValueError):
+            pwm_on(-1, 10, 1)
+
+    def test_zero_window_raises(self):
+        with self.assertRaises(ValueError):
+            pwm_on(50, 0, 1)

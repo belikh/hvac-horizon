@@ -485,3 +485,16 @@ async def test_heater_feedback_is_published(hass, enable_custom_integrations, co
     value = entry.runtime_data.data["heater_feedback"]
     print("heater_feedback =", value)
     assert value in {"not_configured", "unavailable", "match", "mismatch"}
+
+
+async def test_heater_pwm_pattern_is_published(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator.set_heater_output(40.0)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert "heater_pwm_on" in coordinator.data
