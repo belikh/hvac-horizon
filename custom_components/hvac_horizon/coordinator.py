@@ -31,7 +31,7 @@ from custom_components.hvac_horizon.collector import (
 )
 from custom_components.hvac_horizon.devices import COOL, HEAT, HEATER, RoomFit, fit_room, forecast_fit
 from custom_components.hvac_horizon.forecast import forecast, price_at
-from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, cool_gate, decide
+from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, cool_gate, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     weather_day_summary,
@@ -121,6 +121,7 @@ from .const import (
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_ECONOMIZER_FAN,
+    CONF_MPC_START,
     CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
     CONF_TPI_THRESHOLD_LOW,
@@ -233,7 +234,6 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
 
 MPC_STEP_MIN = 15.0
 MPC_STEPS = 16  # 4 hours
-MPC_DEADBAND_C = 0.5  # the plan idles a cool decision only when the room is this far below the cool threshold
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 
@@ -1574,6 +1574,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # No valid room reading for SENSOR_STALL_S stops the AC the same way.
             action = Action(Mode.OFF, None, "sensor stalled" if result.get("sensors_stalled") else "no room reading")
         else:
+            # The plan's first step is a request. decide() accepts it only when no cool gate applies.
+            plan_now = result.get("mpc_plan")
             state = RoomState(
                 room_c=statistics.median(rooms),
                 window_open_min=window_open_min,
@@ -1581,6 +1583,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 precool_start_in_min=precool,
                 outdoor_c=outdoor,
                 night_precool_c=comfort_c if night == "pre-cool" else None,
+                mpc_start=bool(self.entry.data.get(CONF_MPC_START, False) and plan_now and plan_now[0]),
             )
             action = decide(state, self._settings)
             if night == "hold" and action.mode is Mode.COOL:

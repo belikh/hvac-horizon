@@ -3373,7 +3373,7 @@ async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integratio
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []
 
 
-async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0", extra=None):
+async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0", extra=None, precool_now=True):
     """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
 
     The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
@@ -3386,7 +3386,8 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
     # The price fixture starts at 08:10 UTC. Slots that have ended are dropped, so the clock sits before them.
     freezer.move_to("2026-11-20T08:00:00+00:00")
     monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=0.5, g=0.0)))
-    monkeypatch.setattr(HorizonCoordinator, "_precool_start", lambda self, now, rooms: 0.0)
+    if precool_now:
+        monkeypatch.setattr(HorizonCoordinator, "_precool_start", lambda self, now, rooms: 0.0)
     if plan is not None:
         monkeypatch.setattr(coordinator_module, "mpc_plan", lambda *args, **kwargs: list(plan))
     if no_prices:
@@ -3974,3 +3975,35 @@ async def test_fan_assist_obeys_the_house_and_lock_gates(hass, enable_custom_int
     )
     assert entry.runtime_data.data["economizer"] == "fan_assist"
     assert ("turn_on", FAN) not in calls
+
+
+async def test_mpc_start_cools_a_hot_room_when_the_plan_runs(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # Room 25 C, threshold 24.04 C, deadband 0.5 K: 25 is past 24.54. No gate applies. The plan's first step runs.
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[True] * 16, precool_now=False, extra={"mpc_start": True})
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: mpc start"
+
+
+async def test_mpc_start_stays_off_without_the_flag(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[True] * 16, precool_now=False, extra={"mpc_start": False})
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: above comfort target"
+
+
+async def test_mpc_start_does_not_pass_the_window_gate(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # The window opens after setup. At the last refresh it has been open 11 minutes, past the 10 minute delay.
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[True] * 16, precool_now=False, extra={"mpc_start": True, "window": WINDOW})
+    hass.states.async_set(WINDOW, "on")
+    await refresh(hass, entry)
+    modes.clear()
+    freezer.tick(timedelta(minutes=11))
+    _set_ac_rooms(hass, "25.0")
+    await refresh(hass, entry)
+    assert "cool" not in modes
+    assert entry.runtime_data.data["action"] == "off: window open 11 min"
+
+
+async def test_mpc_start_does_not_pass_the_outdoor_limit(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[True] * 16, precool_now=False, outdoor="10.0", extra={"mpc_start": True})
+    assert "cool" not in modes
+    assert entry.runtime_data.data["action"] == "off: outdoor 10 C below cooling limit"
