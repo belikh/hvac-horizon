@@ -58,7 +58,7 @@ All services take `entry_id`, the HVAC Horizon entry. Services marked response o
 | `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint. |
 | `hvac_horizon.start_timed_preset` | `preset`, `minutes` (1 to 720) | Runs the preset for `minutes`, then returns to the schedule preset. |
 | `hvac_horizon.start_autotune` | `setpoint` (10 to 30 °C) | Starts a relay test. The heater plug switches on and off. Do not run it while the AC is under test. |
-| `hvac_horizon.respond_suggestion` | `accept` | `true` adopts the learned heat gain as the baseline. `false` hides the suggestion until the gain changes. |
+| `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current fitted room coefficient `k` as the baseline. `false` hides the suggestion until `k` changes. |
 | `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report. Uses the conversation agent when the daily budget allows. Otherwise stores the rule-based report. |
 | `hvac_horizon.reset_learning` | none | Clears the stored readings, the fitted model and the backtest. Settings stay. |
 | `hvac_horizon.export_samples` | none | Response only. Returns `samples`, the stored readings. |
