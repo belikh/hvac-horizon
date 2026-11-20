@@ -1282,6 +1282,95 @@ async def test_window_actuator_obeys_its_gates(hass, enable_custom_integrations,
     assert calls == ([("open", "cover.test_window")] if gate == "none" else [])
 
 
+PEER_ROOM = "sensor.peer_room"
+PEER_CLIMATE = "climate.peer_ac"
+PEER_VALVE = "number.peer_valve"
+
+
+async def _setup_peer_pair(hass, config_data, *, requester_room: str):
+    """Entry A (the requester, in ROOM_A and ROOM_B) and entry B (the peer, its own room and valve).
+
+    A sets peer_entry to B. The valve number records set_value calls and moves its state, so repeat writes can show.
+    Returns the two entries and the list of (entity_id, value) valve writes.
+    """
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    writes = []
+
+    def record_valve(call):
+        writes.append((call.data["entity_id"], call.data["value"]))
+        hass.states.async_set(call.data["entity_id"], str(call.data["value"]))
+
+    hass.services.async_register("number", "set_value", record_valve)
+    hass.states.async_set(PEER_VALVE, "0")
+    hass.states.async_set(PEER_CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Peer AC", "target_temp_step": 1.0})
+    hass.states.async_set(PEER_ROOM, "24.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, requester_room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    peer_data = dict(config_data, climate=PEER_CLIMATE, room_sensors=[PEER_ROOM], valve=PEER_VALVE, comfort_c=24.0, control=True)
+    peer_data.pop(CONF_PRICE)
+    peer = MockConfigEntry(domain=DOMAIN, title="Peer AC", data=peer_data, unique_id=PEER_CLIMATE)
+    peer.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(peer.entry_id)
+    await hass.async_block_till_done()
+    requester_data = dict(config_data, peer_entry=peer.entry_id)
+    requester_data.pop(CONF_PRICE)
+    requester = MockConfigEntry(domain=DOMAIN, title="Test AC", data=requester_data, unique_id=CLIMATE)
+    requester.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(requester.entry_id)
+    await hass.async_block_till_done()
+    return requester, peer, writes
+
+
+async def test_warmer_room_opens_the_peer_valve_fully(hass, enable_custom_integrations, config_data, freezer):
+    # Room A 26.1 C, peer room 24.0 C: 2.1 K warmer, so the peer valve gets 100. The peer's own opening is 0 at 24 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="26.0")
+    writes.clear()
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert (PEER_VALVE, 100.0) in writes
+    assert peer.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
+
+
+async def test_room_not_warmer_by_2_k_leaves_the_peer_valve_alone(hass, enable_custom_integrations, config_data, freezer):
+    # Room A 25.0 C, peer room 24.0 C: 1 K warmer, so no request. The peer's own opening is 0, so it writes nothing.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="25.0")
+    writes.clear()
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert all(value != 100.0 for _, value in writes)
+    assert writes == []
+
+
+async def test_peer_request_ends_when_the_warm_room_cools(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="26.0")
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert peer.runtime_data.data["valve_opening_pct"] == pytest.approx(100.0)
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, "24.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert peer.runtime_data.data["valve_opening_pct"] == pytest.approx(0.0)
+    assert hass.states.get(PEER_VALVE).state == "0.0"
+
+
+async def test_unloading_the_warm_room_withdraws_its_request(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, writes = await _setup_peer_pair(hass, config_data, requester_room="26.0")
+    await refresh(hass, requester)
+    assert await hass.config_entries.async_unload(requester.entry_id)
+    await hass.async_block_till_done()
+    # The valve reads 0 again, so a leftover request would write 100 on the peer's next tick.
+    hass.states.async_set(PEER_VALVE, "0")
+    writes.clear()
+    await refresh(hass, peer)
+    assert all(value != 100.0 for _, value in writes)
+
+
 async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
     # Same inputs as the TPI test. With heater_algorithm "pid" the PID sets the output and tpi_output_pct stays unset.
     extra = {"comfort_c": 24.0, "heater_algorithm": "pid"}

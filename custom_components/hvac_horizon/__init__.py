@@ -129,6 +129,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         entry.runtime_data.forget_cooling()
+        entry.runtime_data.forget_peer_requests()
         await entry.runtime_data.async_heater_off()
         await entry.runtime_data.async_shutdown_store()
     return unloaded

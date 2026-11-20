@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -117,6 +117,7 @@ from .const import (
     CONF_MAX_ON_PERCENT,
     CONF_NIGHT_PLAN_ACT,
     CONF_WINDOW_ACTUATOR,
+    CONF_PEER_ENTRY,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_TPI_THRESHOLD_HIGH,
@@ -1231,6 +1232,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 result["trv_offset_k"] = None if offset is None else round(offset, 2)
                 comfort_target = corrected_setpoint(comfort_target, offset)
             valve_opening = valve_opening_pct(room_for_valve, comfort_target)
+            if self._peer_open_requested():
+                # Another entry's room is at least 2 K warmer than this one. The valve opens fully (see _request_peer_valve).
+                valve_opening = 100.0
+        self._request_peer_valve()
         result["valve_opening_pct"] = valve_opening
         try:
             cover_id = self.entry.data.get(CONF_COVER)
@@ -1922,6 +1927,51 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         registry = self.hass.data.setdefault(DOMAIN, {}).setdefault("cooling", {})
         registry[self.entry.entry_id] = (group, climate is not None and climate.state == "cool")
         result["house_cooling"] = house_cooling(registry, self.entry.entry_id, group)
+
+    def median_room_c(self) -> float | None:
+        """Median of the room readings, or None when there are none."""
+        rooms = self._rooms()
+        return statistics.median(rooms) if rooms else None
+
+    def set_peer_request(self, requester_id: str, active: bool) -> None:
+        """Record whether the entry `requester_id` asks this entry's valve to open. Its room is at least 2 K warmer."""
+        requests = self.hass.data.setdefault(DOMAIN, {}).setdefault("peer_requests", {}).setdefault(self.entry.entry_id, set())
+        if active:
+            requests.add(requester_id)
+        else:
+            requests.discard(requester_id)
+
+    def _peer_open_requested(self) -> bool:
+        return bool(self.hass.data.get(DOMAIN, {}).get("peer_requests", {}).get(self.entry.entry_id))
+
+    def _peer_coordinator(self) -> HorizonCoordinator | None:
+        """The coordinator of the entry named by peer_entry (entry_id or title), or None when it is unset or not loaded."""
+        ref = str(self.entry.data.get(CONF_PEER_ENTRY) or "").strip()
+        if not ref:
+            return None
+        peer = self.hass.config_entries.async_get_entry(ref)
+        if peer is None:
+            peer = next((e for e in self.hass.config_entries.async_entries(DOMAIN) if e.title == ref), None)
+        if peer is None or peer.entry_id == self.entry.entry_id or not hasattr(peer, "runtime_data"):
+            return None
+        return peer.runtime_data
+
+    def _request_peer_valve(self) -> None:
+        """Ask the peer entry to open its valve while this room is at least 2 K warmer than the peer's room.
+
+        The peer applies the request in its own valve command, so the two entries do not write the same valve.
+        A request is withdrawn when the condition ends.
+        """
+        peer = self._peer_coordinator()
+        if peer is None:
+            return
+        own, other = self.median_room_c(), peer.median_room_c()
+        peer.set_peer_request(self.entry.entry_id, own is not None and other is not None and peer_warmer(own, other))
+
+    def forget_peer_requests(self) -> None:
+        """Withdraw this entry's valve requests on unload, so a removed room cannot keep another valve open."""
+        for requests in self.hass.data.get(DOMAIN, {}).get("peer_requests", {}).values():
+            requests.discard(self.entry.entry_id)
 
     def forget_cooling(self) -> None:
         """Drop this entry from the cooling registry on unload, so a removed AC cannot keep another heater off."""

@@ -517,6 +517,11 @@ def window_actuator_command(open_advice: bool, indoor_c: float, outdoor_c: float
     return None
 
 
+def peer_warmer(room_c: float, peer_room_c: float, min_delta_c: float = 2.0) -> bool:
+    """True when this room is at least `min_delta_c` warmer than the peer entry's room, so the peer valve should open."""
+    return room_c - peer_room_c >= min_delta_c
+
+
 def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c: float) -> bool:
     """True when the plan's next step is idle and the room is more than `deadband_c` below the cool threshold."""
     return not plan_run_now and room_c < cool_above_c - deadband_c
