@@ -2355,7 +2355,7 @@ async def test_motion_on_makes_the_room_occupied_even_when_presence_is_away(hass
     freezer.tick(timedelta(minutes=31))
     hass.states.async_set(MOTION, "on")
     await refresh(hass, entry)
-    assert entry.runtime_data.data["cool_on_above_c"] == 24.0  # comfort, not the 26 C eco setpoint
+    assert entry.runtime_data.data["cool_on_above_c"] == 24.0  # the room holds comfort at 24 C; eco would be 26 C
 
 
 async def test_motion_idle_past_the_delay_uses_eco(hass, enable_custom_integrations, config_data, freezer):
