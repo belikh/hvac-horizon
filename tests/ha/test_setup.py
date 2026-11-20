@@ -1143,6 +1143,80 @@ async def test_tpi_threshold_with_one_value_at_zero_has_no_effect(hass, enable_c
     assert entry.runtime_data.data["tpi_output_pct"] == pytest.approx(13.0, abs=0.5)
 
 
+def _climate_follows_setpoint(hass):
+    """Fake set_temperature that moves the climate's reported setpoint. Without it the AC reads as changed by hand."""
+
+    async def follow(call):
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {"temperature": call.data["temperature"], "target_temp_step": 1.0, "friendly_name": "Test AC"})
+
+    return follow
+
+
+def _record_climate_writes(hass):
+    writes = []
+
+    async def record_mode(call):
+        writes.append(("mode", call.data["hvac_mode"]))
+
+    async def record_setpoint(call):
+        writes.append(("setpoint", call.data["temperature"]))
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_setpoint)
+    return writes
+
+
+@pytest.mark.parametrize("flag", [False, True], ids=["flag_off", "flag_on"])
+async def test_night_precool_plan_starts_the_ac_when_away(hass, enable_custom_integrations, config_data, freezer, flag):
+    # Away with room 25 C: the away setback is 27 C, so with the flag off the AC stays off.
+    # Outdoor 18 C is within the plan's 16 to 20 C band and the room is above comfort 24 C, so the plan says pre-cool.
+    # With the flag on, the AC starts cooling to comfort 24 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="25.0", extra={"night_plan_act": flag}, temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    # The setup tick started a cool at 10:00. Ten minutes later the minimum on time has passed and the sensors are still fresh.
+    freezer.tick(timedelta(minutes=10))
+    await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["night_plan"] == "pre-cool"
+    # The device already reads 24 C from the setup tick, so the cool start writes only the mode.
+    assert hass.states.get(CLIMATE).attributes["temperature"] == 24.0
+    if flag:
+        assert ("mode", "cool") in writes
+    else:
+        assert writes == []
+
+
+@pytest.mark.parametrize("flag", [False, True], ids=["flag_off", "flag_on"])
+async def test_night_hold_stops_a_cool_start_at_comfort(hass, enable_custom_integrations, config_data, freezer, flag):
+    # Eco is set to 23 C, below comfort 24 C, so eco cools a 23.5 C room. The room is at or below comfort, so the plan says hold.
+    # With the flag on, the hold stops the AC from starting. With the flag off, eco starts it.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    extra = {"comfort_c": 24.0, "eco_c": 23.0, "night_plan_act": flag}
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="23.5", extra=extra, temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    await hass.services.async_call("hvac_horizon", "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["night_plan"] == "hold"
+    if flag:
+        assert writes == []
+    else:
+        assert ("mode", "cool") in writes
+
+
+@pytest.mark.parametrize("flag", [False, True], ids=["flag_off", "flag_on"])
+async def test_night_hold_sets_a_running_ac_to_comfort(hass, enable_custom_integrations, config_data, freezer, flag):
+    # Same room and eco setting, but the AC already cools. Eco would write 23 C. The hold writes comfort, 24 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    extra = {"comfort_c": 24.0, "eco_c": 23.0, "night_plan_act": flag}
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="23.5", extra=extra, climate="cool", temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    await hass.services.async_call("hvac_horizon", "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60}, blocking=True)
+    await refresh(hass, entry)
+    assert ("setpoint", 24.0 if flag else 23.0) in writes
+
+
 async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
     # Same inputs as the TPI test. With heater_algorithm "pid" the PID sets the output and tpi_output_pct stays unset.
     extra = {"comfort_c": 24.0, "heater_algorithm": "pid"}
@@ -3105,7 +3179,7 @@ async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integratio
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []
 
 
-async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0"):
+async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0", extra=None):
     """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
 
     The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
@@ -3139,7 +3213,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", record_temp)
-    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, **(extra or {})), unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -3172,6 +3246,18 @@ async def test_mpc_idle_step_inside_the_deadband_keeps_the_decision(hass, enable
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.8", plan=[False] * 16)
     assert modes == ["cool"]
     assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+
+
+async def test_mpc_idle_step_does_not_idle_a_night_pre_cool(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # Away, room 25 C, outdoor 18 C: the night plan says pre-cool to comfort 24 C. The plan's step 0 is idle.
+    # The idle limit uses comfort (23.5 C), not the away setback (27 C), so the room is not idle and the AC cools.
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="25.0", plan=[False] * 16, outdoor="18.0", extra={"night_plan_act": True})
+    await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["night_plan"] == "pre-cool"
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: night pre-cool"
 
 
 async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):

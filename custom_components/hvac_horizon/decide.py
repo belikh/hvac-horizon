@@ -29,6 +29,7 @@ class RoomState:
     precool_start_in_min: float | None  # from the planner; None when no plan exists
     current_setpoint_c: float | None = None
     outdoor_c: float | None = None  # None means unknown: the outdoor limit is not applied
+    night_precool_c: float | None = None  # set when the night plan says pre-cool: cool to this target, away or home
 
 
 class Preset(str, Enum):
@@ -78,6 +79,8 @@ def decide(state: RoomState, settings: Settings) -> Action:
         return Action(Mode.OFF, None, f"window open {state.window_open_min:.0f} min")
     if state.outdoor_c is not None and state.outdoor_c < COOL_MIN_OUTDOOR_C:
         return Action(Mode.OFF, None, f"outdoor {state.outdoor_c:.0f} C below cooling limit")
+    if state.night_precool_c is not None and state.room_c > state.night_precool_c:
+        return Action(Mode.COOL, state.night_precool_c, "night pre-cool")
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
         away_target = cool_above_c(settings, False)

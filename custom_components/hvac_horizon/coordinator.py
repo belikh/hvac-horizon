@@ -115,6 +115,7 @@ from .const import (
     CONF_HEATER_KD,
     CONF_HEATER_ALGORITHM,
     CONF_MAX_ON_PERCENT,
+    CONF_NIGHT_PLAN_ACT,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
     CONF_TPI_THRESHOLD_HIGH,
@@ -1528,6 +1529,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         precool = self._precool_start(now, rooms)
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        # The night plan acts only with its flag on. Its pre-cool target and hold use the comfort setpoint.
+        night = result.get("night_plan") if self.entry.data.get(CONF_NIGHT_PLAN_ACT, False) else None
+        comfort_c = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         if stalled:
             # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
             # No valid room reading for SENSOR_STALL_S stops the AC the same way.
@@ -1539,14 +1543,24 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 someone_home=self._someone_home,
                 precool_start_in_min=precool,
                 outdoor_c=outdoor,
+                night_precool_c=comfort_c if night == "pre-cool" else None,
             )
             action = decide(state, self._settings)
+            if night == "hold" and action.mode is Mode.COOL:
+                # The night hold keeps a start off at comfort. A running AC keeps its setpoint at comfort.
+                running_now = self.hass.states.get(climate_id)
+                if running_now is None or running_now.state != "cool":
+                    action = Action(Mode.OFF, None, "night hold: AC does not start")
+                else:
+                    action = Action(Mode.COOL, comfort_c, "night hold: setpoint holds comfort")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
         # Without a plan (no fit or no price slots) the decision stands.
         # An idle step turns cool off. It never starts heat, so the heat branch below is skipped for that tick.
         plan = result.get("mpc_plan")
-        mpc_idled = bool(plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), self._cool_above_c, MPC_DEADBAND_C))
+        # A night pre-cool is judged against its comfort target, so the plan cannot idle it against the away setback.
+        mpc_cool_c = comfort_c if night == "pre-cool" else self._cool_above_c
+        mpc_idled = bool(plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), mpc_cool_c, MPC_DEADBAND_C))
         if mpc_idled:
             action = Action(Mode.OFF, None, "mpc idle: room below target")
         result["action"] = f"{action.mode.value}: {action.reason}"
