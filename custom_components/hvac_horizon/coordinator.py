@@ -19,7 +19,15 @@ from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
-from custom_components.hvac_horizon.features import ScheduleBlock, classify_day, heating_failure, scheduled_preset, sensor_stalled
+from custom_components.hvac_horizon.features import (
+    ScheduleBlock,
+    classify_day,
+    daily_briefing,
+    heating_failure,
+    safety_output,
+    scheduled_preset,
+    sensor_stalled,
+)
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -272,6 +280,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["sensors_stalled"] = self._stalled_sensors(now)
         result["day_type"] = self._day_type()
         result["heating_failure"] = self._heating_check(now)
+        result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
         return result
@@ -324,6 +333,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         action = decide(state, settings)
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
+        result["daily_briefing"] = daily_briefing(
+            result.get("day_type") or "unknown",
+            float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+            result.get("action"),
+            None,
+        )
         result["ventilation"] = air_quality_ventilation(
             _float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25))
         ).reason
