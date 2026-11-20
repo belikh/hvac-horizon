@@ -3176,3 +3176,24 @@ async def test_forecast_uses_the_two_device_fit_when_a_second_ac_is_set(hass, en
     assert single.minutes is None
     assert published > 0
 
+
+async def test_investigation_report_survives_unload_and_setup(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(DOMAIN, "generate_investigation_report", {"entry_id": entry.entry_id}, blocking=True)
+    await hass.async_block_till_done()
+    report = entry.runtime_data.data["investigation_report"]
+    stamp = entry.runtime_data.data["investigation_report_at"]
+    assert report and stamp
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["investigation_report"] == report
+    assert entry.runtime_data.data["investigation_report_at"] == stamp
+    assert entry.runtime_data.data["investigation_report_source"] == "rule"
+

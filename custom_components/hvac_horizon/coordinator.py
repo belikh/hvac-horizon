@@ -404,6 +404,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
+        stored = data.get("investigation_report")
+        if isinstance(stored, dict):
+            # The last on-demand report and its time survive a restart. Keys missing from the store stay None.
+            self._report = {key: stored.get(key) for key in self._report}
         self._heater_gains = data.get("heater_gains")
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
@@ -504,6 +508,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "entries": [asdict(e) for e in self._entries],
             "heater_gains": self._heater_gains,
             "auto_tpi_gains": {"cool": self._auto_tpi_gain, "heat": self._auto_heat_gain},
+            "investigation_report": self._report,
         }
 
     async def async_shutdown_store(self) -> None:
