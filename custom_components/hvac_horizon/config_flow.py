@@ -36,6 +36,7 @@ from .const import (
     CONF_POWER,
     CONF_PRICE,
     CONF_ROOM_SENSORS,
+    CONF_WEATHER,
     DOMAIN,
 )
 
@@ -59,6 +60,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_OUTDOOR, True): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
+            key(CONF_WEATHER): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
             key(CONF_PRICE): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             key(CONF_HUMIDITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")

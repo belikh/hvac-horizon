@@ -4,6 +4,7 @@ from custom_components.hvac_horizon.features import (
     DayType,
     air_quality_ventilation,
     classify_day,
+    forecast_highs,
     humidity_action,
     minimum_time_ok,
     mode_disagrees,
@@ -596,3 +597,17 @@ class ValveOpeningTests(unittest.TestCase):
     def test_zero_band_raises(self):
         with self.assertRaises(ValueError):
             valve_opening_pct(23.0, 24.0, 0)
+
+
+class ForecastHighsTests(unittest.TestCase):
+    def test_normal_items(self):
+        self.assertEqual(forecast_highs([{"temperature": 31}, {"temperature": 28.5}]), [31.0, 28.5])
+
+    def test_missing_temperature_is_skipped(self):
+        self.assertEqual(forecast_highs([{"temperature": 31.0}, {"condition": "sunny"}]), [31.0])
+
+    def test_non_numeric_temperature_is_skipped(self):
+        self.assertEqual(forecast_highs([{"temperature": "hot"}, {"temperature": None}, {"temperature": 20.0}]), [20.0])
+
+    def test_empty_list(self):
+        self.assertEqual(forecast_highs([]), [])

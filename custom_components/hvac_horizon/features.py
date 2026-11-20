@@ -348,6 +348,16 @@ def weather_day_summary(highs_c: list[float]) -> dict[str, int]:
     return counts
 
 
+def forecast_highs(forecast_items: list[dict]) -> list[float]:
+    """Daily highs from Home Assistant forecast dicts. Items without a numeric "temperature" are skipped."""
+    highs: list[float] = []
+    for item in forecast_items:
+        value = item.get("temperature")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            highs.append(float(value))
+    return highs
+
+
 def hot_streak(highs_c: list[float], threshold_c: float = 30.0, min_days: int = 3) -> bool:
     """True when at least `min_days` consecutive forecast days reach `threshold_c`. Triggers pre-cooling over a heatwave."""
     run = 0

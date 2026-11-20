@@ -34,6 +34,7 @@ INHIBIT_MIN = 30.0  # minutes of no commands after a manual setpoint change
 KEEP_ALIVE_MIN = 30.0  # minutes without a write before the last setpoint is resent
 CONF_LOCK_PIN = "lock_pin"  # optional PIN; without it the lock cannot be set
 CONF_PM25 = "pm25"
+CONF_WEATHER = "weather"  # optional weather entity; its daily forecast supplies the highs
 CONF_VALVE = "valve"
 CONF_PRICE_CHEAP = "price_cheap"
 CONF_PRICE_EXPENSIVE = "price_expensive"

@@ -31,6 +31,7 @@ from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Setti
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
+    forecast_highs,
     natural_ventilation_window,
     daily_briefing,
     check_pin,
@@ -96,6 +97,7 @@ from .const import (
     CONF_COMFORT_C,
     CONF_MIN_OFF_MIN,
     CONF_PM25,
+    CONF_WEATHER,
     CONF_MIN_ON_MIN,
     CONF_CONTROL,
     CONF_COVER,
@@ -171,6 +173,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._forecast_highs: list[float] = []
+        self._weather_checked_min: float | None = None
         self._pwm_output_pct: float = 0.0
         self._last_sent_min: float | None = None
         self._heater_commanded_on: bool | None = None
@@ -393,11 +397,29 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
 
+    async def _refresh_weather(self) -> None:
+        weather_id = self.entry.data.get(CONF_WEATHER)
+        if not weather_id:
+            return
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": weather_id, "type": "daily"},
+                blocking=True,
+                return_response=True,
+            )
+            self._forecast_highs = forecast_highs(response[weather_id]["forecast"])
+        except Exception:  # a missing weather service must not break the cycle
+            _LOGGER.debug("Weather forecast unavailable for %s", weather_id, exc_info=True)
+
     def _heatwave(self) -> bool:
         """True when the outdoor readings have reached 30 C on at least three cycles in a row.
 
         Uses the recent outdoor readings as the forecast until a weather entity is wired in.
         """
+        if self._forecast_highs:
+            return hot_streak(self._forecast_highs)
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if outdoor is None:
             return False
@@ -487,6 +509,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
+        if self._forecast_highs:
+            return classify_day(self._forecast_highs[0]).value
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         return None if outdoor is None else classify_day(outdoor).value
 
@@ -607,6 +631,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         now = dt_util.utcnow().timestamp()
+        now_min = now / 60.0
+        if self._weather_checked_min is None or now_min - self._weather_checked_min >= 30:
+            self._weather_checked_min = now_min
+            await self._refresh_weather()
         reading = self._read_inputs(now)
         interval_mean = self._take_interval_mean(now)
         if reading is not None:

@@ -10,6 +10,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.components import sensor
 from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.core import SupportsResponse
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
@@ -573,3 +574,25 @@ async def test_cover_closes_on_high_solar_gain(hass, enable_custom_integrations,
     await hass.async_block_till_done()
     assert "cover_action" in coordinator.data
     assert coordinator.data["cover_action"] == "close"
+
+
+async def test_weather_forecast_drives_heatwave(hass, enable_custom_integrations, config_data):
+    async def ignore(call):
+        return None
+
+    async def forecasts(call):
+        return {"weather.test": {"forecast": [{"temperature": 31.0}, {"temperature": 32.0}, {"temperature": 33.0}]}}
+
+    hass.services.async_register("weather", "get_forecasts", forecasts, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("weather.test", "sunny")
+    data = dict(config_data, weather="weather.test")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator.data["heatwave"] is True
