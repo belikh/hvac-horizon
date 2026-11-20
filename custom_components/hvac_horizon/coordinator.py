@@ -64,7 +64,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target
+from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -97,6 +97,7 @@ from .const import (
     CONF_PM25,
     CONF_MIN_ON_MIN,
     CONF_CONTROL,
+    CONF_VALVE,
     CONF_ENERGY,
     CONF_SCHEDULE,
     CONF_HUMIDITY,
@@ -657,6 +658,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # only the autotune path does.
         heater_on = pwm_on(self._pwm_output_pct, PWM_WINDOW_MIN, now / 60.0)
         result["heater_pwm_on"] = heater_on
+        valve_rooms = self._rooms()
+        valve_opening = None
+        if valve_rooms:
+            comfort_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            valve_opening = valve_opening_pct(statistics.median(valve_rooms), comfort_target)
+        result["valve_opening_pct"] = valve_opening
         heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
@@ -667,6 +674,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
+        if valve_opening is not None:
+            await self._drive_valve(valve_opening)
         return result
 
     def _notify_transition(self, kind: str, attr: str, current: bool, on_text: str, off_text: str) -> None:
@@ -680,6 +689,23 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             persistent_notification.async_create(self.hass, message, title="HVAC Horizon", notification_id=notification_id)
         else:
             persistent_notification.async_dismiss(self.hass, notification_id)
+
+    async def _drive_valve(self, opening: float) -> None:
+        """Set the valve number entity to `opening` percent. Runs only with control on and a valve configured."""
+        valve = self.entry.data.get(CONF_VALVE)
+        if not self.entry.data.get(CONF_CONTROL) or not valve:
+            return
+        if not lock_allows_control(self._locked):
+            return
+        if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            return
+        state = self.hass.states.get(valve)
+        if state is None or state.state in ("unavailable", "unknown"):
+            return
+        current = _float(state)
+        if current is not None and abs(current - opening) <= 1.0:
+            return
+        await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""

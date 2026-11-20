@@ -20,6 +20,7 @@ from .const import (
     CONF_AWAY_C,
     CONF_COMFORT_C,
     CONF_CONTROL,
+    CONF_VALVE,
     CONF_PRESENCE,
     CONF_WINDOW,
     CONF_WINDOW_DELAY_MIN,
@@ -74,6 +75,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_SCHEDULE): selector.EntitySelector(selector.EntitySelectorConfig(domain=["schedule", "sensor", "input_datetime"])),
             key(CONF_PRESENCE): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+            key(CONF_VALVE): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             vol.Optional(CONF_COMFORT_C, default=defaults.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=16, max=30, step=0.5, unit_of_measurement="°C")
             ),

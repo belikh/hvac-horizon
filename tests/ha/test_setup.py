@@ -498,3 +498,28 @@ async def test_heater_pwm_pattern_is_published(hass, enable_custom_integrations,
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert "heater_pwm_on" in coordinator.data
+
+
+async def test_valve_opening_is_published_and_driven(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("number.test_valve", "0")
+    calls = []
+
+    async def record_valve(call):
+        calls.append(call.data)
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("number", "set_value", record_valve)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, control=True, valve="number.test_valve")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert 0 <= coordinator.data["valve_opening_pct"] <= 100

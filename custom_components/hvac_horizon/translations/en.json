@@ -22,7 +22,8 @@
           "pm25": "PM2.5 sensor (optional)",
           "schedule": "Schedule entity (optional)",
           "eco_c": "Eco setpoint (°C)",
-          "boost_c": "Boost setpoint (°C)"
+          "boost_c": "Boost setpoint (°C)",
+          "valve": "Valve or TRV opening number (optional)"
         }
       },
       "reconfigure": {
@@ -46,7 +47,8 @@
           "pm25": "PM2.5 sensor (optional)",
           "schedule": "Schedule entity (optional)",
           "eco_c": "Eco setpoint (°C)",
-          "boost_c": "Boost setpoint (°C)"
+          "boost_c": "Boost setpoint (°C)",
+          "valve": "Valve or TRV opening number (optional)"
         }
       }
     },

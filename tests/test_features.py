@@ -13,6 +13,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_active,
     timed_preset_name,
     transition_message,
+    valve_opening_pct,
 )
 
 
@@ -577,3 +578,21 @@ class PwmTests(unittest.TestCase):
     def test_zero_window_raises(self):
         with self.assertRaises(ValueError):
             pwm_on(50, 0, 1)
+
+
+class ValveOpeningTests(unittest.TestCase):
+    def test_two_below_is_fully_open(self):
+        self.assertEqual(valve_opening_pct(22.0, 24.0), 100.0)
+
+    def test_at_target_is_closed(self):
+        self.assertEqual(valve_opening_pct(24.0, 24.0), 0.0)
+
+    def test_above_target_is_closed(self):
+        self.assertEqual(valve_opening_pct(25.0, 24.0), 0.0)
+
+    def test_half_band_below_is_half_open(self):
+        self.assertEqual(valve_opening_pct(23.5, 24.0), 50.0)
+
+    def test_zero_band_raises(self):
+        with self.assertRaises(ValueError):
+            valve_opening_pct(23.0, 24.0, 0)

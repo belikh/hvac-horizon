@@ -492,3 +492,19 @@ def pwm_on(output_pct: float, window_min: float, elapsed_min: float) -> bool:
         raise ValueError("window_min must be positive")
     position = (elapsed_min % window_min) / window_min
     return position < output_pct / 100.0
+
+
+def valve_opening_pct(room_c: float, target_c: float, band_c: float = 1.0) -> float:
+    """Valve opening in percent from how far the room is below the target.
+
+    Fully open at or below target minus `band_c`, closed at or above target, proportional between.
+    Ported from RoomMind's modulating valve control and Versatile Thermostat's valve handling.
+    """
+    if band_c <= 0:
+        raise ValueError("band_c must be positive")
+    error = target_c - room_c
+    if error >= band_c:
+        return 100.0
+    if error <= 0:
+        return 0.0
+    return error / band_c * 100.0
