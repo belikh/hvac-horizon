@@ -3,142 +3,146 @@
 Sources: VT = Versatile Thermostat, RM = RoomMind, CA = ClimateAdvisor, PID = smart_thermostat (ScratMan).
 
 Status values:
-- `drives`: changes a device (climate, switch or a setpoint) through the control path.
+- `drives`: changes a device or a setpoint through the control path (gated by control on, lock and inhibit).
 - `published`: computed each cycle and shown on a status attribute. Nothing acts on it.
 - `pure`: a tested function with no caller in the integration.
 - `missing`: not built.
 
-One row per feature. "Ours" is the HVAC Horizon file that implements it.
+This file reflects the code on `main` at the time of the last update. Update it when a row changes.
 
 ## Control and climate
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Set HVAC mode and setpoint on a climate entity | VT, RM, CA, PID | coordinator `_async_control` | drives |
-| Observe-only mode (no commands sent) | CA | `control` option | drives |
-| Proportional or TPI power control | VT, PID | `pid.py` | pure (not in the control path) |
-| Auto-tuner from a relay test (Ziegler-Nichols) | PID | `autotune.py`, `start_autotune` service | drives the heater only during a test; not yet run on hardware |
-| Heater switch output with PWM duty cycle | PID, VT | none | missing |
-| Output polarity (inverted switch) | PID | none | missing |
-| Minimum on and off times | VT | `minimum_time_ok` | drives |
-| Keep-alive command resend | VT | `keep_alive_due` | pure |
-| Force-off on stall or sensor failure | VT, PID | `safety_output` | published (not yet forces the output) |
-| Output clamps from entities | PID | none | missing |
-| Boost forces PID auto or suspends it | PID | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Set HVAC mode and setpoint on a climate entity | VT, RM, CA, PID | drives |
+| Observe-only mode (no commands) | CA | drives |
+| Proportional or TPI power control | VT, PID | pure (PID class exists; not in the control path) |
+| Auto-tuner from a relay test (Ziegler-Nichols) | PID | drives the heater during a test only, not run on hardware |
+| Heater switch output with PWM duty cycle | PID, VT | published (pattern only; heater not driven) |
+| Output polarity (inverted switch) | PID | missing |
+| Output clamps from entities | PID | missing |
+| Boost forces PID auto or suspends it | PID | missing |
+| Minimum on and off times | VT | drives |
+| Keep-alive: resend the last setpoint | VT | drives |
+| Force-off on sensor stall | VT, PID | published (safety output; not yet forced off) |
+| Inhibition: no commands for a period after a manual change | VT | drives |
+| Lock with PIN | VT | drives |
+| Repair for incorrect device state | VT | published (repair issue) |
+| External setpoint change detection | RM | published (external change) |
 
 ## Presets and schedules
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Comfort, eco, boost, away, home, sleep presets | VT, PID | `Preset`, `preset_setpoint` | drives (comfort, eco, boost, away) |
-| Preset temperatures from config | VT, PID | eco and boost setpoints | missing (not in config flow) |
-| Preset sync (move target when preset changes) | PID | none | missing |
-| Timed preset (duration then revert) | VT | `timed_preset_active` | pure |
-| Scheduled presets by time of day | RM, CA | `scheduled_preset` | drives (empty default) |
-| Schedule entity drives presets | RM | `schedule` entity | published (pre-cool deadline only) |
-| Price-shifted target | RM | `price_shifted_target` | drives |
-| Price fallback when sensor drops out | RM | `stale_price_fallback` | published |
-| Vacation mode holds vacation temperature | RM | `vacation_target` | drives |
-| Comfort-energy weight blend | RM | `comfort_energy_setpoint` | pure |
-| Outdoor cooling limit | RM | `decide` | drives |
-| Heating above outdoor limit blocked | RM | none (cooling limit only) | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Comfort, eco, boost, away presets | VT, RM, CA, PID | drives |
+| Preset temperatures from config | VT, PID | drives (eco and boost setpoints) |
+| Preset sync (target moves when preset changes) | PID | drives (target recomputed each cycle) |
+| Timed preset (duration then revert) | VT | drives (start_timed_preset service) |
+| Scheduled presets by time of day | RM, CA | drives (schedule_blocks, empty by default) |
+| Price-shifted target | RM | drives |
+| Price fallback when sensor drops out | RM | published |
+| Vacation mode holds vacation temperature | RM | drives |
+| Comfort-energy weight blend | RM | pure |
+| Outdoor cooling limit | RM | drives |
+| Heating above outdoor limit blocked | RM | missing (no heating decision yet) |
 
 ## Occupancy, windows and presence
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Window or door open pauses control after delay | VT, RM, CA | `decide` | drives |
-| Presence sensor to home or away | VT, RM, CA | `_occupancy_mode` | published |
-| Presence affects target (away setback) | VT, RM | `decide` away branch | drives |
-| Presence from several sources | RM | `presence_mode` | pure |
-| Motion sensor presets with delays | VT | none | missing |
-| Occupancy sensor driving eco | RM | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Window or door pauses control after a delay | VT, RM, CA | drives |
+| Presence sensor to home or away | VT, RM, CA | drives (away setback) |
+| Presence from several sources | RM | pure (occupancy published) |
+| Motion sensor presets with delays | VT | missing |
+| Occupancy sensor drives eco | RM | missing |
+| Event notifications for window pauses and lock changes | CA | drives |
 
 ## Learning and forecasting
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Learned room model (k, c, g), fit with guard | RM, CA | `model.py`, `devices.py` | published (drives via forecast only) |
-| Multi-device room model (cooler and heater) | ours | `devices.fit_room` | pure |
-| Time, energy and cost to setpoint | ours | forecast sensors | published |
-| Forecast error from backtest | ours | backtest sensor | published (synthetic data) |
-| Thermal rate learning (Auto TPI) | VT | `model.py` | published |
-| Learning suggestion when gain drifts | CA | `learning_suggestion` | published |
-| Model predictive control | RM | none | missing |
-| Adaptive preheat or pre-cool start | RM, CA | `precool_start_in_min` (schedule) | drives (schedule only) |
-| Heating failure detection | VT | `heating_failure` | published (needs switch) |
-| Heater switch feedback | PID | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Learned room model (k, c, g), with fit guard | RM, CA | drives (forecast and status) |
+| Multi-device room model (cooler and heater) | ours | pure (`devices.fit_room`; not wired) |
+| Time, energy and cost to setpoint | ours | published |
+| Forecast error from backtest | ours | published (synthetic data; live error still unknown) |
+| Thermal rate learning (Auto TPI) | VT | published (model) |
+| Learning suggestion | CA | published |
+| Accept or dismiss learning suggestions | CA | drives (respond_suggestion service) |
+| Model predictive control | RM | missing |
+| Adaptive preheat or pre-cool start | RM, CA | drives (schedule deadline only) |
+| Heating failure detection | VT | published (needs heater switch) |
+| Heater switch feedback | PID | published (not_configured unless auto-tuning) |
+| Recorder history backfill at startup | ours | drives (startup backfill) |
+| Recorder history export (CSV) | VT | drives (export_csv service) |
+| What-if forecast service | CA | drives |
 
 ## Weather and environment
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Weather forecast input | RM, CA | none (outdoor sensor only) | missing |
-| Day class from forecast | CA | `classify_day` | published (outdoor sensor) |
-| Heatwave streak | CA | `hot_streak` | published (outdoor sensor) |
-| Forecast day counts | CA | `weather_day_summary` | pure |
-| Daily briefing | CA | `daily_briefing` | published |
-| Night plan (pre-cool or hold) | CA | `night_plan` | published |
-| Whole-house fan rule | CA | `whole_house_fan_allowed` | pure |
-| Whole-house fan control | CA | none | missing |
-| Natural ventilation timing | CA | none | missing |
-| Economizer (two-phase window cooling) | CA | none | missing |
-| Solar gain from irradiance and window area | RM | `sun_heat_gain` | published (optional sensor) |
-| Solar sensor learning | RM | none | missing |
-| Cover or blind control | RM | `cover_action` | pure |
-| Cover hardware | RM | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Weather forecast input | RM, CA | missing (outdoor sensor only) |
+| Day class from outdoor reading | CA | published |
+| Heatwave streak | CA | published (recent readings, not a forecast) |
+| Forecast day counts | CA | pure |
+| Daily briefing | CA | published |
+| Night plan (pre-cool or hold) | CA | published |
+| Whole-house fan control | CA | drives (switch, if configured) |
+| Whole-house fan safety rule | CA | drives (through the fan switch) |
+| Natural ventilation timing | CA | published (window advice; windows not driven) |
+| Economizer (two-phase window cooling) | CA | missing |
+| Solar gain from irradiance and window area | RM | published |
+| Solar sensor learning | RM | missing |
+| Cover or blind control | RM | drives (cover entity, if configured) |
 
 ## Air quality, humidity and mould
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Ventilation on CO2 or PM2.5 (on-off) | RM | `air_quality_ventilation` | published |
-| Proportional ventilation rate from CO2 | RM | `ventilation_rate_from_co2` | published |
-| Room fan control | RM | none (switch config only) | missing |
-| Humidity band | RM | `humidity_action` | published |
-| Dehumidify with AC dry mode | RM | `coordinator` | drives |
-| Dehumidifier or humidifier switch | RM | `_drive_switch` | drives (if configured) |
-| Drying decision (no cooling needed) | CA | `drying_needed` | published |
-| Mould risk from surface humidity | RM | `mould_risk`, `surface_humidity` | published |
-| Mould prevention raises target | RM | none | missing |
-| AC coil drying after heating | RM | none | missing |
-| Air quality feeds fan speed | VT | `fan_speed_from_gap` | published |
-| Auto fan speed from temperature gap | VT | `fan_speed_from_gap` | published |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Ventilation on CO2 or PM2.5 (on-off) | RM | drives (fan switch, if configured) |
+| Proportional ventilation rate from CO2 | RM | published |
+| Room fan control | RM | drives (fan switch, if configured) |
+| Humidity band | RM | drives (dehumidifier and humidifier switches) |
+| Dehumidify with the AC's dry mode | RM | drives |
+| Drying decision (no cooling needed) | CA | published |
+| Mould risk from surface humidity | RM | published |
+| Mould prevention raises target | RM | missing |
+| AC coil drying after heating | RM | missing |
+| Auto fan speed from temperature gap | VT | published |
 
 ## Valves, radiators and multi-device
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| TRV or valve control | VT, RM | none | missing |
-| Valve anti-seize exercise | RM | `valve_exercise_due` | pure |
-| Modulating valve opening | RM, VT | none | missing |
-| TRV offset learning | RM | none | missing |
-| Radiator and underfloor residual heat | RM | none | missing |
-| Heat source selection (boiler or AC) | RM | none | missing |
-| Central boiler activation | VT | none | missing |
-| Compressor groups (several AC on one compressor) | RM | none | missing |
-| Multi-room coordination | VT, RM | none (one room per entry) | missing |
-| Power shedding per device | VT | none | missing |
-| Central power limit | VT | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| TRV or valve control | VT, RM | drives (valve entity, if configured) |
+| Modulating valve opening | RM, VT | drives (valve entity, if configured) |
+| Valve anti-seize exercise | RM | pure |
+| TRV offset learning | RM | missing |
+| Radiator and underfloor residual heat | RM | missing |
+| Heat source selection (boiler or AC) | RM | missing |
+| Central boiler activation | VT | missing |
+| Compressor groups (several AC on one compressor) | RM | missing |
+| Second AC under the same room (multi-device control) | ours | missing (room model is single-device in control) |
+| Multi-room coordination | VT, RM | missing (one room per entry) |
+| Power shedding per device | VT | missing |
+| Central power limit | VT | missing |
 
 ## Safety, diagnostics and services
 
-| Feature | Source | Ours | Status |
-| :-- | :-- | :-- | :-- |
-| Sensor stall detection | VT | `sensor_stalled` | published |
-| Safety output on stall | VT | `safety_output` | published |
-| Lock with PIN | VT | none | missing |
-| Repair for incorrect device state | VT | none | missing |
-| External setpoint change detection | RM | none | missing |
-| Inhibition (block commands for a period) | VT | none | missing |
-| Diagnostics export with redaction | VT, CA | `diagnostics.py` | drives (HA diagnostics download) |
-| Services: reset learning, export samples | VT, CA | `reset_learning`, `export_samples` | drives |
-| Service: start auto-tune | PID | `start_autotune` | drives the heater during a test |
-| Service: what-if forecast | CA | none | missing |
-| Recorder history export | VT | none | missing |
-| Notifications on events | CA | none | missing |
-| Accuracy page (prediction versus actual) | CA | none (forecast error sensor only) | published |
-| AI investigator and budget | CA | none | missing (out of scope for software-only) |
-| Learning suggestions accept or dismiss | CA | none | missing |
-| Repairs for failing sensors | CA | none | missing |
+| Feature | Source | Status |
+| :-- | :-- | :-- |
+| Sensor stall detection | VT | published |
+| Repair issue and notification for stalled sensors | CA | drives |
+| Safety output on stall | VT | published |
+| Diagnostics export with redaction | VT, CA | drives (HA diagnostics) |
+| Services: reset learning, export samples | VT, CA | drives |
+| Start auto-tune service | PID | drives (heater, during a test) |
+| Accuracy page (prediction versus actual) | CA | published (forecast error sensor only) |
+| Notifications on events | CA | drives |
+| AI investigator and budget | CA | missing (out of scope for software-only) |
 
+## Unbuilt items (count)
+
+Rows marked `missing` above, excluding the AI investigator which is out of scope:
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, weather forecast input, economizer, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room, power shedding, central power limit.
+
+That is 21 rows. The live forecast error is still `unknown` until real cool-downs are scored.
