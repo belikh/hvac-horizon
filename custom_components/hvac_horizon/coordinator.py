@@ -35,6 +35,7 @@ from custom_components.hvac_horizon.features import (
     fan_speed_from_gap,
     stale_price_fallback,
     ventilation_rate_from_co2,
+    whole_house_fan_allowed,
     mould_risk,
     surface_humidity,
     presence_mode,
@@ -55,6 +56,8 @@ from .const import (
     CONF_CLIMATE,
     CONF_AWAY_DELAY_MIN,
     CONF_CO2,
+    CONF_HOUSE_SEALED,
+    CONF_WHOLE_HOUSE_FAN,
     CONF_IRRADIANCE,
     CONF_WINDOW_AREA_M2,
     DEFAULT_AWAY_DELAY_MIN,
@@ -187,6 +190,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data = await self._store.async_load() or {}
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
         self._refit()
+
+    def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
+        """Forecast minutes, energy and cost for given conditions, using the current fit and price slots."""
+        if self._fit is None:
+            return {"status": "learning", "reason": self._fit_reason}
+        f = forecast(self._fit, room_c, target_c, outdoor_c, power_kw, self._price_forecast(dt_util.utcnow().timestamp()))
+        return {
+            "status": "reachable" if f.reachable else "unreachable",
+            "minutes": None if f.minutes is None else round(f.minutes, 1),
+            "energy_kwh": None if f.energy_kwh is None else round(f.energy_kwh, 3),
+            "cost": None if f.cost is None else round(f.cost, 3),
+            "reason": f.reason,
+        }
 
     def reset_learning(self) -> None:
         """Forget the stored samples and the fit. The next cycles start learning again."""
@@ -563,6 +579,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["humidity"] = humidity.reason
         await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
+        outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        rooms_wh = self._rooms()
+        fan_ok = whole_house_fan_allowed(
+            bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
+            climate.state == "cool",
+            outdoor_now,
+            statistics.median(rooms_wh) if rooms_wh else 0.0,
+        )
+        result["whole_house_fan"] = fan_ok
+        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         # Minimum on and off times: do not change state until the current state has lasted long enough.

@@ -310,3 +310,17 @@ async def test_stalled_sensor_raises_repair_issue(hass, enable_custom_integratio
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_stalled") is not None
     coordinator._report_stalls([])
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_stalled") is None
+
+
+async def test_what_if_service_returns_forecast(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await hass.services.async_call(
+        DOMAIN, "what_if",
+        {"entry_id": entry.entry_id, "room_c": 26.0, "target_c": 24.0, "outdoor_c": 30.0, "power_kw": 1.1},
+        blocking=True, return_response=True,
+    )
+    assert result["status"] in ("learning", "reachable", "unreachable")

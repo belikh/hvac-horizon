@@ -38,3 +38,49 @@ start_autotune:
           max: 30
           step: 0.5
           unit_of_measurement: "°C"
+what_if:
+  name: What-if forecast
+  description: Forecast minutes, energy and cost to a target for given conditions, using the current model and price slots.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon
+    room_c:
+      name: Room temperature
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 50
+          step: 0.1
+          unit_of_measurement: "°C"
+    target_c:
+      name: Target
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 50
+          step: 0.1
+          unit_of_measurement: "°C"
+    outdoor_c:
+      name: Outdoor temperature
+      required: true
+      selector:
+        number:
+          min: -20
+          max: 60
+          step: 0.1
+          unit_of_measurement: "°C"
+    power_kw:
+      name: AC power
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.05
+          unit_of_measurement: kW

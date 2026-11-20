@@ -48,3 +48,5 @@ CONF_IRRADIANCE = "irradiance"  # optional sensor, W/m2, on the window
 CONF_WINDOW_AREA_M2 = "window_area_m2"
 CONF_ECO_C = "eco_c"
 CONF_BOOST_C = "boost_c"
+CONF_WHOLE_HOUSE_FAN = "whole_house_fan"  # optional switch for a whole-house fan
+CONF_HOUSE_SEALED = "house_sealed"  # bool: a sealed house never runs the whole-house fan

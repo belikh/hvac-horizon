@@ -19,6 +19,7 @@ PLATFORMS = [Platform.SENSOR]
 SERVICE_RESET = "reset_learning"
 SERVICE_EXPORT = "export_samples"
 SERVICE_AUTOTUNE = "start_autotune"
+SERVICE_WHAT_IF = "what_if"
 
 
 def _register_services(hass: HomeAssistant) -> None:
@@ -37,6 +38,11 @@ def _register_services(hass: HomeAssistant) -> None:
     async def export(call):
         return {"samples": _coordinator(call).export_samples()}
 
+    async def what_if(call):
+        return _coordinator(call).what_if(
+            float(call.data["room_c"]), float(call.data["target_c"]), float(call.data["outdoor_c"]), float(call.data["power_kw"])
+        )
+
     async def autotune(call):
         _coordinator(call).start_autotune(float(call.data["setpoint"]))
 
@@ -45,6 +51,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
     hass.services.async_register(DOMAIN, SERVICE_EXPORT, export, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
+    hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
