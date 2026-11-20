@@ -76,7 +76,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, coil_dry_due, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, stagger_allowed, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -198,6 +198,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._was_cooling: bool = False
+        self._dry_started_min: float | None = None
         self._solar_pairs: list[tuple[float, float]] = []
         self._last_motion_at: float | None = None
         self._last_start_min: dict[str, float] = {}
@@ -998,6 +1000,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF:
+            if await self._drive_coil_dry(climate_id, climate, now):
+                return
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
             if humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
@@ -1009,6 +1013,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"
             return
+        self._was_cooling = climate.state == "cool"
+        self._dry_started_min = None
         if climate.state != "cool":
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
             self._last_sent_min = now / 60.0
@@ -1021,6 +1027,32 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             self._last_written_setpoint = float(action.setpoint_c)
             self._last_sent_min = now / 60.0
+
+    async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:
+        """Run the AC in dry mode for 20 minutes after cooling stops. Returns True when it handled the cycle.
+
+        Called on the control path after the lock and inhibit checks, and only when the AC lists a dry mode.
+        """
+        now_cooling = climate.state == "cool"
+        modes = climate.attributes.get("hvac_modes")
+        has_dry = modes is None or "dry" in modes
+        handled = False
+        if self.entry.data.get(CONF_CONTROL) and has_dry:
+            now_min = now / 60.0
+            drying = coil_dry_due(self._was_cooling, now_cooling, self._dry_started_min, now_min)
+            if drying:
+                if self._dry_started_min is None:
+                    self._dry_started_min = now_min
+                if climate.state != "dry":
+                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                handled = True
+            elif self._dry_started_min is not None:
+                self._dry_started_min = None
+                if climate.state == "dry":
+                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                    handled = True
+        self._was_cooling = now_cooling
+        return handled
 
     async def _drive_second_ac(self, action: Any, result: dict[str, Any], now: float, first: State | None) -> None:
         """Send the first AC's cool or off decision to the optional second AC. Called only on the control path."""

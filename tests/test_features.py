@@ -3,6 +3,7 @@ import unittest
 from custom_components.hvac_horizon.features import (
     apply_polarity,
     clamp_output,
+    coil_dry_due,
     DayType,
     air_quality_ventilation,
     classify_day,
@@ -826,3 +827,21 @@ class EffectiveHomeTests(unittest.TestCase):
     def test_unknown_mode_raises(self):
         with self.assertRaises(ValueError):
             effective_home(True, "vacation")
+
+
+class CoilDryDueTest(unittest.TestCase):
+    def test_stopped_cooling_starts_drying(self):
+        self.assertTrue(coil_dry_due(True, False, None, 100.0))
+
+    def test_still_drying_inside_window(self):
+        self.assertTrue(coil_dry_due(False, False, 100.0, 110.0))
+
+    def test_past_window_is_false(self):
+        self.assertFalse(coil_dry_due(False, False, 100.0, 120.0))
+
+    def test_still_cooling_is_false(self):
+        self.assertFalse(coil_dry_due(True, True, None, 100.0))
+
+    def test_bad_dry_minutes_raises(self):
+        with self.assertRaises(ValueError):
+            coil_dry_due(True, False, None, 100.0, 0.0)

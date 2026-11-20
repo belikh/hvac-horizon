@@ -730,3 +730,16 @@ def effective_home(room_home: bool, house_mode: str) -> bool:
     if house_mode == "away":
         return False
     return room_home
+
+
+def coil_dry_due(was_cooling: bool, now_cooling: bool, dry_started_min: float | None, now_min: float, dry_minutes: float = 20.0) -> bool:
+    """True when the AC should run in dry mode to dry its coil after cooling. Ported from RoomMind's AC coil dry manager.
+
+    Starts when cooling has just stopped and no drying runs. Continues for dry_minutes after dry_started_min.
+    Raises ValueError when dry_minutes is not positive.
+    """
+    if dry_minutes <= 0:
+        raise ValueError("dry_minutes must be positive")
+    if dry_started_min is None:
+        return was_cooling and not now_cooling
+    return now_min - dry_started_min < dry_minutes
