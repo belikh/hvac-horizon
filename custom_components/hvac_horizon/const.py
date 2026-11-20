@@ -88,6 +88,9 @@ CONF_WHOLE_HOUSE_FAN = "whole_house_fan"  # optional switch for a whole-house fa
 CONF_COIL_DRY = "coil_dry"  # bool, default False; run the AC in dry mode after cooling to dry the coil
 CONF_HOUSE_SEALED = "house_sealed"  # bool: a sealed house never runs the whole-house fan
 PWM_WINDOW_MIN = 10.0  # heater PWM window in minutes
+# CO2 fan window. The control tick is 5 minutes, so a 10 minute window samples only two points and gives 0, 50 or 100 percent.
+# A 60 minute window samples 12 points, so the duty resolves in steps of 1/12.
+FAN_PWM_WINDOW_MIN = 60.0
 CONF_SHED_MAX_W = "shed_max_w"  # optional whole-house maximum in watts
 CONF_SHED_LOADS = "shed_loads"  # optional list of "switch_entity_id|watts", lowest priority first
 CONF_WHOLE_HOUSE_POWER = "whole_house_power"  # optional power sensor in watts

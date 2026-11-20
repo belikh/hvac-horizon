@@ -112,6 +112,7 @@ from .const import (
     DEFAULT_HEATER_KD,
     DEFAULT_HEATER_DEADBAND_C,
     PWM_WINDOW_MIN,
+    FAN_PWM_WINDOW_MIN,
     CONF_AWAY_C,
     CONF_MOTION,
     CONF_CLIMATE,
@@ -1380,7 +1381,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fan_on = ventilation.run
         if 0.0 < co2_rate < 1.0:
             pm25_on = air_quality_ventilation(None, _float(self._optional(CONF_PM25))).run
-            fan_on = pwm_on(co2_rate * 100.0, PWM_WINDOW_MIN, now / 60.0) or pm25_on
+            fan_on = pwm_on(co2_rate * 100.0, FAN_PWM_WINDOW_MIN, now / 60.0) or pm25_on
         await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
