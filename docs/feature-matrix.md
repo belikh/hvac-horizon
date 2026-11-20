@@ -80,7 +80,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 
 | Feature | Source | Status |
 | :-- | :-- | :-- |
-| Weather forecast input | RM, CA | missing (outdoor sensor only) |
+| Weather forecast input | RM, CA | drives (day class and heatwave use the forecast when a weather entity is set) |
 | Day class from outdoor reading | CA | published |
 | Heatwave streak | CA | published (recent readings, not a forecast) |
 | Forecast day counts | CA | pure |
@@ -123,8 +123,8 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Compressor groups (several AC on one compressor) | RM | missing |
 | Second AC under the same room (multi-device control) | ours | missing (room model is single-device in control) |
 | Multi-room coordination | VT, RM | missing (one room per entry) |
-| Power shedding per device | VT | missing |
-| Central power limit | VT | missing |
+| Power shedding per device | VT | drives (lowest-priority loads switched off over the limit; not turned back on yet) |
+| Central power limit | VT | drives (whole-house limit, same path as per-device shedding) |
 
 ## Safety, diagnostics and services
 
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, weather forecast input, economizer, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room, power shedding, central power limit.
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, economizer, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, heat source selection, central boiler, compressor groups, second AC under one room, multi-room.
 
-That is 21 rows. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather and shedding rows were updated, 18 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
