@@ -14,13 +14,13 @@
       "id": "start",
       "title": "Start",
       "summary": "Install and first run.",
-      "icon": "rule"
+      "icon": "home"
     },
     {
       "id": "concepts",
       "title": "Concepts",
       "summary": "How it works and why it is built this way.",
-      "icon": "spot"
+      "icon": "search"
     }
   ]
 }
