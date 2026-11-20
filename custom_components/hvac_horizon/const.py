@@ -42,3 +42,5 @@ CONF_DEHUMIDIFIER = "dehumidifier"  # optional switch for a dehumidifier
 CONF_VACATION = "vacation"  # optional input_boolean or switch that enables vacation mode
 CONF_VACATION_C = "vacation_c"
 DEFAULT_VACATION_C = 16.0
+CONF_AWAY_DELAY_MIN = "away_delay_min"
+DEFAULT_AWAY_DELAY_MIN = 30.0

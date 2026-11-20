@@ -25,6 +25,7 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     heating_failure,
     learning_suggestion,
+    presence_mode,
     vacation_target,
     night_plan,
     safety_output,
@@ -38,7 +39,9 @@ from custom_components.hvac_horizon.control import precool_start_in_min
 from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
+    CONF_AWAY_DELAY_MIN,
     CONF_CO2,
+    DEFAULT_AWAY_DELAY_MIN,
     CONF_VACATION,
     CONF_VACATION_C,
     DEFAULT_VACATION_C,
@@ -115,6 +118,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._state_changed_at: float | None = None
         self._heater_on_since: float | None = None
         self._baseline_k: float | None = None
+        self._last_home_at: float | None = None
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
@@ -201,6 +205,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         on_min = (now - self._heater_on_since) / 60.0
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
+
+    def _occupancy_mode(self, now: float) -> str:
+        """Home or away from the optional presence sources. Tracks the last time any source was home."""
+        sources = [self._optional(CONF_PRESENCE)] if self.entry.data.get(CONF_PRESENCE) else []
+        home = [s.state in ("on", "home") for s in sources if s is not None]
+        if any(home):
+            self._last_home_at = now
+        since = 0.0 if self._last_home_at is None else (now - self._last_home_at) / 60.0
+        return presence_mode(home, float(self.entry.data.get(CONF_AWAY_DELAY_MIN, DEFAULT_AWAY_DELAY_MIN)), since)
 
     def _learning_suggestion(self) -> str | None:
         """Compare the fitted heat gain with the current model gain (the first fit, kept per run)."""
@@ -322,6 +335,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["learning_suggestion"] = self._learning_suggestion()
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         result["vacation"] = vacation_on
+        result["occupancy"] = self._occupancy_mode(now)
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
