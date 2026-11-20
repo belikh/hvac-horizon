@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -242,7 +242,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_room_data_s: float | None = None
         self._locked = False
         self._heater_pid: Pid | None = None
-        self._heater_gains: dict[str, float] | None = None  # kp, ki, kd from the last relay test; stored, used before the options
+        self._heater_gains: dict[str, float] | None = None  # kp, ki, kd from the last relay test; stored, used for each gain field left at its default
         self._was_cooling: bool = False
         self._dry_started_min: float | None = None
         self._solar_pairs: list[tuple[float, float]] = []
@@ -1044,9 +1044,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._heater_pid is None:
                 tuned = self._heater_gains or {}
                 self._heater_pid = Pid(
-                    float(tuned.get("kp", self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP))),
-                    float(tuned.get("ki", self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI))),
-                    float(tuned.get("kd", self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD))),
+                    pid_gain(float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)), DEFAULT_HEATER_KP, tuned.get("kp")),
+                    pid_gain(float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)), DEFAULT_HEATER_KI, tuned.get("ki")),
+                    pid_gain(float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
                     ke=0.0,
                     out_min=0.0,
                     out_max=100.0,

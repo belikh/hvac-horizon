@@ -849,6 +849,13 @@ def residual_correction(
     return room_c + _residual_rise(peak_rise_k, minutes_since_off, tau_min)
 
 
+def pid_gain(user_value: float, default: float, tuned: float | None) -> float:
+    """Heater PID gain. A value the user set (not the default) wins. At the default, the tuned value applies."""
+    if tuned is None or user_value != default:
+        return user_value
+    return tuned
+
+
 def room_devices(entry_data: dict) -> dict[str, list[str]]:
     """Devices of the room, built from the flat config keys. Absent or empty keys give empty lists."""
     cooling = [entry_data[key] for key in (CONF_CLIMATE, CONF_CLIMATE_2) if entry_data.get(key)]

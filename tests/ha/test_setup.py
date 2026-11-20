@@ -21,6 +21,7 @@ from custom_components.hvac_horizon.const import (
     CONF_BOOST_C,
     CONF_ECO_C,
     CONF_HEATER_INVERTED,
+    CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
     CONF_CLIMATE,
     CONF_LOCK_PIN,
@@ -1637,6 +1638,36 @@ async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, e
     assert restarted.kp == pytest.approx(tuned.kp)
     assert restarted.ki == pytest.approx(tuned.ki)
     assert restarted.kd == pytest.approx(tuned.kd)
+
+
+async def test_tuned_gains_apply_when_the_gain_fields_are_at_defaults(hass, enable_custom_integrations, config_data, freezer):
+    # A fresh install stores no gain fields, so the fields sit at their defaults and the tuned gains apply.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator._heater_pid = None
+    coordinator._heater_gains = {"kp": 7.0, "ki": 30.0, "kd": 0.2}
+    await refresh(hass, entry)
+    pid = coordinator._heater_pid
+    assert (pid.kp, pid.ki, pid.kd) == pytest.approx((7.0, 30.0, 0.2))
+
+
+async def test_user_kp_after_a_tune_wins_over_the_tuned_kp(hass, enable_custom_integrations, config_data, freezer):
+    # The tune stored kp 7. The user sets Kp 12 in reconfigure. Ki and Kd stay at their defaults, so the tuned values apply.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    entry.runtime_data._heater_gains = {"kp": 7.0, "ki": 30.0, "kd": 0.2}
+    result = await entry.start_reconfigure_flow(hass)
+    new_data = dict(entry.data)
+    new_data[CONF_HEATER_KP] = 12.0
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], new_data)
+    await hass.async_block_till_done()
+    assert result["type"] == "abort"
+    assert result["reason"] == "reconfigure_successful"
+    await refresh(hass, entry)
+    pid = entry.runtime_data._heater_pid
+    assert pid.kp == pytest.approx(12.0)
+    assert (pid.ki, pid.kd) == pytest.approx((30.0, 0.2))
 
 
 @pytest.mark.parametrize("room", ["26.0", "unavailable"], ids=["hot_room", "rooms_unavailable"])
