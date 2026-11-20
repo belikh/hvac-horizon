@@ -1,0 +1,4 @@
+# Pins match the harness release. The harness pins Home Assistant 2026.10.4.
+pytest-homeassistant-custom-component==0.13.375
+pytest==9.0.3
+pytest-asyncio==1.4.0

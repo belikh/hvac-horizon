@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HVAC Horizon",
+        "description": "Pick the AC, its power meter, the room and outdoor temperature sensors, and the electricity price sensor.",
+        "data": {
+          "climate": "AC climate entity",
+          "power": "AC power sensor (W)",
+          "room_sensors": "Room temperature sensors",
+          "outdoor": "Outdoor temperature sensor",
+          "price": "Electricity price sensor (optional)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This AC is already set up."
+    }
+  }
+}
