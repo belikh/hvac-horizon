@@ -145,6 +145,8 @@ from .const import (
     CONF_HEATER_INVERTED,
     CONF_OUTPUT_MIN,
     CONF_OUTPUT_MAX,
+    CONF_OUTPUT_MIN_ENTITY,
+    CONF_OUTPUT_MAX_ENTITY,
     CONF_SCHEDULE_BLOCKS,
     CONF_PRICE_CHEAP,
     CONF_PRICE_EXPENSIVE,
@@ -808,12 +810,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return learning_suggestion(self._baseline_k, self._fit.k)
 
+    def _output_limit(self, entity_key: str, config_key: str, default: float) -> float:
+        """A heater output limit: the number entity's value when it has one, else the config value."""
+        value = _float(self._optional(entity_key))
+        return value if value is not None else float(self.entry.data.get(config_key, default))
+
     def set_heater_output(self, pct: float) -> None:
-        self._pwm_output_pct = clamp_output(
-            pct,
-            float(self.entry.data.get(CONF_OUTPUT_MIN, 0.0)),
-            float(self.entry.data.get(CONF_OUTPUT_MAX, 100.0)),
-        )
+        lo = self._output_limit(CONF_OUTPUT_MIN_ENTITY, CONF_OUTPUT_MIN, 0.0)
+        hi = max(lo, self._output_limit(CONF_OUTPUT_MAX_ENTITY, CONF_OUTPUT_MAX, 100.0))
+        self._pwm_output_pct = clamp_output(pct, lo, hi)
 
     def respond_suggestion(self, accept: bool) -> None:
         """Accept adopts the learned heat gain as the baseline; dismiss hides the suggestion until the gain drifts."""
@@ -1121,6 +1126,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # The PID cannot run (no room or outdoor reading). A stale output must not keep the heater on.
             # Boost still heats: boost_output returns 100 in boost and 0 otherwise.
             self.set_heater_output(boost_output(self._preset_now or "", 0.0))
+        result["heater_output_pct"] = round(self._pwm_output_pct, 2)
         valve_rooms = self._rooms()
         valve_opening = None
         if valve_rooms:

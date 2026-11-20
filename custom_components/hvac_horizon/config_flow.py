@@ -31,6 +31,8 @@ from .const import (
     CONF_HEATER_INVERTED,
     CONF_OUTPUT_MIN,
     CONF_OUTPUT_MAX,
+    CONF_OUTPUT_MAX_ENTITY,
+    CONF_OUTPUT_MIN_ENTITY,
     CONF_COVER,
     CONF_MOTION,
     CONF_MOTION_AWAY_MIN,
@@ -244,6 +246,8 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_OUTPUT_MAX): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
+            key(CONF_OUTPUT_MIN_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
+            key(CONF_OUTPUT_MAX_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_SCHEDULE_BLOCKS, default=list): selector.ObjectSelector(),
             key(CONF_AI_CONVERSATION): selector.EntitySelector(selector.EntitySelectorConfig(domain="conversation")),
             key(CONF_AI_BUDGET): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1)),

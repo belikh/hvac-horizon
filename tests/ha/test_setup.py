@@ -17,6 +17,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.features import room_devices
+from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.const import (
     CONF_BOOST_C,
     CONF_AWAY_DELAY_MIN,
@@ -27,6 +28,10 @@ from custom_components.hvac_horizon.const import (
     CONF_HEATER_SWITCH,
     CONF_HEAT_BOOST_C,
     CONF_HEAT_ECO_C,
+    CONF_OUTPUT_MAX,
+    CONF_OUTPUT_MAX_ENTITY,
+    CONF_OUTPUT_MIN,
+    CONF_OUTPUT_MIN_ENTITY,
     CONF_CLIMATE,
     CONF_LOCK_PIN,
     CONF_SCHEDULE_BLOCKS,
@@ -3016,4 +3021,35 @@ async def test_presence_away_keeps_the_frost_floor_with_heat_eco_c_set(hass, ena
     )
     await refresh(hass, entry)
     assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(15.5)
+
+
+async def test_output_min_entity_holds_the_heater_output(hass, enable_custom_integrations, config_data, monkeypatch):
+    # The PID asks for 5 percent. The min entity at 20 percent raises the output to 20. Each tick reads the entity again.
+    monkeypatch.setattr(Pid, "update", lambda self, *args, **kwargs: 5.0)
+    hass.states.async_set("number.test_min_output", "20")
+    entry, _ = await setup_heater(hass, config_data, extra={CONF_OUTPUT_MIN_ENTITY: "number.test_min_output", CONF_OUTPUT_MIN: 0.0})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heater_pid_output"] == 5.0
+    assert entry.runtime_data.data["heater_output_pct"] == 20.0
+    hass.states.async_set("number.test_min_output", "35")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heater_output_pct"] == 35.0
+
+
+async def test_output_limits_fall_back_to_config_when_the_entity_is_unavailable(hass, enable_custom_integrations, config_data, monkeypatch):
+    monkeypatch.setattr(Pid, "update", lambda self, *args, **kwargs: 5.0)
+    hass.states.async_set("number.test_min_output", "unavailable")
+    hass.states.async_set("number.test_max_output", "unavailable")
+    entry, _ = await setup_heater(
+        hass,
+        config_data,
+        extra={
+            CONF_OUTPUT_MIN_ENTITY: "number.test_min_output",
+            CONF_OUTPUT_MAX_ENTITY: "number.test_max_output",
+            CONF_OUTPUT_MIN: 30.0,
+            CONF_OUTPUT_MAX: 80.0,
+        },
+    )
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heater_output_pct"] == 30.0
 
