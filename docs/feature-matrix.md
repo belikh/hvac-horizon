@@ -21,7 +21,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Heater switch output with PWM duty cycle | PID, VT | published (pattern only; heater not driven) |
 | Output polarity (inverted switch) | PID | drives (applied to the autotune switch command; config flag) |
 | Output clamps from entities | PID | drives (config minimum and maximum applied to the heater output) |
-| Boost forces PID auto or suspends it | PID | missing |
+| Boost forces PID auto or suspends it | PID | drives the heater output to 100 % during boost (the AC has no PID loop) |
 | Minimum on and off times | VT | drives |
 | Keep-alive: resend the last setpoint | VT | drives |
 | Force-off on sensor stall | VT, PID | published (safety output; not yet forced off) |
@@ -106,7 +106,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Drying decision (no cooling needed) | CA | published |
 | Mould risk from surface humidity | RM | published |
 | Mould prevention raises target | RM | drives (control target raised by 1 C while mould risk is present) |
-| AC coil drying after heating | RM | drives (AC dry mode for 20 minutes after cooling, when the AC supports dry) |
+| AC coil drying after heating | RM | drives, opt-in (coil_dry option; AC dry mode for 20 minutes after cooling) |
 | Auto fan speed from temperature gap | VT | published |
 
 ## Valves, radiators and multi-device
