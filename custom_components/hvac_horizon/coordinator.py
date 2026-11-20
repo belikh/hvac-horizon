@@ -1602,7 +1602,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and humidity.action == "dehumidify"
                 and not self.entry.data.get(CONF_DEHUMIDIFIER)
                 and climate.state != "dry"
+                and self._group_start_ok(now)
             ):
+                # A dry start runs the compressor, so it waits for the group clock like a cool start.
+                self._record_group_start(now)
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"
