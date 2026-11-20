@@ -36,6 +36,8 @@ from .const import (
     CONF_SHED_MAX_W,
     CONF_WHOLE_HOUSE_POWER,
     CONF_SCHEDULE_BLOCKS,
+    CONF_AI_CONVERSATION,
+    CONF_AI_BUDGET,
     CONF_ECO_C,
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_BOILER,
@@ -228,6 +230,8 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=100, step=1, unit_of_measurement="%")
             ),
             key(CONF_SCHEDULE_BLOCKS, default=list): selector.ObjectSelector(),
+            key(CONF_AI_CONVERSATION): selector.EntitySelector(selector.EntitySelectorConfig(domain="conversation")),
+            key(CONF_AI_BUDGET): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=100, step=1)),
         }
     )
 

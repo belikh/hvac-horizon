@@ -1996,3 +1996,43 @@ async def test_single_presence_string_still_works(hass, enable_custom_integratio
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data._someone_home is True  # inside the away delay after setup
+
+
+async def test_investigator_answers_why_the_ac_runs(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)  # room 26 C, outdoor 30 C, comfort 24 C: the AC cools
+    _register_climate_fakes(hass)
+    data = dict(config_data, control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    attributes = hass.states.get(entity_id).attributes
+    assert attributes["investigation"]["answer"].startswith("The AC is running: above")
+    assert attributes["investigation_ai"] is None  # no conversation agent set, so no model call
+    assert attributes["ai_calls_today"] == 0
+
+
+async def test_model_calls_follow_mode_changes_and_stop_at_the_budget(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    calls = []
+
+    async def fake_agent(call):
+        calls.append(call.data["text"])
+        return {"response": {"speech": {"plain": {"speech": "The room is above the comfort target."}}}}
+
+    hass.services.async_register("conversation", "process", fake_agent, supports_response=SupportsResponse.ONLY)
+    data = dict(config_data, control=True, ai_conversation="conversation.test_agent", ai_budget_per_day=2)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    # Each flip changes the AC mode. Four changes are made; the budget allows two calls.
+    for room in ("20.0", "26.0", "20.0", "26.0"):
+        hass.states.async_set(ROOM_A, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(ROOM_B, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert len(calls) == 2
+    assert entry.runtime_data.data["ai_calls_today"] == 2
+    assert entry.runtime_data.data["investigation_ai"] == "The room is above the comfort target."

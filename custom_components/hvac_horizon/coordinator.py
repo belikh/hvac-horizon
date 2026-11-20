@@ -89,6 +89,7 @@ from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.tpi import TpiFit, learn_tpi
+from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
@@ -98,6 +99,8 @@ from .const import (
     TRV_HISTORY,
     CONF_RADIATORS,
     CONF_POWER_2,
+    CONF_AI_BUDGET,
+    CONF_AI_CONVERSATION,
     DEFAULT_RESIDUAL_PEAK_K,
     RESIDUAL_TAU_MIN,
     CONF_ECO_C,
@@ -247,6 +250,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_economizer_t: float | None = None
         self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
         self._heater_was_on = False
+        self._action_log: list[ActionRecord] = []  # recent AC actions, newest last, for the investigator
+        self._budget = CallBudget()  # model calls per day
+        self._last_ai_mode: str | None = None
+        self._ai_answer: str | None = None
         self._tpi: TpiFit | None = None  # per-state coefficients; the forecast uses them when present
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
@@ -1095,6 +1102,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._async_control(now, result)
         finally:
             await self._async_heater_step(now, result)
+        await self._publish_investigation(now, result)
         heater_switch = (room_devices(self.entry.data)["heating"] or [None])[0]
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
@@ -1361,6 +1369,47 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
         await self._write_setpoint(climate_id, climate, action.setpoint_c, now)
+
+    async def _publish_investigation(self, now: float, result: dict[str, Any]) -> None:
+        """Explain the AC action from its inputs. Ask the conversation agent when the mode changes, within the daily budget."""
+        action_text = result.get("action")
+        if action_text and (not self._action_log or self._action_log[-1].text != action_text):
+            self._action_log = (self._action_log + [ActionRecord(now / 60.0, action_text)])[-20:]
+        rooms = self._rooms()
+        window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
+        investigation = investigate(
+            action_text,
+            statistics.median(rooms) if rooms else None,
+            self._cool_above_c,
+            self._someone_home,
+            window_open_min,
+            self._action_log,
+        )
+        result["investigation"] = investigation
+        mode_now = action_text.partition(":")[0] if action_text else None
+        if mode_now and mode_now != self._last_ai_mode and self.entry.data.get(CONF_AI_CONVERSATION):
+            self._last_ai_mode = mode_now
+            answer = await self._ask_model(f"In one sentence, explain why the AC is {mode_now}. {investigation['answer']}")
+            if answer:
+                self._ai_answer = answer
+        result["investigation_ai"] = self._ai_answer
+        result["ai_calls_today"] = self._budget.used(dt_util.now().date())
+
+    async def _ask_model(self, text: str) -> str | None:
+        """One call to the conversation agent, if the budget allows. Returns the reply text, or None."""
+        agent = self.entry.data.get(CONF_AI_CONVERSATION)
+        limit = int(self.entry.data.get(CONF_AI_BUDGET) or 0)
+        if not agent or not self._budget.try_take(dt_util.now().date(), limit):
+            return None
+        try:
+            response = await self.hass.services.async_call(
+                "conversation", "process", {"agent_id": agent, "text": text}, blocking=True, return_response=True
+            )
+        except Exception:  # the agent may be missing or unavailable; the rule-based answer still stands
+            _LOGGER.debug("conversation agent %s failed", agent, exc_info=True)
+            return None
+        speech = ((response or {}).get("response") or {}).get("speech", {}).get("plain", {}).get("speech")
+        return str(speech) if speech else None
 
     async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> None:
         """Send `target_c` to the AC when it differs from the device setpoint. Rounds to the device's step when it reports one."""

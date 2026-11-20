@@ -116,6 +116,9 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "g_k_per_h": d.get("g"),
             "autotune": d.get("autotune"),  # kp, ki, kd after a relay test; None before
             "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed
+            "investigation": d.get("investigation"),  # rule-based answer to why the AC runs or not, and recent actions
+            "investigation_ai": d.get("investigation_ai"),  # conversation agent answer, when a flow field sets one
+            "ai_calls_today": d.get("ai_calls_today"),
             "tpi": d.get("tpi"),  # per-state coefficients: k, g from AC-off, c from AC-on; None until learned
         }
 
