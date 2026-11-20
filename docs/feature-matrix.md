@@ -122,7 +122,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Central boiler activation | VT | drives (boiler switch, if configured) |
 | Compressor groups (several AC on one compressor) | RM | drives (starts of two ACs in one room are staggered by 5 minutes; not across rooms) |
 | Second AC under the same room (multi-device control) | ours | drives (same cooling decision; not yet held by the minimum on and off times) |
-| Multi-room coordination | VT, RM | missing (one room per entry) |
+| Multi-room coordination | VT, RM | drives (house-wide home or away mode shared by all room entries; no other cross-room control) |
 | Power shedding per device | VT | drives (lowest-priority loads switched off over the limit; not turned back on yet) |
 | Central power limit | VT | drives (whole-house limit, same path as per-device shedding) |
 
