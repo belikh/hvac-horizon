@@ -27,6 +27,7 @@ from custom_components.hvac_horizon.features import (
     learning_suggestion,
     band_action,
     comfort_band,
+    compliance_score,
     mould_risk,
     surface_humidity,
     presence_mode,
@@ -126,6 +127,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heater_on_since: float | None = None
         self._baseline_k: float | None = None
         self._last_home_at: float | None = None
+        self._last_cycle_t: float | None = None
+        self._in_band_min: float = 0.0
+        self._total_min: float = 0.0
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
@@ -212,6 +216,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         on_min = (now - self._heater_on_since) / 60.0
         rise = statistics.median(rooms) - (self._heater_start_temp or 0.0)
         return heating_failure(on_min, rise)
+
+    def _compliance(self, now: float, band_action_value: str | None) -> float | None:
+        """Share of time in band since the coordinator started. Tracked from each cycle's band action."""
+        if band_action_value is None:
+            return None
+        if self._last_cycle_t is not None:
+            dt = (now - self._last_cycle_t) / 60.0
+            self._total_min += dt
+            if band_action_value == "none":
+                self._in_band_min += dt
+        self._last_cycle_t = now
+        return compliance_score(self._in_band_min, self._total_min)
 
     def _mould_risk(self) -> bool:
         """Mould risk from the room humidity and the outdoor temperature as a cold-surface proxy.
@@ -369,6 +385,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
         result["mould_risk"] = self._mould_risk()
+        result["compliance_pct"] = self._compliance(now, band_action_value=result["band_action"])
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
