@@ -233,6 +233,19 @@ def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) ->
     return "hold"
 
 
+def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0) -> str:
+    """'open' when fresh air will cool the room: outdoors is cooler than indoors by `min_delta_c` and not above `max_outdoor_c`.
+    'close' when outdoors is warmer than indoors or above the cap. 'hold' otherwise.
+
+    Ported from ClimateAdvisor's natural ventilation timing. The decision is for windows, not the AC.
+    """
+    if outdoor_c > max_outdoor_c or outdoor_c >= indoor_c:
+        return "close"
+    if indoor_c - outdoor_c >= min_delta_c:
+        return "open"
+    return "hold"
+
+
 def comfort_band(comfort_c: float, band_c: float = 1.0) -> tuple[float, float]:
     """Heat and cool edges around comfort. Heating starts below the low edge, cooling above the high edge.
 

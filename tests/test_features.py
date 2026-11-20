@@ -394,6 +394,24 @@ class VentilationRateTests(unittest.TestCase):
             ventilation_rate_from_co2(900.0, low_ppm=1200.0, high_ppm=800.0)
 
 
+class NaturalVentilationTests(unittest.TestCase):
+    def test_open_when_outside_is_cooler(self):
+        from custom_components.hvac_horizon.features import natural_ventilation_window
+
+        self.assertEqual(natural_ventilation_window(outdoor_c=18.0, indoor_c=25.0), "open")
+
+    def test_close_when_outside_is_warmer_or_too_hot(self):
+        from custom_components.hvac_horizon.features import natural_ventilation_window
+
+        self.assertEqual(natural_ventilation_window(outdoor_c=27.0, indoor_c=25.0), "close")
+        self.assertEqual(natural_ventilation_window(outdoor_c=25.0, indoor_c=30.0, max_outdoor_c=24.0), "close")
+
+    def test_hold_when_difference_is_small(self):
+        from custom_components.hvac_horizon.features import natural_ventilation_window
+
+        self.assertEqual(natural_ventilation_window(outdoor_c=23.5, indoor_c=24.5), "hold")
+
+
 class MorePortedFeatureTests(unittest.TestCase):
     def test_keep_alive(self):
         from custom_components.hvac_horizon.features import keep_alive_due
