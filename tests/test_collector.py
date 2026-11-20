@@ -8,6 +8,34 @@ from custom_components.hvac_horizon.collector import (
 )
 
 
+class ResampleTests(unittest.TestCase):
+    def test_last_known_value_on_grid(self):
+        from custom_components.hvac_horizon.collector import resample_states
+
+        points = [(0.0, 1000.0), (420.0, 0.0)]
+        grid = resample_states(points, start=0.0, end=600.0, step=300.0)
+        self.assertEqual(grid, [(0.0, 1000.0), (300.0, 1000.0), (600.0, 0.0)])
+
+    def test_none_before_first_state(self):
+        from custom_components.hvac_horizon.collector import resample_states
+
+        grid = resample_states([(400.0, 5.0)], start=0.0, end=600.0, step=300.0)
+        self.assertEqual(grid[0], (0.0, None))
+        self.assertEqual(grid[2], (600.0, 5.0))
+
+    def test_unordered_points_are_sorted(self):
+        from custom_components.hvac_horizon.collector import resample_states
+
+        grid = resample_states([(300.0, 2.0), (0.0, 1.0)], start=0.0, end=300.0, step=300.0)
+        self.assertEqual(grid, [(0.0, 1.0), (300.0, 2.0)])
+
+    def test_rejects_bad_grid(self):
+        from custom_components.hvac_horizon.collector import resample_states
+
+        with self.assertRaises(ValueError):
+            resample_states([], start=10.0, end=0.0, step=300.0)
+
+
 class CsvExportTests(unittest.TestCase):
     def test_csv_has_header_and_sorted_rows(self):
         from custom_components.hvac_horizon.collector import entries_to_csv

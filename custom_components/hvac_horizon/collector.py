@@ -113,6 +113,28 @@ MIN_CYCLE_SAMPLES = 36  # three hours of 5-minute samples per state
 MIN_CYCLES = 3  # distinct AC-on runs
 
 
+def resample_states(points: list[tuple[float, float]], start: float, end: float, step: float = STEP_S) -> list[tuple[float, float | None]]:
+    """Last known value on a fixed grid. `points` are (time, value) state changes in any order.
+
+    Each grid time takes the most recent state at or before it. Grid times before the first state get None.
+    Ported from the recorder history reading in Versatile Thermostat.
+    """
+    if step <= 0 or end < start:
+        raise ValueError("step must be positive and end must not precede start")
+    ordered = sorted(points)
+    out: list[tuple[float, float | None]] = []
+    i = 0
+    last: float | None = None
+    t = start
+    while t <= end:
+        while i < len(ordered) and ordered[i][0] <= t:
+            last = ordered[i][1]
+            i += 1
+        out.append((t, last))
+        t += step
+    return out
+
+
 def entries_to_csv(entries: list[Entry]) -> str:
     """CSV text of the stored readings, in the layout the backfill tool reads: time, room_c, outdoor_c, power_w.
 
