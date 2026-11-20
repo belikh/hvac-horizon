@@ -1719,6 +1719,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             running = climate.state in ("cool", "heat")
             if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
                 return True
+            # A heat start is a compressor start too, so it waits for the group clock.
+            if not self._group_start_ok(now):
+                return True
+            self._record_group_start(now)
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "heat"}, blocking=True)
             self._state_changed_at = now
             self._last_sent_min = now / 60.0
@@ -1746,6 +1750,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self._dry_started_min is None:
                     self._dry_started_min = now_min
                 if climate.state != "dry":
+                    # A dry start runs the compressor, so it waits for the group clock like a cool start.
+                    if not self._group_start_ok(now):
+                        self._dry_started_min = None
+                        self._was_cooling = now_cooling
+                        return False
+                    self._record_group_start(now)
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 handled = True
             elif self._dry_started_min is not None:

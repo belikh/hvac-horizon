@@ -3333,3 +3333,41 @@ async def test_ac_does_not_heat_by_default(hass, enable_custom_integrations, con
 async def test_fan_mode_is_left_alone_by_default(hass, enable_custom_integrations, config_data):
     """The fan mode follows the room gap only after the user sets auto_fan."""
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", auto_fan=False) == []
+
+
+async def test_compressor_group_staggers_heat_starts_across_entries(hass, enable_custom_integrations, config_data, freezer):
+    """A heat start runs the compressor, so two AC in one group do not start to heat in the same tick."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    calls = []
+
+    async def record_mode(call):
+        calls.append((call.data["entity_id"], call.data["hvac_mode"]))
+
+    async def record_temp(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC"})
+    hass.states.async_set("climate.test_ac_b", "off", {"temperature": 22.0, "friendly_name": "Test AC B"})
+    data = dict(config_data, control=True, ac_heat=True, compressor_group="garage")
+    entry_a = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry_b = MockConfigEntry(domain=DOMAIN, title="Test AC B", data=dict(data, climate="climate.test_ac_b"), unique_id="climate.test_ac_b")
+    for entry in (entry_a, entry_b):
+        entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry_a.entry_id)
+    await hass.async_block_till_done()
+    starts = [entity for entity, mode in calls if mode == "heat"]
+    assert len(starts) == 1
+    started, waiting_entry = (CLIMATE, entry_b) if starts[0] == CLIMATE else ("climate.test_ac_b", entry_a)
+    hass.states.async_set(started, "heat", {"temperature": 22.0, "friendly_name": "Test AC"})
+    freezer.tick(timedelta(minutes=4))
+    await refresh(hass, waiting_entry)
+    assert [entity for entity, mode in calls if mode == "heat"] == starts
+    freezer.tick(timedelta(minutes=1))
+    await refresh(hass, waiting_entry)
+    assert [entity for entity, mode in calls if mode == "heat"] == starts + [waiting_entry.data["climate"]]
