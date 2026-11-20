@@ -1414,6 +1414,46 @@ async def test_accuracy_pairs_and_forecast_error_follow_the_backtest(hass, enabl
     assert statistics.median(abs(p["error_min"]) for p in state.attributes["accuracy_pairs"]) == float(state.state)
 
 
+async def test_accuracy_view_returns_the_pairs_and_median_to_a_signed_in_user(hass, hass_client, hass_client_no_auth, enable_custom_integrations, config_data, monkeypatch):
+    # The same known runs as the forecast error test: three pairs, median absolute error 8 minutes.
+    runs = [
+        BacktestRun(0, 40.0, None, None),
+        BacktestRun(10, 40.0, 50.0, 10.0),
+        BacktestRun(20, 30.0, None, None),
+        BacktestRun(30, 60.0, 52.0, -8.0),
+        BacktestRun(40, 25.0, 31.0, 6.0),
+    ]
+    monkeypatch.setattr(coordinator_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
+    monkeypatch.setattr(coordinator_module, "has_enough_cycles", lambda samples: True)
+    monkeypatch.setattr(coordinator_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data._refit()
+    await refresh(hass, entry)
+
+    url = f"/api/hvac_horizon/accuracy/{entry.entry_id}"
+    client = await hass_client()
+    response = await client.get(url)
+    assert response.status == 200
+    body = await response.json()
+    assert body["accuracy_pairs"] == [
+        {"predicted_min": 50.0, "measured_min": 40.0, "error_min": 10.0},
+        {"predicted_min": 52.0, "measured_min": 60.0, "error_min": -8.0},
+        {"predicted_min": 31.0, "measured_min": 25.0, "error_min": 6.0},
+    ]
+    assert body["median_abs_error_min"] == pytest.approx(8.0)
+    assert (await client.get("/api/hvac_horizon/accuracy/no-such-entry")).status == 404
+
+    anonymous = await hass_client_no_auth()
+    assert (await anonymous.get(url)).status == 401
+    page = await anonymous.get("/hvac_horizon/accuracy.html")
+    assert page.status == 200
+    assert "Forecast accuracy" in await page.text()
+
+
 async def test_heater_algorithm_defaults_to_pid_when_the_key_is_absent(hass, enable_custom_integrations, config_data):
     # An entry stored before heater_algorithm existed has no key. It runs the PID.
     entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra={"comfort_c": 24.0})

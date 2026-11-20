@@ -8,6 +8,7 @@ from homeassistant.const import Platform
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
+from .accuracy_api import async_register_accuracy_page
 from .coordinator import HorizonCoordinator
 from .forecast import Forecast, PriceSlot, forecast
 from .model import Fit, NotEnoughData, Sample, fit
@@ -113,6 +114,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _register_services(hass)
+    await async_register_accuracy_page(hass)
     coordinator = HorizonCoordinator(hass, entry)
     await coordinator.async_load()
     await coordinator.async_backfill_from_recorder()
