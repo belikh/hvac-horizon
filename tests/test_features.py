@@ -10,6 +10,7 @@ from custom_components.hvac_horizon.features import (
     mode_disagrees,
     outdoor_allows,
     pwm_on,
+    shed_plan,
     switch_feedback,
     timed_preset_active,
     timed_preset_name,
@@ -611,3 +612,35 @@ class ForecastHighsTests(unittest.TestCase):
 
     def test_empty_list(self):
         self.assertEqual(forecast_highs([]), [])
+
+
+class ShedPlanTests(unittest.TestCase):
+    LOADS = [("switch.a", 1000.0, True), ("switch.b", 500.0, True), ("switch.c", 800.0, True)]
+
+    def test_under_limit_returns_empty(self):
+        self.assertEqual(shed_plan(3000.0, 4000.0, self.LOADS), [])
+
+    def test_over_limit_sheds_lowest_priority_first(self):
+        self.assertEqual(shed_plan(4500.0, 4000.0, self.LOADS), ["switch.a"])
+
+    def test_off_loads_are_skipped(self):
+        loads = [("switch.a", 1000.0, False), ("switch.b", 500.0, True)]
+        self.assertEqual(shed_plan(4400.0, 4000.0, loads), ["switch.b"])
+
+    def test_sheds_several_until_cut_is_met(self):
+        self.assertEqual(shed_plan(5200.0, 4000.0, self.LOADS), ["switch.a", "switch.b"])
+
+    def test_stops_early_once_cut_is_met(self):
+        self.assertNotIn("switch.c", shed_plan(5200.0, 4000.0, self.LOADS))
+
+    def test_zero_watt_loads_are_skipped(self):
+        loads = [("switch.a", 0.0, True), ("switch.b", 500.0, True)]
+        self.assertEqual(shed_plan(4400.0, 4000.0, loads), ["switch.b"])
+
+    def test_zero_max_raises(self):
+        with self.assertRaises(ValueError):
+            shed_plan(100.0, 0.0, self.LOADS)
+
+    def test_negative_margin_raises(self):
+        with self.assertRaises(ValueError):
+            shed_plan(100.0, 4000.0, self.LOADS, margin_w=-1.0)

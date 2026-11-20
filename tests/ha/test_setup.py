@@ -596,3 +596,29 @@ async def test_weather_forecast_drives_heatwave(hass, enable_custom_integrations
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert coordinator.data["heatwave"] is True
+
+
+async def test_power_shedding_plans_lowest_priority_load(hass, enable_custom_integrations, config_data):
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_off", ignore)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("sensor.test_house_power", "5000", {"unit_of_measurement": "W"})
+    hass.states.async_set("switch.test_load", "on")
+    data = dict(
+        config_data,
+        control=True,
+        whole_house_power="sensor.test_house_power",
+        shed_max_w=4000,
+        shed_loads=["switch.test_load|1000"],
+    )
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator.data["shed"] == ["switch.test_load"]

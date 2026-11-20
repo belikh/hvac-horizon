@@ -518,3 +518,32 @@ def valve_opening_pct(room_c: float, target_c: float, band_c: float = 1.0) -> fl
     if error <= 0:
         return 0.0
     return error / band_c * 100.0
+
+
+def shed_plan(
+    total_w: float, max_w: float, loads: list[tuple[str, float, bool]], margin_w: float = 200.0
+) -> list[str]:
+    """Entity IDs to switch off so the load fits under `max_w`, lowest priority first.
+
+    `loads` holds (entity_id, watts, is_on) with the lowest priority first. Loads that are off or
+    have watts <= 0 are skipped. Returns [] below `max_w`. `margin_w` is validated here and is the
+    hysteresis a caller applies before switching loads back on (below max_w - margin_w).
+    Ported from Versatile Thermostat's power manager and central power manager.
+    """
+    if max_w <= 0:
+        raise ValueError("max_w must be positive")
+    if margin_w < 0:
+        raise ValueError("margin_w must not be negative")
+    if total_w < max_w:
+        return []
+    cut = total_w - max_w
+    shed: list[str] = []
+    freed = 0.0
+    for entity_id, watts, is_on in loads:
+        if freed >= cut:
+            break
+        if not is_on or watts <= 0:
+            continue
+        shed.append(entity_id)
+        freed += watts
+    return shed

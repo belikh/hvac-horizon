@@ -65,7 +65,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, valve_opening_pct
+from custom_components.hvac_horizon.features import air_quality_ventilation, cover_action, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, shed_plan, valve_opening_pct
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -101,6 +101,9 @@ from .const import (
     CONF_MIN_ON_MIN,
     CONF_CONTROL,
     CONF_COVER,
+    CONF_SHED_LOADS,
+    CONF_SHED_MAX_W,
+    CONF_WHOLE_HOUSE_POWER,
     COVER_SOLAR_THRESHOLD_KW,
     CONF_VALVE,
     CONF_ENERGY,
@@ -702,6 +705,23 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             action = cover_action(solar, COVER_SOLAR_THRESHOLD_KW, cover_state.state == "open")
             result["cover_action"] = action
             await self._drive_cover(action)
+        max_w = self.entry.data.get(CONF_SHED_MAX_W)
+        house_id = self.entry.data.get(CONF_WHOLE_HOUSE_POWER)
+        total_w = _float(self.hass.states.get(house_id)) if house_id else None
+        if max_w and total_w is not None:
+            loads: list[tuple[str, float, bool]] = []
+            for spec in self.entry.data.get(CONF_SHED_LOADS) or []:
+                entity_id, _, watts_text = str(spec).partition("|")
+                try:
+                    watts = float(watts_text)
+                except ValueError:
+                    result["shed_skipped"] = f"malformed load: {spec}"
+                    continue
+                load_state = self.hass.states.get(entity_id.strip())
+                loads.append((entity_id.strip(), watts, load_state is not None and load_state.state == "on"))
+            to_shed = shed_plan(total_w, float(max_w), loads)
+            result["shed"] = to_shed
+            await self._drive_shed(to_shed)
         heater_switch = self.entry.data.get(CONF_HEATER_SWITCH)
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
@@ -744,6 +764,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current is not None and abs(current - opening) <= 1.0:
             return
         await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
+
+    async def _drive_shed(self, to_shed: list[str]) -> None:
+        """Switch off the planned loads. Runs only with control on, unlocked and not inhibited."""
+        if not to_shed or not self.entry.data.get(CONF_CONTROL):
+            return
+        if not lock_allows_control(self._locked):
+            return
+        if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            return
+        for entity_id in to_shed:
+            await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""

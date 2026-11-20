@@ -26,6 +26,9 @@
           "eco_c": "Eco setpoint (°C)",
           "boost_c": "Boost setpoint (°C)",
           "valve": "Valve or TRV opening number (optional)",
+          "whole_house_power": "Whole-house power sensor (optional)",
+          "shed_max_w": "Power limit in watts (optional)",
+          "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
           "humidifier": "Humidifier switch (optional)"
         }
       },
@@ -54,6 +57,9 @@
           "eco_c": "Eco setpoint (°C)",
           "boost_c": "Boost setpoint (°C)",
           "valve": "Valve or TRV opening number (optional)",
+          "whole_house_power": "Whole-house power sensor (optional)",
+          "shed_max_w": "Power limit in watts (optional)",
+          "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
           "humidifier": "Humidifier switch (optional)"
         }
       }
