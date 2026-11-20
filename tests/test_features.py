@@ -964,3 +964,11 @@ class ResidualHeatTests(unittest.TestCase):
             _residual_rise(2.0, 5.0, 0.0)
         with self.assertRaises(ValueError):
             _residual_rise(-1.0, 5.0)
+
+
+class ForecastDayCountTests(unittest.TestCase):
+    def test_day_counts(self):
+        from custom_components.hvac_horizon.features import weather_day_summary
+
+        counts = weather_day_summary([31.0, 26.0, 20.0, 14.0, 8.0, 31.5])
+        self.assertEqual(counts, {"hot": 2, "warm": 1, "mild": 1, "cool": 1, "cold": 1})

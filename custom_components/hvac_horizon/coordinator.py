@@ -33,6 +33,7 @@ from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
+    weather_day_summary,
     room_devices,
     effective_home,
     classify_day,
@@ -918,6 +919,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._report_stalls(result["sensors_stalled"])
         result["external_change"] = self._external_change()
         result["day_type"] = self._day_type()
+        result["forecast_days"] = weather_day_summary(self._forecast_highs) if self._forecast_highs else None
         result["night_plan"] = self._night_plan()
         result["learning_suggestion"] = suggestion_visible(
             self._learning_suggestion(),

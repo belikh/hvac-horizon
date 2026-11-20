@@ -412,6 +412,14 @@ def compliance_score(in_band_minutes: float, total_minutes: float) -> float | No
     return round(100.0 * in_band_minutes / total_minutes, 1)
 
 
+def weather_day_summary(highs_c: list[float]) -> dict[str, int]:
+    """Count of each day class across the forecast highs. Ported from ClimateAdvisor's forecast summary."""
+    counts: dict[str, int] = {d.value: 0 for d in DayType}
+    for high in highs_c:
+        counts[classify_day(high).value] += 1
+    return counts
+
+
 def forecast_highs(forecast_items: list[dict]) -> list[float]:
     """Daily highs from Home Assistant forecast dicts. Items without a numeric "temperature" are skipped."""
     highs: list[float] = []

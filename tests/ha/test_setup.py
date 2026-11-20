@@ -1850,3 +1850,28 @@ async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_i
     assert coordinator._room_fit["ac_2_k_per_h_per_kw"] == pytest.approx(0.9, abs=0.05)
     await refresh(hass, entry)
     assert entry.runtime_data.data["room_fit"]["samples"] > 0
+
+
+async def test_forecast_day_counts_are_published_as_content(hass, enable_custom_integrations, config_data):
+    async def ignore(call):
+        return None
+
+    async def forecasts(call):
+        return {"weather.test": {"forecast": [{"temperature": 31.0}, {"temperature": 26.0}, {"temperature": 20.0}, {"temperature": 8.0}]}}
+
+    hass.services.async_register("weather", "get_forecasts", forecasts, supports_response=SupportsResponse.ONLY)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("weather.test", "sunny")
+    data = dict(config_data, weather="weather.test")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["forecast_days"] == {"hot": 1, "warm": 1, "mild": 1, "cool": 0, "cold": 1}
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_forecast_days")
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["value"]["hot"] == 1
