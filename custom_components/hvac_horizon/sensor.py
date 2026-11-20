@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -12,7 +14,8 @@ from .const import DOMAIN
 from .coordinator import HorizonCoordinator
 
 
-# Published keys shown as plain sensors. Each key is read from coordinator.data. Lists and dicts show their length.
+# Published keys shown as plain sensors. Each key is read from coordinator.data. A list or dict key shows its
+# content: the state is the JSON text, cut to 255 characters, and the attribute "value" holds the full value.
 STATUS_KEYS: dict[str, str] = {
     "day_type": "Day type",
     "night_plan": "Night plan",
@@ -119,6 +122,11 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         return self.coordinator.data.get(key)
 
 
+def _plain(value):
+    """A list or dict as JSON-friendly data. Sets and tuples become lists."""
+    return list(value) if isinstance(value, (tuple, set)) else value
+
+
 class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
     """Shows one published key. Returns None when the key is absent."""
 
@@ -133,12 +141,21 @@ class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
 
     @property
+    def extra_state_attributes(self):
+        if self.coordinator.data is None:
+            return None
+        value = self.coordinator.data.get(self._key)
+        if isinstance(value, (list, tuple, set, dict)):
+            return {"value": _plain(value)}
+        return None
+
+    @property
     def native_value(self):
         if self.coordinator.data is None:
             return None
         value = self.coordinator.data.get(self._key)
         if isinstance(value, (list, tuple, set, dict)):
-            return len(value)
+            return json.dumps(_plain(value), default=str)[:255]
         if isinstance(value, str):
             return value[:255]
         if isinstance(value, (bool, int, float)) or value is None:

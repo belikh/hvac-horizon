@@ -1585,3 +1585,24 @@ async def test_ac_does_not_heat_when_a_heater_switch_is_set(hass, enable_custom_
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     await refresh(hass, entry)
     assert "heat" not in modes
+
+
+@pytest.mark.parametrize(
+    ("key", "entity_id", "value"),
+    [
+        ("mpc_plan", "sensor.hvac_horizon_test_ac_mpc_plan_steps", [True, True, False, False] + [False] * 12),
+        ("shed", "sensor.hvac_horizon_test_ac_loads_shed", ["switch.test_load"]),
+        ("sensors_stalled", "sensor.hvac_horizon_test_ac_stalled_sensors", [ROOM_A]),
+    ],
+)
+async def test_list_status_sensors_show_their_content_not_a_count(hass, enable_custom_integrations, config_data, key, entity_id, value):
+    import json
+
+    entry, _ = await setup_heater(hass, config_data)
+    entry.runtime_data.data[key] = value
+    entry.runtime_data.async_update_listeners()
+    await hass.async_block_till_done()
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["value"] == value
+    assert state.state == json.dumps(value)
