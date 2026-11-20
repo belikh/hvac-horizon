@@ -14,7 +14,8 @@ KEEP_DAYS = 30
 MAX_ENTRIES = KEEP_DAYS * 24 * 60 * 60 // SAMPLE_INTERVAL_S  # 8640 readings
 FIT_EVERY_N_SAMPLES = 12  # refit about hourly
 
-CONF_HUMIDITY = "humidity"
+CONF_HUMIDITY = "humidity"  # outdoor humidity sensor
+CONF_ROOM_HUMIDITY = "room_humidity"  # optional humidity sensor in the room
 CONF_ENERGY = "energy"
 STORE_VERSION = 2  # 2 adds setpoint, mode, rooms, humidity, price and energy fields
 

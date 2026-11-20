@@ -371,7 +371,7 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", ignore)
-    data = dict(config_data, humidity="sensor.test_humidity", control=True)
+    data = dict(config_data, room_humidity="sensor.test_humidity", control=True)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -379,6 +379,36 @@ async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, con
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert {"entity_id": CLIMATE, "hvac_mode": "dry"} in calls
+
+
+async def test_humidity_band_reads_room_sensor_not_outdoor(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("sensor.test_room_humidity", "70", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.test_outdoor_humidity", "40", {"unit_of_measurement": "%"})
+    hass.states.async_set("switch.test_dehumidifier", "off")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", ignore)
+    hass.services.async_register("switch", "turn_off", ignore)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(
+        config_data,
+        room_humidity="sensor.test_room_humidity",
+        humidity="sensor.test_outdoor_humidity",
+        dehumidifier="switch.test_dehumidifier",
+        control=True,
+    )
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    # 70 % room humidity is above the 60 % band; 40 % outdoor would sit at the low edge and report "none".
+    assert entry.runtime_data.data["humidity"] == "70 % above 60 %"
 
 
 async def test_humidifier_turns_on_when_air_is_dry(hass, enable_custom_integrations, config_data):
@@ -397,7 +427,7 @@ async def test_humidifier_turns_on_when_air_is_dry(hass, enable_custom_integrati
     hass.services.async_register("switch", "turn_off", record)
     hass.services.async_register("climate", "set_hvac_mode", ignore)
     hass.services.async_register("climate", "set_temperature", ignore)
-    data = dict(config_data, humidifier="switch.test_humidifier", humidity="sensor.test_humidity", control=True)
+    data = dict(config_data, humidifier="switch.test_humidifier", room_humidity="sensor.test_humidity", control=True)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)

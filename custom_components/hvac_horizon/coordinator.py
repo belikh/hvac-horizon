@@ -130,6 +130,7 @@ from .const import (
     CONF_ENERGY,
     CONF_SCHEDULE,
     CONF_HUMIDITY,
+    CONF_ROOM_HUMIDITY,
     CONF_OUTDOOR,
     CONF_POWER,
     CONF_PRICE,
@@ -480,7 +481,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         Needs the room humidity sensor. Without it the risk is reported as not present.
         """
-        room_rh = _float(self._optional(CONF_HUMIDITY))
+        room_rh = _float(self._optional(CONF_ROOM_HUMIDITY))
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if room_rh is None or not rooms or outdoor is None:
@@ -779,7 +780,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         target_fan = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
         room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
-        result["drying_needed"] = drying_needed(_float(self._optional(CONF_HUMIDITY)), cool_gap_c=room_gap)
+        result["drying_needed"] = drying_needed(_float(self._optional(CONF_ROOM_HUMIDITY)), cool_gap_c=room_gap)
         price_now = _float(self._optional(CONF_PRICE))
         if price_now is not None:
             self._last_good_price = price_now
@@ -982,7 +983,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             None,
         )
         ventilation = air_quality_ventilation(_float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25)))
-        humidity = humidity_action(_float(self._optional(CONF_HUMIDITY)))
+        humidity = humidity_action(_float(self._optional(CONF_ROOM_HUMIDITY)))
         result["ventilation"] = ventilation.reason
         result["humidity"] = humidity.reason
         await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
