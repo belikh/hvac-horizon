@@ -9,7 +9,7 @@ import math
 import statistics
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 from custom_components.hvac_horizon.const import CONF_CLIMATE, CONF_CLIMATE_2, CONF_HEATER_SWITCH, CONF_VALVE, HEAT_BOOST_OFFSET_C, HEAT_ECO_OFFSET_C
 
@@ -824,8 +824,73 @@ def mpc_plan(
     if not prices:
         return []
 
+    return _mpc_dp(
+        room_c,
+        target_c - 5.0,
+        lambda temp, power: fit_k * (outdoor_c - temp) - fit_c * power + fit_g,
+        running_kw,
+        lambda temp: discomfort_per_k_step * max(0.0, temp - target_c),
+        prices,
+        step_min,
+        cost_weight,
+    )
+
+
+def mpc_heat_plan(
+    fit_k: float,
+    fit_c: float,
+    fit_g: float,
+    room_c: float,
+    target_c: float,
+    outdoor_c: float,
+    heat_kw: float,
+    prices: list[float],
+    step_min: float = 15.0,
+    discomfort_per_k_step: float = 1.0,
+    cost_weight: float = 1.0,
+) -> list[bool]:
+    """Choose heat on or off per step by dynamic programming over room temperature.
+
+    The room follows dT/dt = k (T_out - T) + c P + g, with P = `heat_kw` when heating and 0 when idle. The heat side
+    reuses the cooling coefficient c, so the heater adds heat at the rate the AC removes it. Temperature is bucketed
+    to 0.1 C over [target - 10, target + 5] and clamped. Step cost: cost_weight * price * kW * hours (when heating)
+    plus discomfort_per_k_step * max(0, target - T).
+    """
+    if step_min <= 0:
+        raise ValueError("step_min must be positive")
+    if heat_kw < 0:
+        raise ValueError("heat_kw must not be negative")
+    if fit_c < 0:
+        raise ValueError("fit_c must not be negative")
+    if not prices:
+        return []
+    return _mpc_dp(
+        room_c,
+        target_c - 10.0,
+        lambda temp, power: fit_k * (outdoor_c - temp) + fit_c * power + fit_g,
+        heat_kw,
+        lambda temp: discomfort_per_k_step * max(0.0, target_c - temp),
+        prices,
+        step_min,
+        cost_weight,
+    )
+
+
+def _mpc_dp(
+    room_c: float,
+    low: float,
+    rate: Callable[[float, float], float],
+    running_kw: float,
+    discomfort_at: Callable[[float], float],
+    prices: list[float],
+    step_min: float,
+    cost_weight: float,
+) -> list[bool]:
+    """Plan the on or off state per step. `rate(temp, power_kw)` is dT/dt in K/h, and the grid runs 15 K up from `low`.
+
+    The state is the temperature bucket. Each step costs the discomfort at its start, plus the energy cost when on.
+    """
     bucket = 0.1
-    low = target_c - 5.0
     n = int(round(15.0 / bucket)) + 1
     temps = [low + i * bucket for i in range(n)]
 
@@ -838,12 +903,12 @@ def mpc_plan(
 
     def advance(temp: float, power_kw: float) -> float:
         for _ in range(substeps):
-            temp += (fit_k * (outdoor_c - temp) - fit_c * power_kw + fit_g) * dt_h
+            temp += rate(temp, power_kw) * dt_h
         return temp
 
     nxt_off = [index(advance(t, 0.0)) for t in temps]
     nxt_on = [index(advance(t, running_kw)) for t in temps]
-    discomfort = [discomfort_per_k_step * max(0.0, t - target_c) for t in temps]
+    discomfort = [discomfort_at(t) for t in temps]
 
     hours = step_min / 60.0
     horizon = len(prices)

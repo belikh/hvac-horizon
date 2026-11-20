@@ -3536,6 +3536,87 @@ async def test_mpc_idle_step_does_not_idle_a_night_pre_cool(hass, enable_custom_
     assert entry.runtime_data.data["action"] == "cool: night pre-cool"
 
 
+async def _heat_plan_run(hass, config_data, monkeypatch, freezer, *, room="19.0", outdoor="10.0", extra=None, heater=False):
+    """Control on, the real MPC plans (only the fit is set), a cheap price now and a dear one 30 minutes on.
+
+    Returns the entry and the AC mode writes. The heater switch is set only with heater=True.
+    """
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+    from custom_components.hvac_horizon.model import Fit
+
+    freezer.move_to("2026-11-20T08:00:00+00:00")
+    monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=0.5, g=0.0)))
+    set_inputs(hass)
+    hass.states.async_set(
+        PRICE,
+        "0.10",
+        {
+            "unit_of_measurement": "$/kWh",
+            "forecast": [
+                {"time": "2026-11-20T08:10:00+00:00", "value": 0.10},
+                {"time": "2026-11-20T08:40:00+00:00", "value": 0.30},
+            ],
+        },
+    )
+    _set_ac_rooms(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    if heater:
+        hass.states.async_set(HEATER, "off")
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def record_temp(call):
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    async def ignore_switch(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.services.async_register("switch", "turn_on", ignore_switch)
+    hass.services.async_register("switch", "turn_off", ignore_switch)
+    # The price band is 0 to 0.20. The 0.10 slot sits in its middle, so the price shift leaves the 24 C target alone.
+    data = dict(config_data, control=True, comfort_c=24.0, price_cheap=0.0, price_expensive=0.20, **(extra or {}))
+    if heater:
+        data[CONF_HEATER_SWITCH] = HEATER
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, modes
+
+
+async def test_heat_plan_starts_ac_heat_when_its_first_step_says_heat(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer, extra={"mpc_heat_plan": True})
+    assert entry.runtime_data.data["heat_on_below_c"] == 23.5  # 24 C comfort less the 0.5 K deadband
+    assert entry.runtime_data.data["mpc_heat_steps"][0] is True
+    assert "heat" in modes
+
+
+async def test_without_the_heat_plan_the_ac_does_not_heat(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer)
+    assert "mpc_heat_steps" not in entry.runtime_data.data
+    assert "heat" not in modes
+
+
+async def test_heat_plan_does_not_heat_when_heating_is_not_allowed(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer, outdoor="25.0", extra={"mpc_heat_plan": True})
+    assert entry.runtime_data.data["heating_allowed"] is False
+    assert entry.runtime_data.data["mpc_heat_steps"][0] is True
+    assert "heat" not in modes
+
+
+async def test_heat_plan_does_not_send_ac_heat_when_a_heater_switch_is_set(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _heat_plan_run(hass, config_data, monkeypatch, freezer, extra={"mpc_heat_plan": True}, heater=True)
+    assert entry.runtime_data.data["mpc_heat_steps"][0] is True
+    assert "heat" not in modes
+
+
 async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", no_prices=True)
     assert "mpc_plan" not in entry.runtime_data.data

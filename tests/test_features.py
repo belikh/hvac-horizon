@@ -21,6 +21,7 @@ from custom_components.hvac_horizon.features import (
     room_devices,
     round_to_step,
     mould_target,
+    mpc_heat_plan,
     mpc_plan,
     motion_preset,
     mode_disagrees,
@@ -734,6 +735,28 @@ class MpcPlanTests(unittest.TestCase):
     def test_nonpositive_step_raises(self):
         with self.assertRaises(ValueError):
             mpc_plan(room_c=26.0, prices=[0.1], step_min=0.0, **self.ARGS)
+
+
+class MpcHeatPlanTests(unittest.TestCase):
+    ARGS = dict(fit_k=0.05, fit_c=0.5, fit_g=0.0, target_c=24.0, outdoor_c=10.0, heat_kw=1.1)
+
+    def test_empty_prices_gives_empty_plan(self):
+        self.assertEqual(mpc_heat_plan(room_c=19.0, prices=[], **self.ARGS), [])
+
+    def test_cold_room_heats_first(self):
+        self.assertTrue(mpc_heat_plan(room_c=19.0, prices=[0.1, 0.3] * 8, **self.ARGS)[0])
+
+    def test_room_above_target_stays_idle_for_the_first_hour(self):
+        # Outdoors at 10 C cools the room at about 0.8 K/h, so it reaches the target only after the horizon.
+        self.assertFalse(any(mpc_heat_plan(room_c=26.0, prices=[0.1] * 4, **self.ARGS)))
+
+    def test_no_heater_power_gives_no_heat(self):
+        args = dict(self.ARGS, heat_kw=0.0)
+        self.assertFalse(any(mpc_heat_plan(room_c=19.0, prices=[0.1] * 16, **args)))
+
+    def test_negative_power_raises(self):
+        with self.assertRaises(ValueError):
+            mpc_heat_plan(room_c=19.0, prices=[0.1], **dict(self.ARGS, heat_kw=-1.0))
 
 
 class MotionPresetTests(unittest.TestCase):

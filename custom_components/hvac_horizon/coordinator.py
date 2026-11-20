@@ -42,6 +42,7 @@ from custom_components.hvac_horizon.features import (
     outdoor_allows,
     economizer_phase,
     heat_source,
+    mpc_heat_plan,
     mpc_plan,
     motion_preset,
     forecast_highs,
@@ -96,6 +97,7 @@ from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, sol
 from .const import (
     CONF_DRY_FOR_HUMIDITY,
     CONF_AC_HEAT,
+    CONF_MPC_HEAT_PLAN,
     CONF_AUTO_FAN,
     CONF_BOOST_C,
     CONF_COMFORT_ENERGY_WEIGHT,
@@ -1159,6 +1161,24 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         step_min=MPC_STEP_MIN,
                     )
                 ]
+                if self.entry.data.get(CONF_MPC_HEAT_PLAN, False):
+                    # The heat side reuses the cooling coefficient c with the AC's running power. No power, no heat plan.
+                    heat_kw = running_power_kw(self._entries, now)
+                    if heat_kw:
+                        result["mpc_heat_steps"] = [
+                            bool(a)
+                            for a in mpc_heat_plan(
+                                self._fit.k,
+                                self._fit.c,
+                                self._fit.g,
+                                statistics.median(rooms_econ),
+                                self._heat_target_c,
+                                outdoor_now,
+                                heat_kw,
+                                step_prices,
+                                step_min=MPC_STEP_MIN,
+                            )
+                        ]
         pid_rooms = self._rooms()
         pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool(self._heater_switch())
@@ -1822,11 +1842,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """True when the AC heats this tick.
 
         The AC heats only when the heat source is the AC, no heater switch is set and someone is home.
+        The ac_heat option, or a heat plan whose first step says heat (mpc_heat_plan), allows the start.
         A stalled sensor, a paused window and a closed heating window (outdoor limit) also stop it.
         """
+        plan = result.get("mpc_heat_steps")
+        plan_heat = bool(self.entry.data.get(CONF_MPC_HEAT_PLAN, False) and plan and plan[0])
         return (
             action.mode is Mode.OFF
-            and bool(self.entry.data.get(CONF_AC_HEAT, False))
+            and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
             and self._someone_home
