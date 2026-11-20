@@ -2442,3 +2442,61 @@ async def test_shed_loads_switch_back_on_highest_priority_first_below_90_percent
     hass.states.async_set("sensor.test_house_power", "3000", {"unit_of_measurement": "W"})
     await refresh(hass, entry)
     assert calls[3:] == [("on", "switch.test_low")]
+
+
+async def _fan_run(hass, config_data, freezer, co2: str, minutes_between_ticks: int, ticks: int, pm25: str | None = None):
+    """Run the control cycle `ticks` times and return the fan switch commands in order."""
+    set_inputs(hass)
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    commands = []
+
+    async def record_on(call):
+        commands.append("turn_on")
+        hass.states.async_set("switch.test_fan", "on")
+
+    async def record_off(call):
+        commands.append("turn_off")
+        hass.states.async_set("switch.test_fan", "off")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("switch.test_fan", "off")
+    hass.states.async_set("sensor.test_co2", co2, {"unit_of_measurement": "ppm"})
+    if pm25 is not None:
+        hass.states.async_set("sensor.test_pm25", pm25, {"unit_of_measurement": "µg/m³"})
+    data = dict(config_data, control=True, fan="switch.test_fan", co2="sensor.test_co2", pm25="sensor.test_pm25" if pm25 else None)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for _ in range(ticks - 1):
+        freezer.tick(timedelta(minutes=minutes_between_ticks))
+        await refresh(hass, entry)
+    return commands
+
+
+async def test_fan_duty_follows_the_co2_rate_over_the_window(hass, enable_custom_integrations, config_data, freezer):
+    # 1000 ppm is rate 0.5. The window is 10 minutes, so the fan runs for 5 minutes of each 10.
+    # Ticks at 10:00, 10:05, 10:10 and 10:15: on, off, on, off.
+    commands = await _fan_run(hass, config_data, freezer, co2="1000", minutes_between_ticks=5, ticks=4)
+    assert commands == ["turn_on", "turn_off", "turn_on", "turn_off"]
+
+
+async def test_fan_is_on_off_at_full_rate(hass, enable_custom_integrations, config_data, freezer):
+    commands = await _fan_run(hass, config_data, freezer, co2="1300", minutes_between_ticks=5, ticks=4)
+    assert commands == ["turn_on"]
+
+
+async def test_fan_stays_off_at_zero_rate(hass, enable_custom_integrations, config_data, freezer):
+    commands = await _fan_run(hass, config_data, freezer, co2="700", minutes_between_ticks=5, ticks=4)
+    assert commands == []
+
+
+async def test_pm25_still_forces_the_fan_on_during_the_off_half(hass, enable_custom_integrations, config_data, freezer):
+    commands = await _fan_run(hass, config_data, freezer, co2="1000", minutes_between_ticks=5, ticks=2, pm25="30")
+    assert commands == ["turn_on"]

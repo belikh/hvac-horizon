@@ -1367,7 +1367,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         humidity = humidity_action(_float(self._optional(CONF_ROOM_HUMIDITY)))
         result["ventilation"] = ventilation.reason
         result["humidity"] = humidity.reason
-        await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
+        # A CO2 rate between 0 and 1 runs the fan for that share of each PWM window. PM2.5 still forces it on.
+        # At 0 or 1 the fan follows the on-off rule above.
+        co2_rate = ventilation_rate_from_co2(_float(self._optional(CONF_CO2)))
+        fan_on = ventilation.run
+        if 0.0 < co2_rate < 1.0:
+            pm25_on = air_quality_ventilation(None, _float(self._optional(CONF_PM25))).run
+            fan_on = pwm_on(co2_rate * 100.0, PWM_WINDOW_MIN, now / 60.0) or pm25_on
+        await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
         heat_ok = result.get("heating_allowed", True)
