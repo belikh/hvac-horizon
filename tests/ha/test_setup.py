@@ -1775,6 +1775,29 @@ async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_cus
     assert calls and set(calls) == {"turn_off"}
 
 
+async def test_cooling_in_the_group_keeps_another_entries_heater_off(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    other = "climate.test_ac_a"
+    hass.states.async_set(other, "cool", {"temperature": 24.0, "friendly_name": "Test AC A"})
+    # Entry A cools and only observes. Entry B has a heater, an AC that is off and a cold room, all in one group.
+    entry_a = MockConfigEntry(
+        domain=DOMAIN, title="Test AC A", data=dict(config_data, climate=other, compressor_group="garage"), unique_id=other
+    )
+    entry_a.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry_a.entry_id)
+    await hass.async_block_till_done()
+    entry_b, calls = await setup_heater(hass, config_data, extra={"compressor_group": "garage"})
+    await refresh(hass, entry_b)
+    assert entry_b.runtime_data.data["house_cooling"] is True
+    assert "turn_on" not in calls
+    # Entry A stops cooling. Entry B's heater may run now.
+    hass.states.async_set(other, "off", {"temperature": 24.0, "friendly_name": "Test AC A"})
+    await refresh(hass, entry_a)
+    await refresh(hass, entry_b)
+    assert entry_b.runtime_data.data["house_cooling"] is False
+    assert "turn_on" in calls
+
+
 @pytest.mark.parametrize(
     "gate",
     [

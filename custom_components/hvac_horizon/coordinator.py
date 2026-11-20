@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, group_start_allowed, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -633,12 +633,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._heating_fail_reported = False
 
     def _heater_gate_closed(self, result: dict[str, Any]) -> bool:
-        """True when a gate forces the heater off: window open, house away, heating not allowed, lock on or a stalled sensor."""
+        """True when a gate forces the heater off: window open, house away, heating not allowed, lock on, a stalled sensor
+        or another entry in the same house group cooling."""
         window = self._optional(CONF_WINDOW)
         return (
             (window is not None and window.state == "on")
             or house_mode_from_store(self.hass.data.get(DOMAIN, {})) == "away"
             or not result.get("heating_allowed", True)
+            or bool(result.get("house_cooling"))
             or not lock_allows_control(self._locked)
             or bool(result["sensors_stalled"])
         )
@@ -1137,6 +1139,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool(self._heater_switch())
         inhibit_active = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
+        self._publish_cooling(result)
         self._heater_gated = heater_configured and self._heater_gate_closed(result)
         if self._heater_gated:
             self._pwm_output_pct = 0.0
@@ -1799,6 +1802,21 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
         clock = self.hass.data.setdefault(DOMAIN, {}).setdefault("compressor_clock", {})
         return group_start_allowed(clock.get(group), now / 60.0)
+
+    def _publish_cooling(self, result: dict[str, Any]) -> None:
+        """Record whether this entry's AC is cooling, and set result["house_cooling"] from the other entries in scope.
+
+        Runs on every tick, with or without control, so an observe-only entry still reports its AC.
+        """
+        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        group = self._compressor_group()
+        registry = self.hass.data.setdefault(DOMAIN, {}).setdefault("cooling", {})
+        registry[self.entry.entry_id] = (group, climate is not None and climate.state == "cool")
+        result["house_cooling"] = house_cooling(registry, self.entry.entry_id, group)
+
+    def forget_cooling(self) -> None:
+        """Drop this entry from the cooling registry on unload, so a removed AC cannot keep another heater off."""
+        self.hass.data.get(DOMAIN, {}).get("cooling", {}).pop(self.entry.entry_id, None)
 
     def _record_group_start(self, now: float) -> None:
         """Set the group clock to this start. Call it before the service call, with no await between check and record."""

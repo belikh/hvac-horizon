@@ -56,6 +56,7 @@ STATUS_KEYS: dict[str, str] = {
     "boiler_demand": "Boiler demand",
     "whole_house_fan": "Whole-house fan",
     "heating_failure": "Heating failure",
+    "house_cooling": "House cooling",
     "heater_pid_output": "Heater PID output",
     "heater_output_pct": "Heater output",
     "preheat": "Preheat",

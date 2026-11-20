@@ -727,6 +727,19 @@ def shed_restore(total_w: float, max_w: float, shed_loads: list[tuple[str, float
     return None
 
 
+def house_cooling(cooling: dict[str, tuple[str | None, bool]], entry_id: str, group: str | None) -> bool:
+    """True when another entry in scope has its AC cooling.
+
+    `cooling` maps each entry id to (compressor group or None, AC is cooling). An entry with a group looks at
+    the entries in that group. An entry without a group looks at every entry.
+    """
+    return any(
+        is_cooling and (group is None or other_group == group)
+        for other_id, (other_group, is_cooling) in cooling.items()
+        if other_id != entry_id
+    )
+
+
 def group_start_allowed(last_start_min: float | None, now_min: float, min_gap_min: float = 5.0) -> bool:
     """True when no AC in the compressor group started less than `min_gap_min` minutes before `now_min`.
 
