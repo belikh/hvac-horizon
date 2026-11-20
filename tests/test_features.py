@@ -935,3 +935,32 @@ class TrvOffsetTests(unittest.TestCase):
 
         self.assertEqual(corrected_setpoint(21.0, 1.5), 19.5)
         self.assertEqual(corrected_setpoint(21.0, None), 21.0)
+
+
+class ResidualHeatTests(unittest.TestCase):
+    def test_rise_at_zero_minutes_equals_peak(self):
+        from custom_components.hvac_horizon.features import _residual_rise
+
+        self.assertEqual(_residual_rise(3.0, 0.0), 3.0)
+
+    def test_rise_after_one_tau_is_peak_times_exp_minus_one(self):
+        import math
+
+        from custom_components.hvac_horizon.features import _residual_rise
+
+        self.assertAlmostEqual(_residual_rise(3.0, 20.0, 20.0), 3.0 * math.exp(-1))
+
+    def test_correction_subtracts_rise(self):
+        from custom_components.hvac_horizon.features import residual_correction
+
+        self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 19.0)
+
+    def test_bad_inputs_raise(self):
+        from custom_components.hvac_horizon.features import _residual_rise
+
+        with self.assertRaises(ValueError):
+            _residual_rise(2.0, -1.0)
+        with self.assertRaises(ValueError):
+            _residual_rise(2.0, 5.0, 0.0)
+        with self.assertRaises(ValueError):
+            _residual_rise(-1.0, 5.0)

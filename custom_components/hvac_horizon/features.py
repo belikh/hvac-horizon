@@ -802,6 +802,30 @@ def coil_dry_due(was_cooling: bool, now_cooling: bool, dry_started_min: float | 
     return now_min - dry_started_min < dry_minutes
 
 
+def _residual_rise(peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0) -> float:
+    """Extra room temperature rise in kelvin still to come after a heater stops.
+
+    The rise decays exponentially: peak_rise_k * exp(-minutes_since_off / tau_min).
+    Ported from RoomMind's radiator and underfloor residual heat model.
+    Raises ValueError when minutes_since_off < 0, tau_min <= 0 or peak_rise_k < 0.
+    """
+    if minutes_since_off < 0:
+        raise ValueError("minutes_since_off must be >= 0")
+    if tau_min <= 0:
+        raise ValueError("tau_min must be > 0")
+    if peak_rise_k < 0:
+        raise ValueError("peak_rise_k must be >= 0")
+    return peak_rise_k * math.exp(-minutes_since_off / tau_min)
+
+
+def residual_correction(
+    room_c: float, peak_rise_k: float, minutes_since_off: float, tau_min: float = 20.0
+) -> float:
+    """Room temperature minus the residual rise, so a still-warm room reads cooler and avoids overshoot.
+    """
+    return room_c - _residual_rise(peak_rise_k, minutes_since_off, tau_min)
+
+
 def room_devices(entry_data: dict) -> dict[str, list[str]]:
     """Devices of the room, built from the flat config keys. Absent or empty keys give empty lists."""
     cooling = [entry_data[key] for key in (CONF_CLIMATE, CONF_CLIMATE_2) if entry_data.get(key)]

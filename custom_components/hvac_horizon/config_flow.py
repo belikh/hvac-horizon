@@ -16,6 +16,7 @@ from .const import (
     CONF_HEATER_KI,
     CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
+    CONF_RADIATORS,
     CONF_HOUSE_SEALED,
     CONF_LOCK_PIN,
     CONF_MIN_OFF_MIN,
@@ -162,6 +163,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=30, step=0.5, unit_of_measurement="°C")
             ),
             key(CONF_HEATER_SWITCH): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            key(CONF_RADIATORS, default=defaults.get(CONF_RADIATORS, False)): selector.BooleanSelector(),
             key(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
             key(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
             key(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),

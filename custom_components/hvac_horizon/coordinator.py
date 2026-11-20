@@ -79,7 +79,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import air_quality_ventilation, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -91,6 +91,9 @@ from .const import (
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_TRV_TEMPERATURE,
     TRV_HISTORY,
+    CONF_RADIATORS,
+    DEFAULT_RESIDUAL_PEAK_K,
+    RESIDUAL_TAU_MIN,
     CONF_ECO_C,
     CONF_HEATER_KP,
     CONF_HEATER_KI,
@@ -237,6 +240,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._minutes_in_open: float = 0.0
         self._last_economizer_t: float | None = None
         self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
+        self._heater_was_on = False
+        self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
         self._forecast_highs: list[float] = []
         self._weather_checked_min: float | None = None
@@ -572,8 +577,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         driving = bool(self.entry.data.get(CONF_CONTROL)) and bool(switch)
         rooms = self._rooms()
         room_c = statistics.median(rooms) if rooms else None
+        gate_c = room_c
+        if room_c is not None and self.entry.data.get(CONF_RADIATORS) and self._heater_stopped_min is not None:
+            # Radiators keep giving heat after the heater stops. The residual correction reads the room cooler by that heat.
+            gate_c = residual_correction(room_c, DEFAULT_RESIDUAL_PEAK_K, now / 60.0 - self._heater_stopped_min, RESIDUAL_TAU_MIN)
         pct = self._pwm_output_pct
-        if driving and (self._heater_gated or self._ac_cooling_tick or room_c is None or room_c >= self._heat_on_below_c):
+        if driving and (self._heater_gated or self._ac_cooling_tick or gate_c is None or gate_c >= self._heat_on_below_c):
             pct = 0.0
         relay_running = self._tuner is not None
         if relay_running:
@@ -584,6 +593,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._pwm_pct_now = pct
             self._pwm_step(now)
         heater_on = self._pwm_on_now
+        if heater_on:
+            self._heater_stopped_min = None
+        elif self._heater_was_on:
+            self._heater_stopped_min = now / 60.0
+        self._heater_was_on = heater_on
         result["heater_pwm_on"] = heater_on
         failed = self._heating_check(now, driving and pct > 0 and not relay_running, heater_on, room_c)
         result["heating_failure"] = failed
