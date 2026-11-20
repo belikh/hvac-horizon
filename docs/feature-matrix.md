@@ -19,8 +19,8 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Proportional or TPI power control | VT, PID | pure (PID class exists; not in the control path) |
 | Auto-tuner from a relay test (Ziegler-Nichols) | PID | drives the heater during a test only, not run on hardware |
 | Heater switch output with PWM duty cycle | PID, VT | published (pattern only; heater not driven) |
-| Output polarity (inverted switch) | PID | missing |
-| Output clamps from entities | PID | missing |
+| Output polarity (inverted switch) | PID | drives (applied to the autotune switch command; config flag) |
+| Output clamps from entities | PID | drives (config minimum and maximum applied to the heater output) |
 | Boost forces PID auto or suspends it | PID | missing |
 | Minimum on and off times | VT | drives |
 | Keep-alive: resend the last setpoint | VT | drives |
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, motion presets, occupancy eco, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
+boost PID, motion presets, occupancy eco, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
 
 After the weather, shedding, economizer, heat-source, boiler, second-AC, compressor-staggering and MPC rows were updated, 12 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
