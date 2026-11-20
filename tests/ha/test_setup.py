@@ -182,6 +182,32 @@ async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_in
     assert ("temp", {"entity_id": CLIMATE, "temperature": 24.04}) in calls
 
 
+async def test_keep_alive_resends_last_setpoint(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    calls = []
+
+    async def ignore_mode(call):
+        pass
+
+    async def record_temp(call):
+        calls.append(call.data)
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "friendly_name": "Test AC"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    calls.clear()
+    coordinator._last_written_setpoint = 24.0
+    coordinator._last_sent_min = 0.0
+    # Drive the control step directly with the cycle clock 31 minutes after the last write.
+    await coordinator._async_control(31 * 60.0, {})
+    assert {"entity_id": CLIMATE, "temperature": 24.0} in calls
+
+
 async def test_flow_accepts_control_options(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})

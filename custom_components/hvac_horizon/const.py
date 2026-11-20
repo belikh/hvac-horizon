@@ -31,6 +31,7 @@ CONF_MIN_ON_MIN = "min_on_min"
 CONF_MIN_OFF_MIN = "min_off_min"
 CONF_CO2 = "co2"
 INHIBIT_MIN = 30.0  # minutes of no commands after a manual setpoint change
+KEEP_ALIVE_MIN = 30.0  # minutes without a write before the last setpoint is resent
 CONF_LOCK_PIN = "lock_pin"  # optional PIN; without it the lock cannot be set
 CONF_PM25 = "pm25"
 CONF_PRICE_CHEAP = "price_cheap"

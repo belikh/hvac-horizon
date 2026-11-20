@@ -62,7 +62,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
+from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -110,6 +110,7 @@ from .const import (
     DOMAIN,
     FIT_EVERY_N_SAMPLES,
     INHIBIT_MIN,
+    KEEP_ALIVE_MIN,
     MAX_ENTRIES,
     SAMPLE_INTERVAL_S,
     STORE_VERSION,
@@ -163,6 +164,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._last_sent_min: float | None = None
         self._heater_commanded_on: bool | None = None
         self._dismissed_for_k: float | None = None
         self._timed_preset: str | None = None
@@ -671,6 +673,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if inhibited(now_min, self._inhibit_until_min):
             result["action"] = "inhibited after a manual change"
             return
+        # Keep-alive: resend the last setpoint when the device has not been written to for KEEP_ALIVE_MIN.
+        keep_alive_climate = self.hass.states.get(climate_id)
+        if (
+            keep_alive_due(self._last_sent_min, now_min, KEEP_ALIVE_MIN)
+            and self._last_written_setpoint is not None
+            and keep_alive_climate is not None
+            and keep_alive_climate.state not in ("unavailable", "unknown")
+        ):
+            await self.hass.services.async_call(
+                "climate", "set_temperature", {"entity_id": climate_id, "temperature": self._last_written_setpoint}, blocking=True
+            )
+            self._last_sent_min = now_min
         rooms = self._rooms()
         if not rooms:
             return
@@ -766,14 +780,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
             if humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"
                 return
             if climate.state != "off":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"
             return
         if climate.state != "cool":
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
+            self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
         current = climate.attributes.get("temperature")
         if current is None or float(current) != float(action.setpoint_c):
@@ -781,6 +798,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
             )
             self._last_written_setpoint = float(action.setpoint_c)
+            self._last_sent_min = now / 60.0
 
     def _precool_start(self, now: float, rooms: list[float]) -> float | None:
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""
