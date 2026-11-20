@@ -1617,7 +1617,8 @@ async def test_heat_target_never_exceeds_the_cool_threshold(hass, enable_custom_
     await refresh(hass, entry)
     cool_on = entry.runtime_data.data["cool_on_above_c"]
     heat_on = entry.runtime_data.data["heat_on_below_c"]
-    assert cool_on == pytest.approx(22.0)
+    # The room is cold and heating is allowed, so the heat side wins: boost_c lifts to heat_boost_c plus the deadband.
+    assert cool_on == pytest.approx(25.5)
     assert heat_on <= cool_on - 0.5 + 1e-9
 
 
@@ -3456,11 +3457,26 @@ async def test_compressor_group_staggers_heat_starts_across_entries(hass, enable
     assert [entity for entity, mode in calls if mode == "heat"] == starts + [waiting_entry.data["climate"]]
 
 
-async def test_boost_with_stored_defaults_heats_only_below_the_cool_threshold(hass, enable_custom_integrations, config_data):
-    """Stored defaults: boost cools to 23 C, so the heat threshold sits at 22.5 C. A 22.0 C room gets heat, a 23.2 C room does not."""
-    entry, calls = await setup_heater(hass, config_data, room="22.0", extra={"boost_c": 23.0})
+async def test_boost_with_stored_defaults_heats_a_cold_room_without_cooling_it(hass, enable_custom_integrations, config_data):
+    """Stored defaults: boost_c 23 C. On a cold day the heat side wins, so a 23.2 C room gets heat and no cool write."""
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    entry, calls = await setup_heater(hass, config_data, room="23.2", outdoor="10.0", extra={"boost_c": 23.0})
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
     await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
     await refresh(hass, entry)
-    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(23.0)
-    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(22.5)
     assert "turn_on" in calls
+    assert "cool" not in modes
+
+
+async def test_boost_with_stored_defaults_does_not_heat_on_a_hot_day(hass, enable_custom_integrations, config_data):
+    """Heating is not allowed at 30 C outdoors, so boost keeps the 23 C cap and a 23.2 C room gets no heat."""
+    entry, calls = await setup_heater(hass, config_data, room="23.2", outdoor="30.0", extra={"boost_c": 23.0})
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "boost", "minutes": 60})
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert entry.runtime_data.data["heat_on_below_c"] <= 22.5 + 1e-9
+

@@ -1399,9 +1399,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             eco_c=_optional_float(self.entry.data.get(CONF_ECO_C)),
             boost_c=_optional_float(self.entry.data.get(CONF_BOOST_C)),
         )
-        self._settings = settings
         self._someone_home = someone_home
-        self._cool_above_c = cool_above_c(settings, someone_home)
         # One heat target per tick. Vacation, house away, presence away and the away preset heat only to the frost floor.
         # Otherwise the heat setpoint follows the preset (heat_setpoint). It never uses the eco or away cooling setpoint.
         if vacation_on or house_away or preset_name == Preset.AWAY.value or (not someone_home and not motion_idle):
@@ -1418,8 +1416,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["heat_up_min"] = None
         if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < comfort_raw:
             heat_target_c, result["preheat"], result["heat_up_min"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
-        # The heater never aims above the cooling threshold. Otherwise the heater and the AC would both run
-        # in one band (for example, boost heat 25 C with boost cooling at 23 C).
+        # Boost cools to boost_c. When heating is allowed and the heat target sits above boost_c, the heat side
+        # wins: boost_c lifts to the heat target plus the deadband, so the AC does not cool while the heater heats.
+        # Outside that case the heater never aims above the cooling threshold (the cap below).
+        if (
+            preset_name == Preset.BOOST.value
+            and bool(result.get("heating_allowed", True))
+            and settings.boost_c is not None
+            and heat_target_c + DEFAULT_HEATER_DEADBAND_C > settings.boost_c
+        ):
+            settings = replace(settings, boost_c=heat_target_c + DEFAULT_HEATER_DEADBAND_C)
+        self._settings = settings
+        self._cool_above_c = cool_above_c(settings, someone_home)
         heat_target_c = min(heat_target_c, self._cool_above_c)
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
