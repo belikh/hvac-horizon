@@ -16,13 +16,13 @@ One row per feature. "Ours" is the HVAC Horizon file that implements it.
 | :-- | :-- | :-- | :-- |
 | Set HVAC mode and setpoint on a climate entity | VT, RM, CA, PID | coordinator `_async_control` | drives |
 | Observe-only mode (no commands sent) | CA | `control` option | drives |
-| Proportional or TPI power control | VT, PID | `pid.py` | pure |
-| Auto-tuner from a relay test (Ziegler-Nichols) | PID | `autotune.py` | pure |
+| Proportional or TPI power control | VT, PID | `pid.py` | pure (not in the control path) |
+| Auto-tuner from a relay test (Ziegler-Nichols) | PID | `autotune.py`, `start_autotune` service | drives the heater only during a test; not yet run on hardware |
 | Heater switch output with PWM duty cycle | PID, VT | none | missing |
 | Output polarity (inverted switch) | PID | none | missing |
 | Minimum on and off times | VT | `minimum_time_ok` | drives |
 | Keep-alive command resend | VT | `keep_alive_due` | pure |
-| Force-off on stall or sensor failure | VT, PID | safety output | published |
+| Force-off on stall or sensor failure | VT, PID | `safety_output` | published (not yet forces the output) |
 | Output clamps from entities | PID | none | missing |
 | Boost forces PID auto or suspends it | PID | none | missing |
 
@@ -41,7 +41,7 @@ One row per feature. "Ours" is the HVAC Horizon file that implements it.
 | Vacation mode holds vacation temperature | RM | `vacation_target` | drives |
 | Comfort-energy weight blend | RM | `comfort_energy_setpoint` | pure |
 | Outdoor cooling limit | RM | `decide` | drives |
-| Heating above outdoor limit blocked | RM | none | missing |
+| Heating above outdoor limit blocked | RM | none (cooling limit only) | missing |
 
 ## Occupancy, windows and presence
 
@@ -131,8 +131,10 @@ One row per feature. "Ours" is the HVAC Horizon file that implements it.
 | Repair for incorrect device state | VT | none | missing |
 | External setpoint change detection | RM | none | missing |
 | Inhibition (block commands for a period) | VT | none | missing |
-| Diagnostics export with redaction | VT, CA | `diagnostics.py` | published |
-| Services: reset learning, export samples, what-if forecast | VT, CA | none | missing |
+| Diagnostics export with redaction | VT, CA | `diagnostics.py` | drives (HA diagnostics download) |
+| Services: reset learning, export samples | VT, CA | `reset_learning`, `export_samples` | drives |
+| Service: start auto-tune | PID | `start_autotune` | drives the heater during a test |
+| Service: what-if forecast | CA | none | missing |
 | Recorder history export | VT | none | missing |
 | Notifications on events | CA | none | missing |
 | Accuracy page (prediction versus actual) | CA | none (forecast error sensor only) | published |
@@ -140,6 +142,3 @@ One row per feature. "Ours" is the HVAC Horizon file that implements it.
 | Learning suggestions accept or dismiss | CA | none | missing |
 | Repairs for failing sensors | CA | none | missing |
 
-## Totals (computed from the table above)
-
-Count of rows by status across all four competitors: see the lines below, updated when the file changes.
