@@ -105,7 +105,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Dehumidify with the AC's dry mode | RM | drives |
 | Drying decision (no cooling needed) | CA | published |
 | Mould risk from surface humidity | RM | published |
-| Mould prevention raises target | RM | missing |
+| Mould prevention raises target | RM | drives (control target raised by 1 C while mould risk is present) |
 | AC coil drying after heating | RM | missing |
 | Auto fan speed from temperature gap | VT | published |
 
