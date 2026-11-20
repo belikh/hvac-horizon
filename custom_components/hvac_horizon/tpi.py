@@ -1,9 +1,9 @@
-"""Per-state rise coefficients for the room, learned from the AC-off and AC-on intervals.
+"""Room rate coefficients (k, g, c), fitted offline from AC-off and AC-on intervals.
 
+This is not Versatile Thermostat's Auto TPI, which adjusts controller gains online during each cycle.
 The AC-off intervals give the heat gain toward outdoors (k) and the constant gain (g). The AC-on intervals,
 with k and g held from the AC-off fit, give the cooling per kW (c). A forecast uses these coefficients when
-they are present. Versatile Thermostat's Auto TPI is not on this machine, so this follows the idea of
-learning rates per state, not its exact algorithm.
+they are present.
 """
 
 from __future__ import annotations
@@ -28,8 +28,13 @@ class TpiFit:
         return Fit(k=self.k, c=self.c, g=self.g, samples=self.samples_off + self.samples_on)
 
 
-def learn_tpi(samples: list[Sample]) -> TpiFit:
-    """Learn k and g from AC-off intervals, then c from AC-on intervals. Raises NotEnoughData when a state has too few samples."""
+def learn_room_rates(samples: list[Sample]) -> TpiFit:
+    """Fit the room's k and g from the AC-off intervals, then c from the AC-on intervals.
+
+    k is the heat-gain rate toward outdoors and g the constant gain. c is the cooling per kW.
+    The fit runs on the stored history at each refit. It does not change the AC's controller gains.
+    Raises NotEnoughData when a state has too few samples or the temperatures barely vary.
+    """
     usable = [s for s in samples if s.minutes > 0]
     off = [s for s in usable if s.power_kw <= 0]
     on = [s for s in usable if s.power_kw > 0]

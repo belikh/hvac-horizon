@@ -2143,7 +2143,7 @@ async def test_recorder_history_becomes_samples_at_startup(hass, enable_custom_i
     assert all(30.0 <= e.outdoor_c <= 30.2 for e in historic)  # the fake states carry the recorder values, not live ones
 
 
-async def test_learned_tpi_coefficients_are_published_and_used(hass, enable_custom_integrations, config_data, freezer):
+async def test_learned_room_rate_coefficients_are_published_and_used(hass, enable_custom_integrations, config_data, freezer):
     import math
 
     from custom_components.hvac_horizon.collector import Entry
@@ -2168,11 +2168,14 @@ async def test_learned_tpi_coefficients_are_published_and_used(hass, enable_cust
     assert coordinator._tpi is not None
     assert coordinator._tpi.c == pytest.approx(1.4, abs=0.05)
     await refresh(hass, entry)
-    published = entry.runtime_data.data["tpi"]
+    published = entry.runtime_data.data["room_rate_coefficients"]
     assert published["c_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
     assert entry.runtime_data.data["k"] == pytest.approx(round(coordinator._tpi.k, 4))
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
-    assert hass.states.get(entity_id).attributes["tpi"]["c_k_per_h_per_kw"] == pytest.approx(published["c_k_per_h_per_kw"])
+    attribute = hass.states.get(entity_id).attributes["room_rate_coefficients"]
+    assert set(attribute) >= {"k_per_h", "g_k_per_h", "c_k_per_h_per_kw"}
+    assert attribute["c_k_per_h_per_kw"] == pytest.approx(published["c_k_per_h_per_kw"])
+    assert "tpi" not in hass.states.get(entity_id).attributes
 
 
 async def test_presence_from_two_sources_uses_any_home_and_the_away_delay(hass, enable_custom_integrations, config_data, freezer):

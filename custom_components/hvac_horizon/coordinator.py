@@ -88,7 +88,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, learn_tpi
+from custom_components.hvac_horizon.tpi import TpiFit, learn_room_rates
 from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -264,7 +264,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_ai_mode: str | None = None
         self._ai_answer: str | None = None
         self._ai_answer_mode: str | None = None  # the AC mode the stored answer explains
-        self._tpi: TpiFit | None = None  # per-state coefficients; the forecast uses them when present
+        self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
@@ -509,7 +509,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         samples = samples_from_entries(self._entries)
         self._refit_room_model()
         try:
-            self._tpi = learn_tpi(samples)
+            self._tpi = learn_room_rates(samples)
         except NotEnoughData:
             self._tpi = None
         self._backtest_runs = []
@@ -1682,7 +1682,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "forecast_error_min": self._forecast_error_min,
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
             "room_fit": self._room_fit,
-            "tpi": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
+            "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
         }
         active = self._tpi.to_fit() if self._tpi is not None else self._fit
         if active is None:

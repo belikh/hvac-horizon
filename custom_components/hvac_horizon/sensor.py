@@ -121,7 +121,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "investigation_ai": d.get("investigation_ai"),  # conversation agent answer, when a flow field sets one
             "investigation_ai_mode": d.get("investigation_ai_mode"),  # the AC mode that answer explains; None with no answer
             "ai_calls_today": d.get("ai_calls_today"),
-            "tpi": d.get("tpi"),  # per-state coefficients: k, g from AC-off, c from AC-on; None until learned
+            "room_rate_coefficients": d.get("room_rate_coefficients"),  # k, g from AC-off, c from AC-on; None until fitted
         }
 
     @property

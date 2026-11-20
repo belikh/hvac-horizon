@@ -3,7 +3,7 @@ import unittest
 
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.model import NotEnoughData, Sample
-from custom_components.hvac_horizon.tpi import learn_tpi
+from custom_components.hvac_horizon.tpi import learn_room_rates
 
 K, G, C = 0.3, 0.2, 1.4
 
@@ -21,9 +21,9 @@ def simulate(n, ac_cycle=6, power_kw=1.0):
     return out
 
 
-class LearnTpiTests(unittest.TestCase):
+class LearnRoomRatesTests(unittest.TestCase):
     def test_recovers_off_and_on_coefficients(self):
-        result = learn_tpi(simulate(800))
+        result = learn_room_rates(simulate(800))
         self.assertAlmostEqual(result.k, K, delta=0.02)
         self.assertAlmostEqual(result.g, G, delta=0.05)
         self.assertAlmostEqual(result.c, C, delta=0.05)
@@ -33,14 +33,14 @@ class LearnTpiTests(unittest.TestCase):
     def test_needs_both_states(self):
         always_on = [Sample(5.0, s.temp_c, s.temp_next_c, s.outdoor_c, 1.0) for s in simulate(200)]
         with self.assertRaises(NotEnoughData):
-            learn_tpi(always_on)
+            learn_room_rates(always_on)
 
     def test_too_few_samples_raise(self):
         with self.assertRaises(NotEnoughData):
-            learn_tpi(simulate(10))
+            learn_room_rates(simulate(10))
 
     def test_to_fit_feeds_the_forecast(self):
-        tpi = learn_tpi(simulate(800))
+        tpi = learn_room_rates(simulate(800))
         fitted = tpi.to_fit()
         self.assertEqual((fitted.k, fitted.c, fitted.g), (tpi.k, tpi.c, tpi.g))
         result = forecast(fitted, temp_c=26.0, target_c=24.0, outdoor_c=30.0, running_power_kw=3.0, prices=[])  # equilibrium 16.7 C, so 24 C is reachable
