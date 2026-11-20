@@ -1633,7 +1633,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if stalled:
             # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
             # No valid room reading for SENSOR_STALL_S stops the AC the same way.
-            action = Action(Mode.OFF, None, "sensor stalled" if result.get("sensors_stalled") else "no room reading")
+            action = Action(Mode.OFF, None, "sensor stalled" if self._stall_blocks(result) else "no room reading")
         else:
             # The plan's first step is a request. decide() accepts it only when no cool gate applies.
             state = RoomState(
@@ -1886,7 +1886,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and self._heater_switch() is None
             and self._someone_home
             and bool(result.get("heating_allowed", True))
-            and not result.get("sensors_stalled")
+            and not self._stall_blocks(result)
             and not window_paused
             and room_c < self._heat_on_below_c
         )

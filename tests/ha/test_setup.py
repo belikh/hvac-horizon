@@ -4416,25 +4416,29 @@ async def test_stale_room_sensor_leaves_the_median_so_its_value_is_not_used(hass
     modes = []
 
     async def record_mode(call):
+        # The fake AC reports the mode it was sent, so the integration's own write is not read as a manual change.
         modes.append(call.data["hvac_mode"])
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
 
-    async def ignore(call):
-        return None
+    async def record_temp(call):
+        # Report the setpoint sent, so the integration's own write is not read as a manual change.
+        hass.states.async_set(CLIMATE, hass.states.get(CLIMATE).state, dict(hass.states.get(CLIMATE).attributes, temperature=call.data["temperature"]))
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
-    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.services.async_register("climate", "set_temperature", record_temp)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    # The setup tick at 10:00 saw both rooms fresh and may have cooled. Only later writes count.
+    # The setup tick at 10:00 saw both rooms fresh and cooled. Only later writes count.
     modes.clear()
     freezer.tick(timedelta(minutes=16))
     hass.states.async_set(ROOM_B, "22.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert ROOM_A in entry.runtime_data.data["sensors_stalled"]
-    assert "cool" not in modes
+    # The AC cooled at setup on the 26 C median. With room A out, the median is 22 C, so the AC switches off.
+    assert "off" in modes
 
 
 async def test_stale_room_with_unavailable_room_stops_the_ac(hass, enable_custom_integrations, config_data, freezer):
