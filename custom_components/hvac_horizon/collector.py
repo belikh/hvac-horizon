@@ -135,6 +135,38 @@ def resample_states(points: list[tuple[float, float]], start: float, end: float,
     return out
 
 
+def entries_from_history(
+    rooms: list[list[tuple[float, float]]],
+    outdoor: list[tuple[float, float]],
+    power: list[tuple[float, float]],
+    start: float,
+    end: float,
+    step: float = STEP_S,
+) -> list[Entry]:
+    """Readings on the fixed grid from recorder histories, for the grid times where every input has a value.
+
+    `rooms` is one history per room sensor. The room value is the median of the sensors that have a value.
+    Power and outdoor values are taken as recorded. Grid times missing any input are skipped.
+    """
+    if not rooms:
+        return []
+    room_grids = [resample_states(points, start, end, step) for points in rooms]
+    outdoor_grid = resample_states(outdoor, start, end, step)
+    power_grid = resample_states(power, start, end, step)
+    out: list[Entry] = []
+    for idx, (t, out_v) in enumerate(outdoor_grid):
+        if out_v is None or power_grid[idx][1] is None:
+            continue
+        room_values = [grid[idx][1] for grid in room_grids if grid[idx][1] is not None]
+        if not room_values:
+            continue
+        room_values.sort()
+        mid = len(room_values) // 2
+        room_c = room_values[mid] if len(room_values) % 2 else (room_values[mid - 1] + room_values[mid]) / 2
+        out.append(Entry(t=t, room_c=room_c, outdoor_c=out_v, power_w=power_grid[idx][1]))
+    return out
+
+
 def entries_to_csv(entries: list[Entry]) -> str:
     """CSV text of the stored readings, in the layout the backfill tool reads: time, room_c, outdoor_c, power_w.
 

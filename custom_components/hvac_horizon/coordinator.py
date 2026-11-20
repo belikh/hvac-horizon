@@ -18,7 +18,14 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.backfill import backtest, median_abs_error
-from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
+from custom_components.hvac_horizon.collector import (
+    Entry,
+    entries_from_history,
+    has_enough_cycles,
+    price_slots,
+    running_power_kw,
+    samples_from_entries,
+)
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
 from custom_components.hvac_horizon.features import (
@@ -151,6 +158,58 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
+
+    async def async_backfill_from_recorder(self, days: float = 10.0) -> int:
+        """Learn from history the recorder already holds: room, outdoor and power states on the 5-minute grid.
+
+        Runs the database read in the recorder's executor. Returns the number of readings added. If the
+        recorder is not available, nothing is added and the integration keeps learning from live samples.
+        """
+        try:
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.history import get_significant_states
+        except ImportError:
+            return 0
+
+        now = dt_util.utcnow()
+        start = now - timedelta(days=days)
+        room_ids = list(self.entry.data[CONF_ROOM_SENSORS])
+        outdoor_id = self.entry.data[CONF_OUTDOOR]
+        power_id = self.entry.data[CONF_POWER]
+        entity_ids = room_ids + [outdoor_id, power_id]
+        try:
+            states = await get_instance(self.hass).async_add_executor_job(
+                lambda: get_significant_states(
+                    self.hass, start, now, entity_ids,
+                    include_start_time_state=True, significant_changes_only=False, minimal_response=False, no_attributes=True,
+                )
+            )
+        except Exception:  # recorder not ready or not loaded
+            _LOGGER.debug("recorder history not available for backfill", exc_info=True)
+            return 0
+
+        def points(entity: str) -> list[tuple[float, float]]:
+            out = []
+            for st in states.get(entity, []):
+                try:
+                    out.append((st.last_changed.timestamp(), float(st.state)))
+                except (ValueError, TypeError, AttributeError):
+                    continue
+            return out
+
+        rooms = [points(e) for e in room_ids]
+        built = entries_from_history(
+            rooms, points(outdoor_id), points(power_id),
+            start.timestamp(), now.timestamp(),
+        )
+        if not built:
+            return 0
+        known = {round(e.t / SAMPLE_INTERVAL_S) for e in self._entries}
+        added = [e for e in built if round(e.t / SAMPLE_INTERVAL_S) not in known]
+        self._entries = sorted(self._entries + added, key=lambda e: e.t)[-MAX_ENTRIES:]
+        self._refit()
+        self._store.async_delay_save(self._save_payload, 0)
+        return len(added)
 
     def start_power_tracking(self) -> None:
         """Integrate the power sensor between samples, so each sample gets a true interval mean."""

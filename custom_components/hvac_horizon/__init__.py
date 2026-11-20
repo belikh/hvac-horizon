@@ -65,6 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _register_services(hass)
     coordinator = HorizonCoordinator(hass, entry)
     await coordinator.async_load()
+    await coordinator.async_backfill_from_recorder()
     coordinator.start_power_tracking()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

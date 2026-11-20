@@ -285,6 +285,17 @@ async def test_reset_learning_service_clears_samples(hass, enable_custom_integra
     assert entry.runtime_data._entries == []
 
 
+async def test_backfill_runs_and_reports_count(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    added = await entry.runtime_data.async_backfill_from_recorder(days=1.0)
+    assert isinstance(added, int)
+    assert added >= 0
+
+
 async def test_export_csv_service_returns_csv_header(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)

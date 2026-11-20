@@ -8,6 +8,30 @@ from custom_components.hvac_horizon.collector import (
 )
 
 
+class HistoryEntriesTests(unittest.TestCase):
+    def test_entries_built_from_histories(self):
+        from custom_components.hvac_horizon.collector import entries_from_history
+
+        rooms = [[(0.0, 26.0)], [(0.0, 25.0)]]
+        outdoor = [(0.0, 30.0)]
+        power = [(0.0, 1000.0), (300.0, 0.0)]
+        entries = entries_from_history(rooms, outdoor, power, start=0.0, end=300.0, step=300.0)
+        self.assertEqual(len(entries), 2)
+        self.assertAlmostEqual(entries[0].room_c, 25.5)  # median of 26 and 25
+        self.assertEqual(entries[1].power_w, 0.0)
+
+    def test_grid_time_skipped_when_an_input_is_missing(self):
+        from custom_components.hvac_horizon.collector import entries_from_history
+
+        entries = entries_from_history([[(400.0, 26.0)]], [(0.0, 30.0)], [(0.0, 900.0)], start=0.0, end=600.0, step=300.0)
+        self.assertEqual([e.t for e in entries], [600.0])
+
+    def test_no_rooms_gives_nothing(self):
+        from custom_components.hvac_horizon.collector import entries_from_history
+
+        self.assertEqual(entries_from_history([], [(0.0, 30.0)], [(0.0, 900.0)], 0.0, 300.0), [])
+
+
 class ResampleTests(unittest.TestCase):
     def test_last_known_value_on_grid(self):
         from custom_components.hvac_horizon.collector import resample_states
