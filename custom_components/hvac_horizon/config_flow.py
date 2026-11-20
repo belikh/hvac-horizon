@@ -12,6 +12,9 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_AWAY_DELAY_MIN,
     CONF_COIL_DRY,
+    CONF_HEATER_KD,
+    CONF_HEATER_KI,
+    CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
     CONF_HOUSE_SEALED,
     CONF_LOCK_PIN,
@@ -124,6 +127,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(min=0, max=30, step=0.5, unit_of_measurement="°C")
             ),
             key(CONF_HEATER_SWITCH): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            vol.Optional(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
+            vol.Optional(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
+            vol.Optional(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),
             key(CONF_WHOLE_HOUSE_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             vol.Optional(CONF_LOCK_PIN): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
             vol.Optional(CONF_COIL_DRY, default=defaults.get(CONF_COIL_DRY, False)): selector.BooleanSelector(),

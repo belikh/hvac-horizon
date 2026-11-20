@@ -80,9 +80,16 @@ from custom_components.hvac_horizon.features import air_quality_ventilation, boo
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
+from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
+    CONF_HEATER_KP,
+    CONF_HEATER_KI,
+    CONF_HEATER_KD,
+    DEFAULT_HEATER_KP,
+    DEFAULT_HEATER_KI,
+    DEFAULT_HEATER_KD,
     PWM_WINDOW_MIN,
     CONF_AWAY_C,
     CONF_MOTION,
@@ -202,6 +209,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._heater_pid: Pid | None = None
         self._was_cooling: bool = False
         self._dry_started_min: float | None = None
         self._solar_pairs: list[tuple[float, float]] = []
@@ -793,6 +801,31 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # only the autotune path does.
         heater_on = pwm_on(self._pwm_output_pct, PWM_WINDOW_MIN, now / 60.0)
         result["heater_pwm_on"] = heater_on
+        pid_rooms = self._rooms()
+        pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if (
+            self.entry.data.get(CONF_CONTROL)
+            and self.entry.data.get(CONF_HEATER_SWITCH)
+            and pid_rooms
+            and pid_outdoor is not None
+            and lock_allows_control(self._locked)
+            and not inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
+        ):
+            if self._heater_pid is None:
+                self._heater_pid = Pid(
+                    float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)),
+                    float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)),
+                    float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)),
+                    ke=0.0,
+                    out_min=0.0,
+                    out_max=100.0,
+                )
+            pid_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            pid_out = self._heater_pid.update(
+                pid_target, statistics.median(pid_rooms), SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor
+            )
+            self.set_heater_output(pid_out)
+            result["heater_pid_output"] = round(pid_out, 2)
         valve_rooms = self._rooms()
         valve_opening = None
         if valve_rooms:

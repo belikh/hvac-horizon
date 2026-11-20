@@ -846,6 +846,43 @@ async def test_coil_dry_runs_after_cooling_stops(hass, enable_custom_integration
 
 
 
+async def test_heater_pid_leaves_output_alone_with_control_off(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("switch.test_heater", "off")
+    hass.services.async_register("switch", "turn_on", lambda call: None)
+    hass.services.async_register("switch", "turn_off", lambda call: None)
+    data = {**config_data, "heater_switch": "switch.test_heater"}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator.set_heater_output(40.0)
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert coordinator._pwm_output_pct == 40.0
+    assert "heater_pid_output" not in coordinator.data
+
+
+async def test_heater_pid_publishes_output_with_control_on(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("switch.test_heater", "off")
+    hass.services.async_register("switch", "turn_on", lambda call: None)
+    hass.services.async_register("switch", "turn_off", lambda call: None)
+    hass.services.async_register("climate", "set_hvac_mode", lambda call: None)
+    hass.services.async_register("climate", "set_temperature", lambda call: None)
+    data = {**config_data, "heater_switch": "switch.test_heater", "control": True}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    out = coordinator.data["heater_pid_output"]
+    assert 0.0 <= out <= 100.0
+
+
 def test_every_conf_key_is_in_the_flow_schema():
     import re
     from pathlib import Path
