@@ -10,6 +10,7 @@ from custom_components.hvac_horizon.features import (
     heat_source,
     humidity_action,
     minimum_time_ok,
+    mould_target,
     mpc_plan,
     motion_preset,
     mode_disagrees,
@@ -753,3 +754,18 @@ class MotionPresetTests(unittest.TestCase):
     def test_zero_delay_raises(self):
         with self.assertRaises(ValueError):
             motion_preset(True, 1.0, away_delay_min=0.0)
+
+
+class MouldTargetTests(unittest.TestCase):
+    def test_mould_raises_by_bump(self):
+        self.assertEqual(mould_target(21.0, True), 22.0)
+
+    def test_no_mould_unchanged(self):
+        self.assertEqual(mould_target(21.0, False), 21.0)
+
+    def test_custom_bump(self):
+        self.assertEqual(mould_target(21.0, True, bump_c=0.5), 21.5)
+
+    def test_negative_bump_raises(self):
+        with self.assertRaises(ValueError):
+            mould_target(21.0, True, bump_c=-1.0)

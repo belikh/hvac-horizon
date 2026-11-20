@@ -346,6 +346,16 @@ def window_open_pause(window_open_min: float, delay_min: float = 10.0) -> bool:
     return window_open_min >= delay_min
 
 
+def mould_target(target_c: float, mould: bool, bump_c: float = 1.0) -> float:
+    """Raise `target_c` by `bump_c` when there is mould risk, so the room warms and surface humidity drops.
+
+    Ported from RoomMind's mould manager. Raises ValueError if `bump_c` is negative.
+    """
+    if bump_c < 0:
+        raise ValueError("bump_c must be >= 0")
+    return target_c + bump_c if mould else target_c
+
+
 def mould_risk(surface_humidity_pct: float | None, threshold_pct: float = 80.0) -> bool:
     """True when the surface humidity is at or above `threshold_pct`. Missing readings are not a risk.
 

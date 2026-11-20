@@ -58,6 +58,7 @@ from custom_components.hvac_horizon.features import (
     ventilation_rate_from_co2,
     whole_house_fan_allowed,
     mould_risk,
+    mould_target,
     surface_humidity,
     presence_mode,
     sun_heat_gain,
@@ -921,6 +922,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
         )
         result["target_c"] = round(target_c, 2)
+        target_c = mould_target(target_c, bool(result.get("mould_risk")))
         blocks = [
             ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
             for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
