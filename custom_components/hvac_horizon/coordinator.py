@@ -31,6 +31,7 @@ from custom_components.hvac_horizon.features import (
     compliance_score,
     drying_needed,
     fan_speed_from_gap,
+    stale_price_fallback,
     mould_risk,
     surface_humidity,
     presence_mode,
@@ -133,6 +134,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_cycle_t: float | None = None
         self._in_band_min: float = 0.0
         self._outdoor_history: list[float] = []
+        self._last_good_price: float | None = None
+        self._last_good_price_at: float | None = None
         self._total_min: float = 0.0
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
@@ -408,6 +411,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
         room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
         result["drying_needed"] = drying_needed(_float(self._optional(CONF_HUMIDITY)), cool_gap_c=room_gap)
+        price_now = _float(self._optional(CONF_PRICE))
+        if price_now is not None:
+            self._last_good_price = price_now
+            self._last_good_price_at = now
+        age_min = 0.0 if self._last_good_price_at is None else (now - self._last_good_price_at) / 60.0
+        result["price_used_per_kwh"] = stale_price_fallback(price_now, self._last_good_price, age_min)
         result["heating_failure"] = self._heating_check(now)
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
         if self.entry.data.get(CONF_CONTROL):
