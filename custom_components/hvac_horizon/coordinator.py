@@ -1347,11 +1347,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 result["action"] = "heat: waiting for minimum time"
             return
         # Minimum on and off times: do not change state until the current state has lasted long enough.
-        wanted_on = action.mode is Mode.COOL
-        is_on = climate.state == "cool"
-        if wanted_on != is_on:
+        # Heat counts as running, so stopping heat, or switching heat to cool, waits for the minimum on time.
+        wanted_mode = "cool" if action.mode is Mode.COOL else "off"
+        running = climate.state in ("cool", "heat")
+        if climate.state != wanted_mode and (running or wanted_mode == "cool"):
             since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
-            if not minimum_time_ok(is_on, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
+            if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
                 result["action"] = f"{action.mode.value}: waiting for minimum time"
                 return
             self._state_changed_at = now

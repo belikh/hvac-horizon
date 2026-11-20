@@ -1763,6 +1763,45 @@ async def test_ac_heat_source_sends_heat_mode_below_the_heat_threshold(hass, ena
     assert temps == [{"entity_id": CLIMATE, "temperature": 24.0}]
 
 
+def _set_ac_rooms(hass, temp: str) -> None:
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, temp, {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+
+async def test_heat_then_cool_inside_the_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
+    # Heat starts at 10:00. Cool is wanted at 10:04. Heat counts as running, so the 5 minute minimum on time holds the switch.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, modes, _ = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
+    assert modes == ["heat"]
+    # The outdoor sensor warms to 30 C, so heat is no longer allowed and cooling is.
+    freezer.tick(timedelta(minutes=4))
+    _set_ac_rooms(hass, "26.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert "cool" not in modes
+    freezer.tick(timedelta(minutes=2))
+    _set_ac_rooms(hass, "26.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert modes[-1] == "cool"
+
+
+async def test_heat_stop_inside_the_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
+    # Heat starts at 10:00. The room reaches the dead band at 10:01, where neither heat nor cool is wanted.
+    # The 5 minute minimum on time holds the heat switch until 10:05.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, modes, _ = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
+    assert modes == ["heat"]
+    freezer.tick(timedelta(minutes=1))
+    _set_ac_rooms(hass, "23.8")
+    await refresh(hass, entry)
+    assert "off" not in modes
+    freezer.tick(timedelta(minutes=5))
+    _set_ac_rooms(hass, "23.8")
+    await refresh(hass, entry)
+    assert modes[-1] == "off"
+
+
 async def test_ac_does_not_heat_when_a_heater_switch_is_set(hass, enable_custom_integrations, config_data):
     # With a heater switch the switch is the heat source, so the AC must not heat as well.
     entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0", climate="off")
