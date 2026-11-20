@@ -847,3 +847,7 @@ async def test_status_sensors_exist_with_control_off(hass, enable_custom_integra
         eid = registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_{key}")
         assert eid is not None, key
         assert eid.startswith("sensor.hvac_horizon_"), eid
+        state = hass.states.get(eid)
+        assert state is not None and state.state not in ("unavailable", "unknown"), (key, state)
+    target = hass.states.get(registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_target_c"))
+    assert float(target.state) == 24.0, target.state

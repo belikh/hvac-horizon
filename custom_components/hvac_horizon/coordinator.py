@@ -1142,7 +1142,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _forecast(self, now: float) -> dict[str, Any]:
+        # Observe-only values: the control path overwrites target_c and preset with the full decision.
+        comfort_default = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         result: dict[str, Any] = {
+            "target_c": round(comfort_default, 2),
+            "preset": "comfort",
             "samples": len(self._entries),
             "status": "learning",
             "minutes": None,
