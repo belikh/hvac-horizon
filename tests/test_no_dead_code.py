@@ -14,12 +14,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "custom_components" / "hvac_horizon"
 
-# Names Home Assistant calls by name. No Python code in the package calls them.
-# Each entry needs a reason.
-ALLOWED = {
-    "async_setup_entry": "Home Assistant calls it for each config entry.",
-    "async_unload_entry": "Home Assistant calls it when an entry unloads.",
-    "async_get_config_entry_diagnostics": "Home Assistant calls it for the diagnostics download.",
+# Names Home Assistant calls by name. No Python code in the package calls them, so a hook counts as used
+# when it is an async function whose first two arguments are the ones Home Assistant passes.
+# async_setup_entry: called for each config entry (a platform adds async_add_entities as a third argument).
+# async_unload_entry: called when an entry unloads.
+# async_get_config_entry_diagnostics: called for the diagnostics download.
+HA_HOOKS = {
+    "async_setup_entry": ["hass", "entry"],
+    "async_unload_entry": ["hass", "entry"],
+    "async_get_config_entry_diagnostics": ["hass", "entry"],
 }
 
 
@@ -52,6 +55,14 @@ def _identifiers(path: Path) -> set[str]:
     return names
 
 
+def _hook_arguments(path: Path, name: str) -> list[str] | None:
+    """Argument names of the module-level async function `name` in `path`, or None when it is not async there."""
+    for node in ast.parse(path.read_text(), filename=str(path)).body:
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
+            return [arg.arg for arg in node.args.args]
+    return None
+
+
 def _external_users(name: str, own: Path) -> list[str]:
     sources = [p for p in _module_files() if p != own]
     sources += [p for p in sorted((ROOT / "tests").rglob("*.py")) if p.name != f"test_{own.stem}.py"]
@@ -68,7 +79,12 @@ def test_public_functions_are_found():
 
 @pytest.mark.parametrize(("path", "name"), CASES, ids=[f"{p.stem}.{n}" for p, n in CASES])
 def test_public_function_is_used_outside_its_module(path, name):
-    if name in ALLOWED:
-        pytest.skip(ALLOWED[name])
+    if name in HA_HOOKS:
+        arguments = _hook_arguments(path, name)
+        expected = HA_HOOKS[name]
+        assert arguments is not None and arguments[: len(expected)] == expected, (
+            f"{path.stem}.{name} must be async with the arguments {expected} first, as Home Assistant calls it."
+        )
+        return
     users = _external_users(name, path)
     assert users, f"{path.stem}.{name} is not referenced outside {path.name}. Wire it or delete it."
