@@ -53,7 +53,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Window or door pauses control after a delay | VT, RM, CA | drives |
 | Presence sensor to home or away | VT, RM, CA | drives (away setback) |
 | Presence from several sources | RM | pure (occupancy published) |
-| Motion sensor presets with delays | VT | missing |
+| Motion sensor presets with delays | VT | published (motion preset with a delay; setpoint not yet changed by it) |
 | Occupancy sensor drives eco | RM | missing |
 | Event notifications for window pauses and lock changes | CA | drives |
 
