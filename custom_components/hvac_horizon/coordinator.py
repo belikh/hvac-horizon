@@ -84,7 +84,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -120,6 +120,7 @@ from .const import (
     CONF_PEER_ENTRY,
     CONF_TPI_COEF_EXT,
     CONF_TPI_COEF_INT,
+    CONF_ECONOMIZER_FAN,
     CONF_TPI_COOL,
     CONF_TPI_THRESHOLD_HIGH,
     CONF_TPI_THRESHOLD_LOW,
@@ -1619,6 +1620,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if 0.0 < co2_rate < 1.0:
             pm25_on = air_quality_ventilation(None, _float(self._optional(CONF_PM25))).run
             fan_on = pwm_on(co2_rate * 100.0, FAN_PWM_WINDOW_MIN, now / 60.0) or pm25_on
+        # The economizer fan_assist phase runs the fan too, when the economizer_fan option is on and the gates pass.
+        house_home = effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
+        if fan_assist_on(result.get("economizer"), bool(self.entry.data.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled):
+            fan_on = True
         await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")

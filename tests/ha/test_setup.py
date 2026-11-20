@@ -3886,3 +3886,91 @@ async def test_tpi_cool_branch_obeys_the_window_gate(hass, enable_custom_integra
     assert entry.runtime_data.data["action"] == "off: stub: decide off"  # the branch kept decide()'s OFF
     assert ("mode", "cool") not in writes
     assert not any(kind == "setpoint" for kind, _ in writes)
+
+
+FAN = "switch.test_fan"
+
+
+async def _fan_assist_run(hass, config_data, freezer, *, extra, house_away=False, locked=False):
+    """Control on, a fan switch and an economizer in fan_assist.
+
+    Outdoor 18 C is 8 K below the room at 26 C, above the 24 C comfort. The first tick starts the open-window clock.
+    The ticks that follow reach fan_assist. Returns the entry and the fan switch calls from the last tick.
+    """
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _set_ac_rooms(hass, "26.0")
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    hass.states.async_set(FAN, "off")
+    calls = []
+
+    async def record_on(call):
+        calls.append(("turn_on", call.data["entity_id"]))
+        hass.states.async_set(FAN, "on")
+
+    async def record_off(call):
+        calls.append(("turn_off", call.data["entity_id"]))
+        hass.states.async_set(FAN, "off")
+
+    async def record_mode(call):
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(hass.states.get(CLIMATE).attributes))
+
+    async def echo_temp(call):
+        # The device echoes its setpoint, so a later tick does not read our own write as a manual change.
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", echo_temp)
+    data = dict(config_data, control=True, **extra)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    if house_away:
+        await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    if locked:
+        await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    calls.clear()
+    # The phase reads the open minutes before the tick adds its own interval, so the 31 minute tick stays open_windows.
+    # The next tick, 5 minutes on, reads 31 minutes and reaches fan_assist. The sensors change value so they do not stall.
+    for step, (minutes, temp) in enumerate([(31, "26.1"), (5, "26.2")]):
+        freezer.tick(timedelta(minutes=minutes))
+        _set_ac_rooms(hass, temp)
+        hass.states.async_set(OUTDOOR, "18.1" if step == 0 else "18.2", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        if step == 0:
+            await refresh(hass, entry)
+            calls.clear()
+    await refresh(hass, entry)
+    return entry, calls
+
+
+async def test_fan_assist_turns_the_fan_on_when_the_option_and_switch_are_set(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await _fan_assist_run(hass, config_data, freezer, extra={"economizer_fan": True, "fan": FAN})
+    assert entry.runtime_data.data["economizer"] == "fan_assist"
+    assert calls == [("turn_on", FAN)]
+
+
+async def test_fan_assist_without_a_fan_switch_makes_no_fan_call(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await _fan_assist_run(hass, config_data, freezer, extra={"economizer_fan": True})
+    assert entry.runtime_data.data["economizer"] == "fan_assist"
+    assert calls == []
+
+
+async def test_fan_assist_stays_off_without_the_option(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await _fan_assist_run(hass, config_data, freezer, extra={"fan": FAN})
+    assert entry.runtime_data.data["economizer"] == "fan_assist"
+    assert calls == []
+
+
+@pytest.mark.parametrize("gate", ["house_away", "locked"])
+async def test_fan_assist_obeys_the_house_and_lock_gates(hass, enable_custom_integrations, config_data, freezer, gate):
+    entry, calls = await _fan_assist_run(
+        hass, config_data, freezer, extra={"economizer_fan": True, "fan": FAN, "lock_pin": "1234"},
+        house_away=gate == "house_away", locked=gate == "locked",
+    )
+    assert entry.runtime_data.data["economizer"] == "fan_assist"
+    assert ("turn_on", FAN) not in calls

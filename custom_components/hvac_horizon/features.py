@@ -522,6 +522,12 @@ def peer_warmer(room_c: float, peer_room_c: float, min_delta_c: float = 2.0) -> 
     return room_c - peer_room_c >= min_delta_c
 
 
+def fan_assist_on(phase: str | None, enabled: bool, unlocked: bool, house_home: bool, stalled: bool) -> bool:
+    """True when the economizer fan runs: the option is on, the phase is fan_assist, and control is unlocked,
+    the house is home and no sensor is stalled. The window actuator uses the same gates."""
+    return enabled and phase == "fan_assist" and unlocked and house_home and not stalled
+
+
 def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c: float) -> bool:
     """True when the plan's next step is idle and the room is more than `deadband_c` below the cool threshold."""
     return not plan_run_now and room_c < cool_above_c - deadband_c

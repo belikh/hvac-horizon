@@ -74,6 +74,7 @@ CONF_TPI_THRESHOLD_LOW = "tpi_threshold_low"  # K above target while the room fa
 CONF_TPI_COOL = "tpi_cool"  # bool, default False: TPI cool branch; sets the AC cool setpoint when decide() has not chosen cool
 CONF_MAX_ON_PERCENT = "max_on_percent"  # caps the TPI on-percent, 0 to 100; unset means no cap
 CONF_NIGHT_PLAN_ACT = "night_plan_act"  # bool, default False: a pre-cool night plan cools to comfort, a hold night plan stops a cool start
+CONF_ECONOMIZER_FAN = "economizer_fan"  # bool, default False: run the fan switch in the economizer fan_assist phase
 CONF_WINDOW_ACTUATOR = "window_actuator"  # optional cover or switch that opens and closes a window on the natural ventilation or economizer advice
 CONF_PEER_ENTRY = "peer_entry"  # optional entry_id or title of another HVAC Horizon entry; this room opens its valve when this room is 2 K warmer
 DEFAULT_HEATER_DEADBAND_C = 0.5  # heater heats below comfort minus this; the AC cools above comfort plus this
