@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .forecast import forecast
-from .model import Fit, Sample
+from .model import Fit, NotEnoughData, Sample, fit
 
 
 @dataclass(frozen=True)
@@ -139,3 +139,51 @@ def check_cooldowns(fit: Fit, cooldowns: list[Cooldown]) -> list[Check]:
         else:
             out.append(Check(cd.start, cd.actual_min, None, None, False))
     return out
+
+
+@dataclass(frozen=True)
+class BacktestRun:
+    start: int
+    actual_min: float
+    predicted_min: float | None
+    error_min: float | None
+
+
+def backtest(samples: list[Sample], target_c: float, min_train: int = 60, margin_c: float = 1.0) -> list[BacktestRun]:
+    """For each cool-down, fit only on samples before its start, then forecast it.
+
+    No run uses data from its own cool-down or any later one, so the error is an honest forecast error.
+    A run with too little earlier data is kept with `predicted_min` None.
+    """
+    out: list[BacktestRun] = []
+    for cd in find_cooldowns(samples, target_c, margin_c):
+        if cd.start < min_train:
+            out.append(BacktestRun(cd.start, cd.actual_min, None, None))
+            continue
+        try:
+            f_fit = fit(samples[: cd.start])
+        except NotEnoughData:
+            out.append(BacktestRun(cd.start, cd.actual_min, None, None))
+            continue
+        result = forecast(
+            f_fit,
+            temp_c=cd.start_c,
+            target_c=cd.target_c,
+            outdoor_c=cd.mean_outdoor_c,
+            running_power_kw=cd.mean_power_kw,
+            prices=[],
+        )
+        if result.reachable and result.minutes is not None:
+            out.append(BacktestRun(cd.start, cd.actual_min, result.minutes, result.minutes - cd.actual_min))
+        else:
+            out.append(BacktestRun(cd.start, cd.actual_min, None, None))
+    return out
+
+
+def median_abs_error(runs: list[BacktestRun]) -> float | None:
+    """Median of |predicted - actual| minutes over the runs that have a prediction."""
+    errors = sorted(abs(r.error_min) for r in runs if r.error_min is not None)
+    if not errors:
+        return None
+    mid = len(errors) // 2
+    return errors[mid] if len(errors) % 2 else (errors[mid - 1] + errors[mid]) / 2

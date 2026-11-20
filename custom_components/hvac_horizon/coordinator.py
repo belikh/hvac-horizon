@@ -216,7 +216,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        # Observe-only uses the climate entity's own setpoint, as the original request asked.
+        # Control mode uses the comfort setting, because the integration writes that setpoint.
+        if self.entry.data.get(CONF_CONTROL):
+            target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        else:
+            setpoint = climate.attributes.get("temperature") if climate else None
+            target = float(setpoint) if setpoint is not None else float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
         if not rooms or outdoor is None or climate is None:
             result.update(status="no input")
             return result

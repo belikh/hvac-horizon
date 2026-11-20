@@ -83,3 +83,29 @@ class BackfillTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BacktestTests(unittest.TestCase):
+    def test_backtest_uses_only_earlier_data(self):
+        from custom_components.hvac_horizon.backfill import backtest, median_abs_error
+
+        samples = samples_from_rows(build_rows(600), 5.0)
+        runs = backtest(samples, target_c=26.8, min_train=60, margin_c=0.2)
+        predicted = [r for r in runs if r.predicted_min is not None]
+        self.assertGreater(len(predicted), 0)
+        # Synthetic data comes from the same model, so the error should stay small.
+        self.assertLess(median_abs_error(runs), 10.0)
+
+    def test_backtest_skips_runs_with_too_little_history(self):
+        from custom_components.hvac_horizon.backfill import backtest
+
+        samples = samples_from_rows(build_rows(120), 5.0)
+        runs = backtest(samples, target_c=26.8, min_train=10_000, margin_c=0.2)
+        self.assertTrue(all(r.predicted_min is None for r in runs))
+
+    def test_median_abs_error_handles_even_and_empty(self):
+        from custom_components.hvac_horizon.backfill import BacktestRun, median_abs_error
+
+        runs = [BacktestRun(0, 10, 12, 2.0), BacktestRun(1, 10, 15, 5.0), BacktestRun(2, 10, 9, -1.0), BacktestRun(3, 10, 20, 10.0)]
+        self.assertAlmostEqual(median_abs_error(runs), 3.5)
+        self.assertIsNone(median_abs_error([]))
