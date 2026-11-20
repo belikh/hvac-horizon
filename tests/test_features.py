@@ -10,6 +10,7 @@ from custom_components.hvac_horizon.features import (
     heat_source,
     humidity_action,
     minimum_time_ok,
+    mpc_plan,
     mode_disagrees,
     outdoor_allows,
     pwm_on,
@@ -711,3 +712,25 @@ class StaggerAllowedTests(unittest.TestCase):
     def test_negative_gap_raises(self):
         with self.assertRaises(ValueError):
             stagger_allowed("a", ["a"], {}, 100.0, -1.0)
+
+
+class MpcPlanTests(unittest.TestCase):
+    ARGS = dict(fit_k=0.1, fit_c=5.0, fit_g=0.0, target_c=24.0, outdoor_c=30.0, running_kw=1.0)
+
+    def test_empty_prices_gives_empty_plan(self):
+        self.assertEqual(mpc_plan(room_c=26.0, prices=[], **self.ARGS), [])
+
+    def test_cool_room_with_cheap_prices_stays_off(self):
+        args = dict(self.ARGS, outdoor_c=20.0)
+        self.assertEqual(mpc_plan(room_c=22.0, prices=[0.1] * 16, **args), [False] * 16)
+
+    def test_hot_room_with_cheap_prices_turns_on_first(self):
+        self.assertTrue(mpc_plan(room_c=28.0, prices=[0.01] * 16, **self.ARGS)[0])
+
+    def test_expensive_prices_with_slightly_warm_room_stay_off(self):
+        plan = mpc_plan(room_c=24.2, prices=[50.0] * 16, **self.ARGS)
+        self.assertFalse(any(plan))
+
+    def test_nonpositive_step_raises(self):
+        with self.assertRaises(ValueError):
+            mpc_plan(room_c=26.0, prices=[0.1], step_min=0.0, **self.ARGS)

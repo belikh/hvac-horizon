@@ -596,3 +596,78 @@ def stagger_allowed(
         if other != device and now_min - started < min_gap_min:
             return False
     return wanting[0] == device
+
+
+def mpc_plan(
+    fit_k: float,
+    fit_c: float,
+    fit_g: float,
+    room_c: float,
+    target_c: float,
+    outdoor_c: float,
+    running_kw: float,
+    prices: list[float],
+    step_min: float = 15.0,
+    discomfort_per_k_step: float = 1.0,
+    cost_weight: float = 1.0,
+) -> list[bool]:
+    """Choose AC on/off per step by dynamic programming over room temperature.
+
+    The room follows dT/dt = k (T_out - T) - c P + g (same as `forecast()`), with P = `running_kw` when on
+    and 0 when off. Temperature is bucketed to 0.1 C over [target - 5, target + 10] and clamped.
+    Step cost: cost_weight * price * kW * hours (when on) + discomfort_per_k_step * max(0, T - target).
+    """
+    if step_min <= 0:
+        raise ValueError("step_min must be positive")
+    if running_kw < 0:
+        raise ValueError("running_kw must not be negative")
+    if fit_c < 0:
+        raise ValueError("fit_c must not be negative")
+    if not prices:
+        return []
+
+    bucket = 0.1
+    low = target_c - 5.0
+    n = int(round(15.0 / bucket)) + 1
+    temps = [low + i * bucket for i in range(n)]
+
+    def index(temp: float) -> int:
+        return min(n - 1, max(0, int(round((temp - low) / bucket))))
+
+    # Integrate each step in sub-steps of at most 1 minute, like forecast().
+    substeps = max(1, int(math.ceil(step_min)))
+    dt_h = step_min / 60.0 / substeps
+
+    def advance(temp: float, power_kw: float) -> float:
+        for _ in range(substeps):
+            temp += (fit_k * (outdoor_c - temp) - fit_c * power_kw + fit_g) * dt_h
+        return temp
+
+    nxt_off = [index(advance(t, 0.0)) for t in temps]
+    nxt_on = [index(advance(t, running_kw)) for t in temps]
+    discomfort = [discomfort_per_k_step * max(0.0, t - target_c) for t in temps]
+
+    hours = step_min / 60.0
+    horizon = len(prices)
+    cost_to_go = [0.0] * n
+    best_action = [[False] * n for _ in range(horizon)]
+    for i in range(horizon - 1, -1, -1):
+        energy_cost = cost_weight * prices[i] * running_kw * hours
+        new_cost = [0.0] * n
+        for b in range(n):
+            off = discomfort[b] + cost_to_go[nxt_off[b]]
+            on = discomfort[b] + energy_cost + cost_to_go[nxt_on[b]]
+            if on < off:
+                new_cost[b] = on
+                best_action[i][b] = True
+            else:
+                new_cost[b] = off
+        cost_to_go = new_cost
+
+    plan: list[bool] = []
+    state = index(room_c)
+    for i in range(horizon):
+        action = best_action[i][state]
+        plan.append(action)
+        state = nxt_on[state] if action else nxt_off[state]
+    return plan

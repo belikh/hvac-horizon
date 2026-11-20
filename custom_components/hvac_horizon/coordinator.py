@@ -26,7 +26,7 @@ from custom_components.hvac_horizon.collector import (
     running_power_kw,
     samples_from_entries,
 )
-from custom_components.hvac_horizon.forecast import forecast
+from custom_components.hvac_horizon.forecast import forecast, price_at
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
@@ -34,6 +34,7 @@ from custom_components.hvac_horizon.features import (
     boiler_demand,
     economizer_phase,
     heat_source,
+    mpc_plan,
     forecast_highs,
     natural_ventilation_window,
     daily_briefing,
@@ -153,6 +154,10 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
     if "rooms_c" in clean:
         clean["rooms_c"] = tuple(clean["rooms_c"])
     return Entry(**clean)
+
+
+MPC_STEP_MIN = 15.0
+MPC_STEPS = 16  # 4 hours
 
 
 class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -697,6 +702,29 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             low_edge = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)) - 1.0
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
+        if self._fit is not None and outdoor_now is not None and rooms_econ:
+            slots = self._price_forecast(now)
+            if slots:
+                step_prices: list[float] = []
+                last = slots[0].price_per_kwh
+                for step in range(MPC_STEPS):
+                    found = price_at(slots, step * MPC_STEP_MIN)
+                    last = last if found is None else found
+                    step_prices.append(last)
+                result["mpc_plan"] = [
+                    bool(a)
+                    for a in mpc_plan(
+                        self._fit.k,
+                        self._fit.c,
+                        self._fit.g,
+                        statistics.median(rooms_econ),
+                        float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+                        outdoor_now,
+                        running_power_kw(self._entries, now) or 0.0,
+                        step_prices,
+                        step_min=MPC_STEP_MIN,
+                    )
+                ]
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
