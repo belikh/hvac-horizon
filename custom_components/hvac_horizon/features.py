@@ -326,3 +326,11 @@ def fan_speed_from_gap(room_c: float, target_c: float, max_gap_c: float = 3.0) -
     if gap <= 0:
         return 0
     return min(3, 1 + int(2 * gap / max_gap_c))
+
+
+def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:
+    """True when the room is above the humidity band and no cooling is needed (cool gap at or below zero).
+
+    Ported from ClimateAdvisor's humidity handling. Drying through the AC's dry mode happens only then.
+    """
+    return humidity_pct is not None and humidity_pct > band_high_pct and cool_gap_c <= 0.0

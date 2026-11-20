@@ -337,3 +337,21 @@ class FanSpeedTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             fan_speed_from_gap(25.0, 24.0, max_gap_c=0.0)
+
+
+class DryingTests(unittest.TestCase):
+    def test_drying_when_humid_and_no_cooling_needed(self):
+        from custom_components.hvac_horizon.features import drying_needed
+
+        self.assertTrue(drying_needed(70.0, cool_gap_c=0.0))
+
+    def test_no_drying_when_cooling_needed(self):
+        from custom_components.hvac_horizon.features import drying_needed
+
+        self.assertFalse(drying_needed(70.0, cool_gap_c=1.0))
+
+    def test_no_drying_without_reading_or_when_dry(self):
+        from custom_components.hvac_horizon.features import drying_needed
+
+        self.assertFalse(drying_needed(None))
+        self.assertFalse(drying_needed(50.0))
