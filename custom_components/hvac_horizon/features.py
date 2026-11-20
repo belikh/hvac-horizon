@@ -230,3 +230,24 @@ def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) ->
     if solar_gain_kw <= threshold_kw and not cover_open:
         return "open"
     return "hold"
+
+
+def comfort_band(comfort_c: float, band_c: float = 1.0) -> tuple[float, float]:
+    """Heat and cool edges around comfort. Heating starts below the low edge, cooling above the high edge.
+
+    Ported from ClimateAdvisor's comfort bands. The band is symmetric by default.
+    """
+    if band_c < 0:
+        raise ValueError("band_c must be non-negative")
+    return comfort_c - band_c, comfort_c + band_c
+
+
+def band_action(room_c: float, low_c: float, high_c: float) -> str:
+    """'cool' above the high edge, 'heat' below the low edge, otherwise 'none'."""
+    if low_c > high_c:
+        raise ValueError("low edge must not exceed high edge")
+    if room_c > high_c:
+        return "cool"
+    if room_c < low_c:
+        return "heat"
+    return "none"

@@ -238,3 +238,21 @@ class SolarAndCoverTests(unittest.TestCase):
         self.assertEqual(cover_action(0.5, 1.0, cover_open=False), "open")
         self.assertEqual(cover_action(1.5, 1.0, cover_open=False), "hold")
         self.assertEqual(cover_action(0.5, 1.0, cover_open=True), "hold")
+
+
+class ComfortBandTests(unittest.TestCase):
+    def test_band_edges(self):
+        from custom_components.hvac_horizon.features import comfort_band
+
+        self.assertEqual(comfort_band(24.0, 1.0), (23.0, 25.0))
+        with self.assertRaises(ValueError):
+            comfort_band(24.0, -1.0)
+
+    def test_band_actions(self):
+        from custom_components.hvac_horizon.features import band_action
+
+        self.assertEqual(band_action(26.0, 23.0, 25.0), "cool")
+        self.assertEqual(band_action(22.0, 23.0, 25.0), "heat")
+        self.assertEqual(band_action(24.0, 23.0, 25.0), "none")
+        with self.assertRaises(ValueError):
+            band_action(24.0, 25.0, 23.0)
