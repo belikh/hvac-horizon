@@ -98,3 +98,45 @@ async def test_setup_publishes_sensors_and_refreshes(hass, enable_custom_integra
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is config_entries.ConfigEntryState.NOT_LOADED
+
+
+async def test_samples_survive_unload_and_setup(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    before = entry.runtime_data.data["samples"]
+    assert before >= 1
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    after = entry.runtime_data.data["samples"]
+    assert after >= before, (before, after)
+
+
+async def test_reconfigure_keeps_entry_and_samples(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    before = entry.runtime_data.data["samples"]
+
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] == "form"
+    new_data = dict(config_data)
+    new_data[CONF_PRICE] = PRICE
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], new_data)
+    await hass.async_block_till_done()
+    assert result["type"] == "abort"
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_PRICE] == PRICE
+    assert entry.state is config_entries.ConfigEntryState.LOADED
+    assert entry.runtime_data.data["samples"] >= before

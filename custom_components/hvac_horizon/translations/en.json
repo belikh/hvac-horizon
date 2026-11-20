@@ -3,18 +3,34 @@
     "step": {
       "user": {
         "title": "HVAC Horizon",
-        "description": "Pick the AC, its power meter, the room and outdoor temperature sensors, and the electricity price sensor.",
+        "description": "Pick the AC, its power sensor, the room and outdoor temperature sensors. Price, humidity and energy are optional.",
         "data": {
           "climate": "AC climate entity",
           "power": "AC power sensor (W)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor",
-          "price": "Electricity price sensor (optional)"
+          "price": "Electricity price sensor (optional)",
+          "humidity": "Outdoor humidity sensor (optional)",
+          "energy": "Energy counter (optional, kWh)"
+        }
+      },
+      "reconfigure": {
+        "title": "Edit HVAC Horizon",
+        "description": "Change sensors without losing the stored samples.",
+        "data": {
+          "climate": "AC climate entity",
+          "power": "AC power sensor (W)",
+          "room_sensors": "Room temperature sensors",
+          "outdoor": "Outdoor temperature sensor",
+          "price": "Electricity price sensor (optional)",
+          "humidity": "Outdoor humidity sensor (optional)",
+          "energy": "Energy counter (optional, kWh)"
         }
       }
     },
     "abort": {
-      "already_configured": "This AC is already set up."
+      "already_configured": "This AC is already set up.",
+      "reconfigure_successful": "Settings updated. Stored samples are kept."
     }
   }
 }

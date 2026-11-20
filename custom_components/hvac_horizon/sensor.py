@@ -38,6 +38,13 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
 
     @property
+    def extra_state_attributes(self):
+        if self._key != "status" or self.coordinator.data is None:
+            return None
+        d = self.coordinator.data
+        return {"reason": d.get("reason"), "k_per_h": d.get("k"), "c_k_per_kw": d.get("c"), "g_k_per_h": d.get("g")}
+
+    @property
     def native_value(self):
         if self.coordinator.data is None:
             return None

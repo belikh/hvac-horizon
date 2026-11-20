@@ -31,6 +31,21 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(s[0].power_kw, 0.0)  # 100 W fan draw
         self.assertEqual(s[1].power_kw, 1.1)
 
+    def test_energy_counter_gives_interval_mean(self):
+        from custom_components.hvac_horizon.collector import interval_power_kw
+
+        # 0.1 kWh over 5 minutes is 1.2 kW, even though the instantaneous reading was 0.
+        a = Entry(0, 26, 30, 0, energy_kwh=10.0)
+        b = Entry(300, 26, 30, 0, energy_kwh=10.1)
+        self.assertAlmostEqual(interval_power_kw(a, b), 1.2)
+
+    def test_energy_counter_reset_falls_back_to_power(self):
+        from custom_components.hvac_horizon.collector import interval_power_kw
+
+        a = Entry(0, 26, 30, 1100, energy_kwh=50.0)
+        b = Entry(300, 26, 30, 1100, energy_kwh=0.2)  # counter reset
+        self.assertAlmostEqual(interval_power_kw(a, b), 1.1)
+
     def test_running_power_ignores_off_readings(self):
         entries = [Entry(0, 26, 30, 0), Entry(300, 26, 30, 1100), Entry(600, 26, 30, 900)]
         self.assertAlmostEqual(running_power_kw(entries, now=600), 1.0)

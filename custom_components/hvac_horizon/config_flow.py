@@ -1,12 +1,54 @@
-"""Config flow: pick the AC, its power meter, the room and outdoor sensors, and the price sensor."""
+"""Config flow: pick the AC, its power meter, the room and outdoor sensors, and the optional price,
+humidity and energy sensors. The reconfigure step edits the same fields without deleting samples."""
 
 from __future__ import annotations
+
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
-from .const import CONF_CLIMATE, CONF_OUTDOOR, CONF_POWER, CONF_PRICE, CONF_ROOM_SENSORS, DOMAIN
+from .const import (
+    CONF_CLIMATE,
+    CONF_ENERGY,
+    CONF_HUMIDITY,
+    CONF_OUTDOOR,
+    CONF_POWER,
+    CONF_PRICE,
+    CONF_ROOM_SENSORS,
+    DOMAIN,
+)
+
+
+def _schema(defaults: dict[str, Any]) -> vol.Schema:
+    def key(name: str, required: bool = False):
+        marker = vol.Required if required else vol.Optional
+        if name in defaults and defaults[name]:
+            return marker(name, description={"suggested_value": defaults[name]})
+        return marker(name)
+
+    return vol.Schema(
+        {
+            key(CONF_CLIMATE, True): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
+            key(CONF_POWER, True): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            key(CONF_ROOM_SENSORS, True): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
+            ),
+            key(CONF_OUTDOOR, True): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
+            ),
+            key(CONF_PRICE): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            key(CONF_HUMIDITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
+            ),
+            key(CONF_ENERGY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+            ),
+        }
+    )
 
 
 class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -19,20 +61,13 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
             climate = self.hass.states.get(user_input[CONF_CLIMATE])
             title = climate.attributes.get("friendly_name", user_input[CONF_CLIMATE]) if climate else user_input[CONF_CLIMATE]
             return self.async_create_entry(title=title, data=user_input)
+        return self.async_show_form(step_id="user", data_schema=_schema({}))
 
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_CLIMATE): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
-                vol.Required(CONF_POWER): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="power")
-                ),
-                vol.Required(CONF_ROOM_SENSORS): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
-                ),
-                vol.Required(CONF_OUTDOOR): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
-                ),
-                vol.Optional(CONF_PRICE): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            }
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            return self.async_update_reload_and_abort(entry, data_updates=user_input)
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_schema(dict(entry.data)),
         )
-        return self.async_show_form(step_id="user", data_schema=schema)

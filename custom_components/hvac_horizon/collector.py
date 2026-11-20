@@ -17,18 +17,41 @@ RUNNING_MIN_KW = 0.2  # below this the AC counts as off
 
 @dataclass(frozen=True)
 class Entry:
-    """One collector reading. `t` is a Unix time in seconds."""
+    """One collector reading. `t` is a Unix time in seconds.
+
+    The optional fields default to None so older stored records still load.
+    """
 
     t: float
     room_c: float
     outdoor_c: float
     power_w: float
+    setpoint_c: float | None = None
+    mode: str | None = None
+    rooms_c: tuple[float, ...] = ()
+    humidity_pct: float | None = None
+    price: float | None = None
+    energy_kwh: float | None = None  # cumulative energy counter, when the meter has one
 
 
 def _running_kw(power_w: float) -> float:
     """Power in kW, or 0 when the AC is off. Fan and standby draw would otherwise dilute the cooling term."""
     kw = power_w / 1000.0
     return kw if kw >= RUNNING_MIN_KW else 0.0
+
+
+def interval_power_kw(a: Entry, b: Entry) -> float:
+    """Mean AC power between two readings, in kW.
+
+    Uses the energy counter when both readings have one, because it averages the
+    whole interval and so handles a cycling compressor. Otherwise it uses the
+    first reading's power. A counter that fell (a meter reset) also falls back.
+    """
+    gap_h = (b.t - a.t) / 3600.0
+    if a.energy_kwh is not None and b.energy_kwh is not None and gap_h > 0 and b.energy_kwh >= a.energy_kwh:
+        kw = (b.energy_kwh - a.energy_kwh) / gap_h
+        return kw if kw >= RUNNING_MIN_KW else 0.0
+    return _running_kw(a.power_w)
 
 
 def samples_from_entries(entries: list[Entry]) -> list[Sample]:
@@ -45,7 +68,7 @@ def samples_from_entries(entries: list[Entry]) -> list[Sample]:
                 temp_c=a.room_c,
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
-                power_kw=_running_kw(a.power_w),
+                power_kw=interval_power_kw(a, b),
             )
         )
     return out
