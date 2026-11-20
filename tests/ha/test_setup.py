@@ -3953,6 +3953,32 @@ async def test_peer_setpoint_stays_alone_without_the_setpoint_mode(hass, enable_
     assert (PEER_VALVE, 100.0) in writes  # the valve request still works with the mode off
 
 
+async def test_peer_setpoint_returns_to_its_earlier_value_when_the_request_ends(hass, enable_custom_integrations, config_data, freezer):
+    # The peer AC is off at setpoint 24 C. Requester room 26 C lowers it to 23 C. Requester room 25 C ends the request,
+    # and the peer AC is still off, so its setpoint goes back to 24 C.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    requester, peer, _ = await _setup_peer_pair(hass, config_data, requester_room="26.0", requester_extra={"peer_setpoint_mode": True})
+    peer_setpoints = []
+
+    async def record_temp(call):
+        if call.data["entity_id"] != PEER_CLIMATE:
+            return
+        peer_setpoints.append(call.data["temperature"])
+        state = hass.states.get(PEER_CLIMATE)
+        hass.states.async_set(PEER_CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert hass.states.get(PEER_CLIMATE).attributes["temperature"] == 23.0
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, requester)
+    await refresh(hass, peer)
+    assert hass.states.get(PEER_CLIMATE).attributes["temperature"] == 24.0
+    assert peer_setpoints == [23.0, 24.0]
+
+
 ACCURACY_PANEL = "hvac-horizon-accuracy"
 
 

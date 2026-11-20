@@ -327,6 +327,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._inhibit_until_min: float | None = None
         self._inhibited_for_setpoint: float | None = None  # the manual value that last armed the inhibition
         self._last_written_setpoint: float | None = None
+        # The AC setpoint before a peer request first lowered it. The restore writes it back when the request ends with the AC off.
+        self._peer_setpoint_original: float | None = None
         self._autotune_result = None
         self._last_good_price_at: float | None = None
         self._total_min: float = 0.0
@@ -1668,7 +1670,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF and self._peer_setpoint_requested() and not stalled:
             # A warmer peer room asks for a cooler setpoint. The AC is off, so the write only stores the target.
+            self._remember_peer_setpoint(climate)
             await self._write_setpoint(climate_id, climate, self._cool_above_c - PEER_SETPOINT_STEP_K, now)
+        elif action.mode is Mode.OFF and self._peer_setpoint_original is not None and not self._peer_setpoint_requested() and climate.state != "cool":
+            # The request ended while the AC is off. Put back the setpoint the request lowered.
+            await self._write_setpoint(climate_id, climate, self._peer_setpoint_original, now)
+            self._peer_setpoint_original = None
         if action.mode is Mode.OFF:
             # A stall means the AC goes off. Dry mode would keep it running, so it is skipped then.
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
@@ -1701,7 +1708,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
-        cool_setpoint = action.setpoint_c - PEER_SETPOINT_STEP_K if self._peer_setpoint_requested() else action.setpoint_c
+        if self._peer_setpoint_requested():
+            self._remember_peer_setpoint(climate)
+            cool_setpoint = action.setpoint_c - PEER_SETPOINT_STEP_K
+        else:
+            # A cool setpoint from decide() replaces any lowered one, so there is nothing to put back later.
+            cool_setpoint = action.setpoint_c
+            self._peer_setpoint_original = None
         await self._write_setpoint(climate_id, climate, cool_setpoint, now)
         if climate.state == "cool" and rooms:
             # The fan follows the room gap while the AC was already cooling before this cycle.
@@ -1968,6 +1981,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _peer_setpoint_requested(self) -> bool:
         return bool(self.hass.data.get(DOMAIN, {}).get("peer_setpoint_requests", {}).get(self.entry.entry_id))
+
+    def _remember_peer_setpoint(self, climate: State) -> None:
+        """Keep the AC setpoint from before the first peer lowering. A later lowering keeps the first value."""
+        current = climate.attributes.get("temperature")
+        if self._peer_setpoint_original is None and current is not None:
+            self._peer_setpoint_original = float(current)
 
     def _peer_coordinator(self) -> HorizonCoordinator | None:
         """The coordinator of the entry named by peer_entry (entry_id or title), or None when it is unset or not loaded."""
