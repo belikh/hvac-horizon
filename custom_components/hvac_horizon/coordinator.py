@@ -19,7 +19,7 @@ from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, decide
-from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset, sensor_stalled
+from custom_components.hvac_horizon.features import ScheduleBlock, classify_day, scheduled_preset, sensor_stalled
 from custom_components.hvac_horizon.features import air_quality_ventilation, humidity_action, minimum_time_ok, price_shifted_target
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -162,6 +162,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)
 
+    def _day_type(self) -> str | None:
+        """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        return None if outdoor is None else classify_day(outdoor).value
+
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not updated recently. Published so the user can see them."""
         names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
@@ -242,6 +247,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result = self._forecast(now)
         result["sensors_stalled"] = self._stalled_sensors(now)
+        result["day_type"] = self._day_type()
         if self.entry.data.get(CONF_CONTROL):
             await self._async_control(now, result)
         return result
