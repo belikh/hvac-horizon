@@ -190,3 +190,15 @@ async def test_flow_accepts_control_options(hass, enable_custom_integrations, co
     assert result["type"] == "create_entry"
     assert result["data"]["comfort_c"] == 24.0
     assert result["data"]["control"] is False
+
+
+async def test_stalled_sensors_are_reported(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    stalled = entry.runtime_data._stalled_sensors(datetime.now(timezone.utc).timestamp() + 5000)
+    assert set(stalled) >= {ROOM_A, ROOM_B, OUTDOOR}
