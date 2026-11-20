@@ -5,6 +5,7 @@ Each function is one decision with its own tests, so it can be wired into a cont
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -251,3 +252,34 @@ def band_action(room_c: float, low_c: float, high_c: float) -> str:
     if room_c < low_c:
         return "heat"
     return "none"
+
+
+def window_open_pause(window_open_min: float, delay_min: float = 10.0) -> bool:
+    """True once a window has been open for `delay_min` minutes. Brief openings do not pause the AC.
+
+    Ported from the window handling in Versatile Thermostat and RoomMind. Same rule as the decision logic,
+    kept here as a separate pure check for the status.
+    """
+    return window_open_min >= delay_min
+
+
+def mould_risk(surface_humidity_pct: float | None, threshold_pct: float = 80.0) -> bool:
+    """True when the surface humidity is at or above `threshold_pct`. Missing readings are not a risk.
+
+    Ported from RoomMind's mould risk. Surface humidity is estimated from room humidity and wall temperature.
+    """
+    return surface_humidity_pct is not None and surface_humidity_pct >= threshold_pct
+
+
+def surface_humidity(room_humidity_pct: float, room_c: float, surface_c: float) -> float:
+    """Relative humidity at a cold surface, from the room's relative humidity and temperature.
+
+    Uses the Magnus approximation for saturation vapour pressure. Surface humidity rises as the surface gets colder.
+    """
+    def saturation_hpa(t: float) -> float:
+        return 6.112 * math.exp(17.62 * t / (243.12 + t))
+
+    if not 0.0 <= room_humidity_pct <= 100.0:
+        raise ValueError("room humidity must be in [0, 100]")
+    vapour = room_humidity_pct / 100.0 * saturation_hpa(room_c)
+    return min(vapour / saturation_hpa(surface_c) * 100.0, 100.0)

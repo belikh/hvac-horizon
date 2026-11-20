@@ -256,3 +256,32 @@ class ComfortBandTests(unittest.TestCase):
         self.assertEqual(band_action(24.0, 23.0, 25.0), "none")
         with self.assertRaises(ValueError):
             band_action(24.0, 25.0, 23.0)
+
+
+class MouldAndWindowTests(unittest.TestCase):
+    def test_window_pause_after_delay(self):
+        from custom_components.hvac_horizon.features import window_open_pause
+
+        self.assertFalse(window_open_pause(5.0))
+        self.assertTrue(window_open_pause(10.0))
+
+    def test_mould_risk_threshold(self):
+        from custom_components.hvac_horizon.features import mould_risk
+
+        self.assertTrue(mould_risk(85.0))
+        self.assertFalse(mould_risk(70.0))
+        self.assertFalse(mould_risk(None))
+
+    def test_surface_humidity_rises_when_surface_is_colder(self):
+        from custom_components.hvac_horizon.features import surface_humidity
+
+        warm = surface_humidity(60.0, 22.0, 21.0)
+        cold = surface_humidity(60.0, 22.0, 14.0)
+        self.assertGreater(cold, warm)
+        self.assertLessEqual(cold, 100.0)
+
+    def test_surface_humidity_rejects_bad_input(self):
+        from custom_components.hvac_horizon.features import surface_humidity
+
+        with self.assertRaises(ValueError):
+            surface_humidity(120.0, 22.0, 14.0)
