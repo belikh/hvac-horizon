@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_DEHUMIDIFIER,
+    CONF_FAN,
     CONF_CO2,
     CONF_PM25,
     CONF_SCHEDULE,
@@ -63,6 +65,8 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_CO2): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="carbon_dioxide")
             ),
+            key(CONF_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            key(CONF_DEHUMIDIFIER): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_PM25): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="pm25")
             ),

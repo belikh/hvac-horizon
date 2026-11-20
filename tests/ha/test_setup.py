@@ -202,3 +202,58 @@ async def test_stalled_sensors_are_reported(hass, enable_custom_integrations, co
     await hass.async_block_till_done()
     stalled = entry.runtime_data._stalled_sensors(datetime.now(timezone.utc).timestamp() + 5000)
     assert set(stalled) >= {ROOM_A, ROOM_B, OUTDOOR}
+
+
+async def test_fan_follows_air_quality(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("switch.test_fan", "off")
+    hass.states.async_set("sensor.test_co2", "1200", {"unit_of_measurement": "ppm"})
+    calls = []
+
+    async def record(call):
+        calls.append(call.service)
+
+    hass.services.async_register("switch", "turn_on", record)
+    hass.services.async_register("switch", "turn_off", record)
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    # Actuation only runs with control on. Observe-only sends no commands.
+    data = dict(config_data, fan="switch.test_fan", co2="sensor.test_co2", control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert "turn_on" in calls
+
+
+async def test_humid_room_uses_ac_dry_mode(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("sensor.test_humidity", "72", {"unit_of_measurement": "%"})
+    # Room below the 24 C comfort point, so no cooling is needed and only drying applies.
+    hass.states.async_set(ROOM_A, "23.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "23.2", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC"})
+    calls = []
+
+    async def record_mode(call):
+        calls.append(call.data)
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    data = dict(config_data, humidity="sensor.test_humidity", control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert {"entity_id": CLIMATE, "hvac_mode": "dry"} in calls

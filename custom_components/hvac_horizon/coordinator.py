@@ -36,6 +36,8 @@ from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
     CONF_CO2,
+    CONF_DEHUMIDIFIER,
+    CONF_FAN,
     CONF_HEATER_SWITCH,
     CONF_SCHEDULE_BLOCKS,
     CONF_PRICE_CHEAP,
@@ -198,6 +200,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         return None if outdoor is None else classify_day(outdoor).value
 
+    async def _drive_switch(self, entity_id: str | None, on: bool) -> None:
+        """Turn an optional switch on or off, only when it differs from its state."""
+        if not entity_id:
+            return
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            return
+        if (state.state == "on") == on:
+            return
+        service = "turn_on" if on else "turn_off"
+        await self.hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
+
     def _stalled_sensors(self, now: float) -> list[str]:
         """Room and outdoor sensors that have not updated recently. Published so the user can see them."""
         names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
@@ -339,10 +353,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.get("action"),
             None,
         )
-        result["ventilation"] = air_quality_ventilation(
-            _float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25))
-        ).reason
-        result["humidity"] = humidity_action(_float(self._optional(CONF_HUMIDITY))).reason
+        ventilation = air_quality_ventilation(_float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25)))
+        humidity = humidity_action(_float(self._optional(CONF_HUMIDITY)))
+        result["ventilation"] = ventilation.reason
+        result["humidity"] = humidity.reason
+        await self._drive_switch(self.entry.data.get(CONF_FAN), ventilation.run)
+        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         # Minimum on and off times: do not change state until the current state has lasted long enough.
@@ -356,6 +372,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF:
+            # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
+            if humidity.action == "dehumidify" and not self.entry.data.get(CONF_DEHUMIDIFIER) and climate.state != "dry":
+                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                return
             if climate.state != "off":
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
             return

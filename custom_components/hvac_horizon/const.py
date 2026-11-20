@@ -37,3 +37,5 @@ DEFAULT_PRICE_CHEAP = 0.15
 DEFAULT_PRICE_EXPENSIVE = 0.40
 CONF_SCHEDULE_BLOCKS = "schedule_blocks"  # list of {start_h, end_h, preset}; empty means comfort all day
 CONF_HEATER_SWITCH = "heater_switch"  # optional switch for the heater plug
+CONF_FAN = "fan"  # optional switch for the room fan
+CONF_DEHUMIDIFIER = "dehumidifier"  # optional switch for a dehumidifier
