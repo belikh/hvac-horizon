@@ -36,7 +36,9 @@
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
           "humidifier": "Humidifier switch (optional)",
-          "boiler": "Boiler switch (optional)"
+          "boiler": "Boiler switch (optional)",
+          "window_area_m2": "Window area, m² (optional, needed for solar gain)",
+          "irradiance": "Irradiance sensor on the window, W/m² (optional)"
         }
       },
       "reconfigure": {
@@ -74,7 +76,9 @@
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
           "humidifier": "Humidifier switch (optional)",
-          "boiler": "Boiler switch (optional)"
+          "boiler": "Boiler switch (optional)",
+          "window_area_m2": "Window area, m² (optional, needed for solar gain)",
+          "irradiance": "Irradiance sensor on the window, W/m² (optional)"
         }
       }
     },

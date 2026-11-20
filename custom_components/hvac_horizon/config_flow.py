@@ -34,6 +34,8 @@ from .const import (
     CONF_PRESENCE,
     CONF_WINDOW,
     CONF_WINDOW_AZIMUTH,
+    CONF_WINDOW_AREA_M2,
+    CONF_IRRADIANCE,
     CONF_WINDOW_DELAY_MIN,
     DEFAULT_AWAY_C,
     DEFAULT_COMFORT_C,
@@ -122,6 +124,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             vol.Optional(CONF_WINDOW_AZIMUTH, default=defaults.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH)): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=360, step=1, unit_of_measurement="°")
+            ),
+            vol.Optional(CONF_WINDOW_AREA_M2): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=50, step=0.1, unit_of_measurement="m²")
+            ),
+            vol.Optional(CONF_IRRADIANCE): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="irradiance")
             ),
             vol.Optional(CONF_CONTROL, default=defaults.get(CONF_CONTROL, False)): selector.BooleanSelector(),
             vol.Optional(CONF_HEATER_INVERTED, default=False): selector.BooleanSelector(),
