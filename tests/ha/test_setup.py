@@ -873,3 +873,15 @@ async def test_device_echo_of_rounded_setpoint_is_not_a_manual_change(hass, enab
     await coordinator.async_refresh()
     await hass.async_block_till_done()
     assert coordinator._inhibit_until_min is None
+
+
+async def test_ac_own_reading_is_not_a_room_reading(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set(ROOM_A, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(ROOM_B, "20.2", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "current_temperature": 30, "friendly_name": "Test AC"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert sorted(entry.runtime_data._rooms()) == [20.0, 20.2]

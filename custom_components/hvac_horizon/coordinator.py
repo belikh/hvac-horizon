@@ -630,20 +630,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return stalled
 
     def _rooms(self) -> list[float]:
-        """Room readings for the median: the room sensors, plus the AC's own temperature when it reports one.
+        """Room readings for the median: the room sensors only.
 
-        The AC reports whole degrees, so it has a coarser reading than the room sensors.
+        The AC's own temperature reading is whole degrees, so it is kept out of the median.
         """
         states = [self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS]]
-        values = [v for v in (_float(s) for s in states) if v is not None]
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
-        own = climate.attributes.get("current_temperature") if climate else None
-        if own is not None:
-            try:
-                values.append(float(own))
-            except (TypeError, ValueError):
-                pass
-        return values
+        return [v for v in (_float(s) for s in states) if v is not None]
 
     def _optional(self, key: str) -> State | None:
         entity = self.entry.data.get(key)
