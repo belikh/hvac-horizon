@@ -1365,8 +1365,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
         # Without a plan (no fit or no price slots) the decision stands.
+        # An idle step turns cool off. It never starts heat, so the heat branch below is skipped for that tick.
         plan = result.get("mpc_plan")
-        if plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), self._cool_above_c, MPC_DEADBAND_C):
+        mpc_idled = bool(plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), self._cool_above_c, MPC_DEADBAND_C))
+        if mpc_idled:
             action = Action(Mode.OFF, None, "mpc idle: room below target")
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
@@ -1407,7 +1409,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
-        if rooms and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min)):
+        if rooms and not mpc_idled and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min)):
             result["action"] = "heat: room below heat threshold"
             if await self._drive_ac_heat(climate_id, climate, now):
                 result["action"] = "heat: waiting for minimum time"

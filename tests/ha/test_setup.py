@@ -2555,7 +2555,7 @@ async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integratio
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []
 
 
-async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False):
+async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0"):
     """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
 
     The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
@@ -2575,6 +2575,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
         monkeypatch.setattr(HorizonCoordinator, "_price_forecast", lambda self, now: [])
     set_inputs(hass)
     _set_ac_rooms(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
     modes = []
 
@@ -2598,6 +2599,16 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
 async def test_mpc_idle_step_holds_the_ac_off_when_the_room_is_well_below_target(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", plan=[False] * 16)
     assert "cool" not in modes
+    assert entry.runtime_data.data["action"].startswith("off: mpc idle")
+
+
+async def test_mpc_idle_step_never_starts_heat_with_the_ac(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # Pre-cool wants cool. The plan idles it. The room (23.0 C) is below the heat threshold (23.5 C).
+    # Outdoor 18 C allows cooling (limit 16 C) and heating by the AC (up to 22 C). No heater switch, someone home.
+    # Only the cool decision may be turned off. Outdoor 15 C would block cool before the plan runs.
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", plan=[False] * 16, outdoor="18.0")
+    assert entry.runtime_data.data["heat_source"] == "ac"
+    assert "heat" not in modes
     assert entry.runtime_data.data["action"].startswith("off: mpc idle")
 
 
