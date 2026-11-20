@@ -119,6 +119,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed
             "investigation": d.get("investigation"),  # rule-based answer to why the AC runs or not, and recent actions
             "investigation_ai": d.get("investigation_ai"),  # conversation agent answer, when a flow field sets one
+            "investigation_ai_mode": d.get("investigation_ai_mode"),  # the AC mode that answer explains; None with no answer
             "ai_calls_today": d.get("ai_calls_today"),
             "tpi": d.get("tpi"),  # per-state coefficients: k, g from AC-off, c from AC-on; None until learned
         }

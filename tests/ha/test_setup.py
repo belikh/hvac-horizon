@@ -2259,7 +2259,39 @@ async def test_model_calls_follow_mode_changes_and_stop_at_the_budget(hass, enab
         await refresh(hass, entry)
     assert len(calls) == 2
     assert entry.runtime_data.data["ai_calls_today"] == 2
+    # The last change (to cool) was blocked by the budget. The stored answer is cleared, not kept for the old mode.
+    assert entry.runtime_data.data["investigation_ai"] is None
+    assert entry.runtime_data.data["investigation_ai_mode"] is None
+
+
+async def test_a_blocked_model_call_clears_the_answer_for_the_old_mode(hass, enable_custom_integrations, config_data):
+    # Budget of one call. The first call answers the cool mode. The room then drops, the AC goes off,
+    # and the budget is spent. The old cool answer must not show as the answer for off.
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+
+    async def fake_agent(call):
+        return {"response": {"speech": {"plain": {"speech": "The room is above the comfort target."}}}}
+
+    hass.services.async_register("conversation", "process", fake_agent, supports_response=SupportsResponse.ONLY)
+    data = dict(config_data, control=True, ai_conversation="conversation.test_agent", ai_budget_per_day=1)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["investigation_ai_mode"] == "cool"
     assert entry.runtime_data.data["investigation_ai"] == "The room is above the comfort target."
+    for room in ("20.0", "20.0"):
+        hass.states.async_set(ROOM_A, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        hass.states.async_set(ROOM_B, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert entry.runtime_data.data["ai_calls_today"] == 1
+    assert entry.runtime_data.data["investigation_ai"] is None
+    assert entry.runtime_data.data["investigation_ai_mode"] is None
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    attributes = hass.states.get(entity_id).attributes
+    assert attributes["investigation_ai"] is None
+    assert attributes["investigation_ai_mode"] is None
 
 
 async def test_target_uses_the_last_good_price_when_the_price_sensor_drops(hass, enable_custom_integrations, config_data, freezer):

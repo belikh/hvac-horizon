@@ -263,6 +263,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._budget = CallBudget()  # model calls per day
         self._last_ai_mode: str | None = None
         self._ai_answer: str | None = None
+        self._ai_answer_mode: str | None = None  # the AC mode the stored answer explains
         self._tpi: TpiFit | None = None  # per-state coefficients; the forecast uses them when present
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
@@ -1477,11 +1478,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["investigation"] = investigation
         mode_now = action_text.partition(":")[0] if action_text else None
         if mode_now and mode_now != self._last_ai_mode and self.entry.data.get(CONF_AI_CONVERSATION):
-            self._last_ai_mode = mode_now
             answer = await self._ask_model(f"In one sentence, explain why the AC is {mode_now}. {investigation['answer']}")
+            # A failed or budget-blocked call clears the stored answer, so it never shows under a different mode.
+            # The mode is recorded only after a reply, so the next tick asks again while the budget allows.
+            self._ai_answer = answer or None
+            self._ai_answer_mode = mode_now if answer else None
             if answer:
-                self._ai_answer = answer
+                self._last_ai_mode = mode_now
         result["investigation_ai"] = self._ai_answer
+        result["investigation_ai_mode"] = self._ai_answer_mode
         result["ai_calls_today"] = self._budget.used(dt_util.now().date())
 
     async def _ask_model(self, text: str) -> str | None:
