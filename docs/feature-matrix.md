@@ -68,7 +68,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | Thermal rate learning (Auto TPI) | VT | published (model) |
 | Learning suggestion | CA | published |
 | Accept or dismiss learning suggestions | CA | drives (respond_suggestion service) |
-| Model predictive control | RM | missing |
+| Model predictive control | RM | published (four-hour on and off plan from the learned model and prices; not driving the AC) |
 | Adaptive preheat or pre-cool start | RM, CA | drives (schedule deadline only) |
 | Heating failure detection | VT | published (needs heater switch) |
 | Heater switch feedback | PID | published (not_configured unless auto-tuning) |
@@ -143,6 +143,6 @@ This file reflects the code on `main` at the time of the last update. Update it 
 ## Unbuilt items (count)
 
 Rows marked `missing` above, excluding the AI investigator which is out of scope:
-heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, MPC, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
+heater polarity, output clamps, boost PID, heating outdoor limit, motion presets, occupancy eco, solar sensor learning, mould target, coil drying, TRV offset learning, residual heat, compressor groups, multi-room.
 
-After the weather, shedding, economizer, heat-source, boiler, second-AC and compressor-staggering rows were updated, 13 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
+After the weather, shedding, economizer, heat-source, boiler, second-AC, compressor-staggering and MPC rows were updated, 12 rows remain. The live forecast error is still `unknown` until real cool-downs are scored.
