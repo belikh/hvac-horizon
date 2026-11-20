@@ -2390,3 +2390,55 @@ async def test_motion_away_delay_is_a_flow_field(hass, enable_custom_integration
     freezer.tick(timedelta(minutes=6))
     await refresh(hass, entry)
     assert entry.runtime_data.data["cool_on_above_c"] == 26.0
+
+
+async def test_shed_loads_switch_back_on_highest_priority_first_below_90_percent(hass, enable_custom_integrations, config_data):
+    # Limit 4000 W, restore ceiling 3600 W. The low load is 500 W and the high load 1000 W.
+    set_inputs(hass)
+    calls = []
+
+    async def record_on(call):
+        calls.append(("on", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "on")
+
+    async def record_off(call):
+        calls.append(("off", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "off")
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("sensor.test_house_power", "5000", {"unit_of_measurement": "W"})
+    hass.states.async_set("switch.test_low", "on")
+    hass.states.async_set("switch.test_high", "on")
+    data = dict(
+        config_data,
+        control=True,
+        whole_house_power="sensor.test_house_power",
+        shed_max_w=4000,
+        shed_loads=["switch.test_low|500", "switch.test_high|1000"],  # lowest priority first
+    )
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == [("off", "switch.test_low"), ("off", "switch.test_high")]
+
+    # 3800 W is under the limit but above 90 percent. Nothing comes back on.
+    hass.states.async_set("sensor.test_house_power", "3800", {"unit_of_measurement": "W"})
+    await refresh(hass, entry)
+    assert calls[2:] == []
+
+    # 2000 W: the high load fits (2000 + 1000 is under 3600 W), so it comes back first. One load per cycle.
+    hass.states.async_set("sensor.test_house_power", "2000", {"unit_of_measurement": "W"})
+    await refresh(hass, entry)
+    assert calls[2:] == [("on", "switch.test_high")]
+
+    # The low load comes back on the next cycle, when 3000 + 500 is under 3600 W.
+    hass.states.async_set("sensor.test_house_power", "3000", {"unit_of_measurement": "W"})
+    await refresh(hass, entry)
+    assert calls[3:] == [("on", "switch.test_low")]

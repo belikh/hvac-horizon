@@ -83,7 +83,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, stagger_allowed, valve_opening_pct, window_open_pause
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -229,6 +229,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
         self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
+        self._shed_loads: set[str] = set()  # loads this integration switched off for the power limit, to restore later
         self._heater_on_min: float = 0.0
         self._heater_check_t: float | None = None
         self._heater_gated = False
@@ -1125,6 +1126,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 to_shed = shed_plan(total_w, float(max_w), loads)
                 result["shed"] = to_shed
                 await self._drive_shed(to_shed)
+                shed_now = [(entity_id, watts) for entity_id, watts, _ in loads if entity_id in self._shed_loads]
+                restore = shed_restore(total_w, float(max_w), shed_now)
+                if restore is not None:
+                    result["restored"] = restore
+                    await self._drive_restore(restore)
             self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
             self._ac_cooling_tick = False
             if self.entry.data.get(CONF_CONTROL):
@@ -1192,6 +1198,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         for entity_id in to_shed:
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
+            self._shed_loads.add(entity_id)
+
+    async def _drive_restore(self, entity_id: str) -> None:
+        """Switch a load back on after the power limit shed it. Runs only with control on, unlocked and not inhibited.
+
+        The record is dropped once the load is on, whether this call turned it on or the user did.
+        """
+        if not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked):
+            return
+        if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            return
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            return  # keep the record until the load reports again
+        await self._drive_switch(entity_id, True)
+        self._shed_loads.discard(entity_id)
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""

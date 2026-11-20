@@ -48,6 +48,7 @@ STATUS_KEYS: dict[str, str] = {
     "economizer": "Economizer",
     "motion_preset": "Motion preset",
     "shed": "Loads shed",
+    "restored": "Load switched back on",
     "mpc_plan": "MPC plan steps",
     "solar_scale": "Solar scale",
     "vacation": "Vacation mode",
