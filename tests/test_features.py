@@ -372,3 +372,23 @@ class PriceFallbackTests(unittest.TestCase):
         from custom_components.hvac_horizon.features import stale_price_fallback
 
         self.assertIsNone(stale_price_fallback(None, 0.2, 120.0))
+
+
+class VentilationRateTests(unittest.TestCase):
+    def test_rate_bounds_and_linear_middle(self):
+        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+
+        self.assertEqual(ventilation_rate_from_co2(700.0), 0.0)
+        self.assertEqual(ventilation_rate_from_co2(1400.0), 1.0)
+        self.assertAlmostEqual(ventilation_rate_from_co2(1000.0), 0.5)
+
+    def test_missing_co2_is_zero(self):
+        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+
+        self.assertEqual(ventilation_rate_from_co2(None), 0.0)
+
+    def test_rejects_bad_range(self):
+        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+
+        with self.assertRaises(ValueError):
+            ventilation_rate_from_co2(900.0, low_ppm=1200.0, high_ppm=800.0)

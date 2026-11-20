@@ -347,3 +347,17 @@ def stale_price_fallback(price_per_kwh: float | None, last_good_per_kwh: float |
     if last_good_per_kwh is not None and last_good_age_min <= max_age_min:
         return last_good_per_kwh
     return None
+
+
+def ventilation_rate_from_co2(co2_ppm: float | None, low_ppm: float = 800.0, high_ppm: float = 1200.0) -> float:
+    """Fan rate from 0 to 1 by CO2: 0 below `low_ppm`, 1 at `high_ppm` and above, linear in between.
+
+    Gives a proportional ventilation rate instead of the on-off rule. Missing CO2 gives 0.
+    """
+    if high_ppm <= low_ppm:
+        raise ValueError("high_ppm must be above low_ppm")
+    if co2_ppm is None or co2_ppm <= low_ppm:
+        return 0.0
+    if co2_ppm >= high_ppm:
+        return 1.0
+    return (co2_ppm - low_ppm) / (high_ppm - low_ppm)
