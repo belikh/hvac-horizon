@@ -1921,3 +1921,35 @@ async def test_recorder_history_becomes_samples_at_startup(hass, enable_custom_i
     historic = [e for e in readings if e.t < now.timestamp() - 600]
     assert len(historic) >= 10
     assert all(30.0 <= e.outdoor_c <= 30.2 for e in historic)  # the fake states carry the recorder values, not live ones
+
+
+async def test_learned_tpi_coefficients_are_published_and_used(hass, enable_custom_integrations, config_data, freezer):
+    import math
+
+    from custom_components.hvac_horizon.collector import Entry
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    temp, readings = 24.0, []
+    for i in range(800):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac = 1.0 if (i // 6) % 2 == 0 else 0.0
+        readings.append(Entry(t=now - (800 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 * ac))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac) * (5 / 60)
+    coordinator._entries = readings
+    coordinator._refit()
+    assert coordinator._tpi is not None
+    assert coordinator._tpi.c == pytest.approx(1.4, abs=0.05)
+    await refresh(hass, entry)
+    published = entry.runtime_data.data["tpi"]
+    assert published["c_k_per_h_per_kw"] == pytest.approx(1.4, abs=0.05)
+    assert entry.runtime_data.data["k"] == pytest.approx(round(coordinator._tpi.k, 4))
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    assert hass.states.get(entity_id).attributes["tpi"]["c_k_per_h_per_kw"] == pytest.approx(published["c_k_per_h_per_kw"])

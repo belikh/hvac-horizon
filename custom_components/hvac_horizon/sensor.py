@@ -116,6 +116,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "g_k_per_h": d.get("g"),
             "autotune": d.get("autotune"),  # kp, ki, kd after a relay test; None before
             "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed
+            "tpi": d.get("tpi"),  # per-state coefficients: k, g from AC-off, c from AC-on; None until learned
         }
 
     @property

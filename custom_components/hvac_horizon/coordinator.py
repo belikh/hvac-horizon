@@ -87,6 +87,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
+from custom_components.hvac_horizon.tpi import TpiFit, learn_tpi
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
@@ -245,6 +246,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_economizer_t: float | None = None
         self._valve_moved_min: float | None = None  # when the valve last moved; drives the anti-seize exercise
         self._heater_was_on = False
+        self._tpi: TpiFit | None = None  # per-state coefficients; the forecast uses them when present
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
@@ -375,9 +377,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
         """Forecast minutes, energy and cost for given conditions, using the current fit and price slots."""
-        if self._fit is None:
+        active = self._tpi.to_fit() if self._tpi is not None else self._fit
+        if active is None:
             return {"status": "learning", "reason": self._fit_reason}
-        f = forecast(self._fit, room_c, target_c, outdoor_c, power_kw, self._price_forecast(dt_util.utcnow().timestamp()))
+        f = forecast(active, room_c, target_c, outdoor_c, power_kw, self._price_forecast(dt_util.utcnow().timestamp()))
         return {
             "status": "reachable" if f.reachable else "unreachable",
             "minutes": None if f.minutes is None else round(f.minutes, 1),
@@ -478,6 +481,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
         self._refit_room_model()
+        try:
+            self._tpi = learn_tpi(samples)
+        except NotEnoughData:
+            self._tpi = None
         self._backtest_runs = []
         if not has_enough_cycles(samples):
             self._fit = None
@@ -1514,11 +1521,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "forecast_error_min": self._forecast_error_min,
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
             "room_fit": self._room_fit,
+            "tpi": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
         }
-        if self._fit is None:
+        active = self._tpi.to_fit() if self._tpi is not None else self._fit
+        if active is None:
             return result
 
-        result.update(k=round(self._fit.k, 4), c=round(self._fit.c, 4), g=round(self._fit.g, 4))
+        result.update(k=round(active.k, 4), c=round(active.c, 4), g=round(active.g, 4))
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
@@ -1545,7 +1554,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.update(status="no running power yet")
             return result
 
-        f = forecast(self._fit, room, target, outdoor, power_kw, self._price_forecast(now))
+        f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now))
         result.update(
             status="reachable" if f.reachable else "unreachable",
             minutes=None if f.minutes is None else round(f.minutes, 1),
