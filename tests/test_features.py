@@ -52,3 +52,31 @@ class FeatureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PriceShiftTests(unittest.TestCase):
+    def test_cheap_power_cools_further(self):
+        from custom_components.hvac_horizon.features import price_shifted_target
+
+        self.assertEqual(price_shifted_target(24.0, 0.10, 0.15, 0.40), 23.0)
+
+    def test_expensive_power_relaxes(self):
+        from custom_components.hvac_horizon.features import price_shifted_target
+
+        self.assertEqual(price_shifted_target(24.0, 0.50, 0.15, 0.40), 25.0)
+
+    def test_linear_between_limits(self):
+        from custom_components.hvac_horizon.features import price_shifted_target
+
+        self.assertAlmostEqual(price_shifted_target(24.0, 0.275, 0.15, 0.40), 24.0)
+
+    def test_no_price_keeps_comfort(self):
+        from custom_components.hvac_horizon.features import price_shifted_target
+
+        self.assertEqual(price_shifted_target(24.0, None, 0.15, 0.40), 24.0)
+
+    def test_rejects_inverted_limits(self):
+        from custom_components.hvac_horizon.features import price_shifted_target
+
+        with self.assertRaises(ValueError):
+            price_shifted_target(24.0, 0.2, 0.40, 0.15)

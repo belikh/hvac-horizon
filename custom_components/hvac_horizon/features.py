@@ -82,3 +82,22 @@ def timed_preset_active(started_at_min: float | None, now_min: float, duration_m
     if started_at_min is None:
         return False
     return 0.0 <= now_min - started_at_min < duration_min
+
+
+def price_shifted_target(comfort_c: float, price_per_kwh: float | None, cheap_per_kwh: float, expensive_per_kwh: float, max_shift_c: float = 1.0) -> float:
+    """Move the target by up to `max_shift_c` with the electricity price.
+
+    Below `cheap_per_kwh` the target moves down by the full shift (cool a little more while power is cheap).
+    Above `expensive_per_kwh` it moves up by the full shift. In between the shift is linear.
+    A missing price leaves the target at comfort.
+    """
+    if price_per_kwh is None:
+        return comfort_c
+    if expensive_per_kwh <= cheap_per_kwh:
+        raise ValueError("expensive_per_kwh must be above cheap_per_kwh")
+    if price_per_kwh <= cheap_per_kwh:
+        return comfort_c - max_shift_c
+    if price_per_kwh >= expensive_per_kwh:
+        return comfort_c + max_shift_c
+    fraction = (price_per_kwh - cheap_per_kwh) / (expensive_per_kwh - cheap_per_kwh)
+    return comfort_c - max_shift_c + 2.0 * max_shift_c * fraction
