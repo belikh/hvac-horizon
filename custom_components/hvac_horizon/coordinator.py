@@ -1358,14 +1358,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
         """Open or close the window actuator on the natural ventilation or economizer advice.
 
-        Gates: control on, unlocked, house not away and no stalled sensor. The actuator is written only on a state change.
+        The gates (control on, unlocked, house not away, no stalled sensor) stop an open only. A close, when this
+        integration opened the actuator and the advice has ended, goes ahead whatever the gates say.
+        The actuator is written only on a state change.
         """
         actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
         state = self.hass.states.get(actuator) if actuator else None
         if state is None or state.state in ("unavailable", "unknown"):
-            return
-        house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
-        if not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or result.get("sensors_stalled"):
             return
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
@@ -1376,6 +1375,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             open_advice, statistics.median(rooms), outdoor, state.state in ("open", "on"), self._actuator_opened_by_us
         )
         if command is None:
+            return
+        house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
+        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or bool(result.get("sensors_stalled"))
+        if command == "open" and gated:
             return
         domain = actuator.split(".", 1)[0]
         service = {"open": "open_cover" if domain == "cover" else "turn_on", "close": "close_cover" if domain == "cover" else "turn_off"}[command]
