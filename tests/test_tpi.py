@@ -10,6 +10,7 @@ from custom_components.hvac_horizon.tpi import (
     HEAT_RATE_MAX,
     TpiFit,
     adjust_cool_gain,
+    adjust_heat_gain,
     heat_up_minutes,
     learn_heat_rate,
     learn_room_rates,
@@ -134,4 +135,31 @@ class HeatRateTests(unittest.TestCase):
 
     def test_heat_up_minutes_is_none_when_the_room_cannot_warm(self):
         self.assertIsNone(heat_up_minutes(19.0, 24.0, outdoor_c=5.0, k=0.5, g=0.0, heat_rate=0.0))
+
+
+class HeatGainTests(unittest.TestCase):
+    def heating_sample(self, rise_k, duty_pct=50.0, power_kw=0.0):
+        return Sample(minutes=5.0, temp_c=20.0, temp_next_c=20.0 + rise_k, outdoor_c=10.0, power_kw=power_kw)
+
+    def test_a_faster_rise_than_predicted_raises_the_heat_gain(self):
+        # Heat rate 4 K/h at 50 percent for 5 minutes predicts 0.17 K. The room rose 0.25 K.
+        self.assertGreater(adjust_heat_gain(1.0, self.heating_sample(0.25), 50.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
+
+    def test_a_slower_rise_than_predicted_lowers_the_heat_gain(self):
+        self.assertLess(adjust_heat_gain(1.0, self.heating_sample(0.05), 50.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
+
+    def test_the_heat_gain_stays_within_its_bounds_and_its_step(self):
+        gain = 1.0
+        for _ in range(500):
+            new = adjust_heat_gain(gain, self.heating_sample(1.0), 100.0, heat_rate=4.0, k=0.0, g=0.0)
+            self.assertLessEqual(new - gain, GAIN_STEP_MAX + 1e-12)
+            gain = new
+        self.assertEqual(gain, GAIN_MAX)
+        for _ in range(500):
+            gain = adjust_heat_gain(gain, self.heating_sample(-1.0), 100.0, heat_rate=4.0, k=0.0, g=0.0)
+        self.assertEqual(gain, GAIN_MIN)
+
+    def test_the_heat_gain_does_not_move_with_the_ac_running_or_the_heater_off(self):
+        self.assertEqual(adjust_heat_gain(1.0, self.heating_sample(0.25, power_kw=1.0), 50.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
+        self.assertEqual(adjust_heat_gain(1.0, self.heating_sample(0.25), 0.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
 

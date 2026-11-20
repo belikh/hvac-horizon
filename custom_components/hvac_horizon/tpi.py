@@ -99,6 +99,29 @@ def heat_up_minutes(room_c: float, target_c: float, outdoor_c: float, k: float, 
     return None
 
 
+MIN_HEAT_RISE_K = 0.01  # heating per interval below this, at gain 1.0, says nothing about the heat gain
+
+
+def adjust_heat_gain(gain: float, sample: Sample, duty_pct: float, heat_rate: float, k: float, g: float) -> float:
+    """Return the heat gain after one interval with the heater running and the AC off.
+
+    The heat gain scales the learned heat rate. The implied gain is the value that would have predicted the measured
+    room change. The gain moves toward it by GAIN_RATE of the gap, by at most GAIN_STEP_MAX, and stays within GAIN_MIN
+    to GAIN_MAX. The gain comes back unchanged when the AC ran, the heater was off or the heat rate is not known.
+    """
+    if sample.power_kw > 0 or sample.minutes <= 0 or duty_pct <= 0 or heat_rate <= 0:
+        return gain
+    dt_h = sample.minutes / 60.0
+    heat_at_unit_gain = heat_rate * (duty_pct / 100.0) * dt_h  # K added in the interval when the gain is 1.0
+    if heat_at_unit_gain < MIN_HEAT_RISE_K:
+        return gain
+    passive = (k * (sample.outdoor_c - sample.temp_c) + g) * dt_h  # K, the room drifts without the heater
+    measured = sample.temp_next_c - sample.temp_c  # K, as the room changed
+    implied = (measured - passive) / heat_at_unit_gain
+    step = max(-GAIN_STEP_MAX, min(GAIN_STEP_MAX, GAIN_RATE * (implied - gain)))
+    return min(GAIN_MAX, max(GAIN_MIN, gain + step))
+
+
 def learn_room_rates(samples: list[Sample]) -> TpiFit:
     """Fit the room's k and g from the AC-off intervals, then c from the AC-on intervals.
 

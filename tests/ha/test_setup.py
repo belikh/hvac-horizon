@@ -19,7 +19,7 @@ from homeassistant.util import dt as dt_util
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit
+from custom_components.hvac_horizon.tpi import GAIN_MAX, TpiFit
 from custom_components.hvac_horizon.const import (
     CONF_BOOST_C,
     CONF_AWAY_DELAY_MIN,
@@ -3086,4 +3086,40 @@ async def test_preheat_is_off_without_a_learned_heat_model(hass, enable_custom_i
     await refresh(hass, entry)
     assert entry.runtime_data.data["preheat"] == "no heat model"
     assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(15.5)
+
+
+async def test_heat_gain_learns_from_heating_and_survives_reload(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    # The learned model is stubbed: base heat rate 1 K/h, no passive drift. The room rises 0.25 K per tick,
+    # which is faster than the base rate predicts at any heater output, so the heat gain rises each tick.
+    monkeypatch.setattr(coordinator_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
+    monkeypatch.setattr(coordinator_module, "learn_heat_rate", lambda pairs, k, g: 1.0)
+    entry, _ = await setup_heater(hass, config_data, room="20.0")
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    # Setup arms the manual-change inhibit for an hour, and unchanged room sensors count as stalled. Wait it out with fresh readings.
+    freezer.tick(timedelta(minutes=61))
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "10.5", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(POWER, "0", {"unit_of_measurement": "W", "device_class": "power"})  # the AC is off: heating intervals only
+    await refresh(hass, entry)
+    gains = [entry.runtime_data._auto_heat_gain]
+    room = 20.0
+    for i in range(12):
+        room += 0.25
+        hass.states.async_set(OUTDOOR, f"{10.5 + 0.01 * i:.2f}", {"unit_of_measurement": "°C", "device_class": "temperature"})  # a changing value is not stalled
+        for entity in (ROOM_A, ROOM_B):
+            hass.states.async_set(entity, f"{room:.4f}", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        freezer.tick(timedelta(seconds=300))
+        await refresh(hass, entry)
+        gains.append(entry.runtime_data._auto_heat_gain)
+    assert gains[-1] > 1.0
+    assert all(later >= earlier - 1e-9 for earlier, later in zip(gains, gains[1:]))
+    assert max(gains) <= GAIN_MAX + 1e-9
+
+    before = gains[-1]
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["auto_tpi_gains"]["heat"] == pytest.approx(before, abs=1e-3)
 

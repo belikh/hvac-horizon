@@ -89,7 +89,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, heat_up_minutes, learn_heat_rate, learn_room_rates
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates
 from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -276,6 +276,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
+        self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
@@ -404,6 +405,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
         self._heater_gains = data.get("heater_gains")
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
+        self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
         self._refit()
 
     def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
@@ -446,6 +448,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._entries = []
         self._fit = None
         self._auto_tpi_gain = 1.0
+        self._auto_heat_gain = 1.0
         self._fit_reason = "learning reset"
         self._backtest_runs = []
         self._forecast_error_min = None
@@ -499,7 +502,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "entries": [asdict(e) for e in self._entries],
             "heater_gains": self._heater_gains,
-            "auto_tpi_gains": {"cool": self._auto_tpi_gain},
+            "auto_tpi_gains": {"cool": self._auto_tpi_gain, "heat": self._auto_heat_gain},
         }
 
     async def async_shutdown_store(self) -> None:
@@ -540,6 +543,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if abs(a.setpoint_c - b.setpoint_c) > 0.1:
             return
         self._auto_tpi_gain = adjust_cool_gain(self._auto_tpi_gain, pairs[0], self._tpi)
+
+    def _learn_heat_gain(self) -> None:
+        """Move the heat gain toward the value that predicts the last interval. Heater running, AC not cooling."""
+        if self._tpi is None or self._heat_rate is None or len(self._entries) < 2:
+            return
+        a, b = self._entries[-2], self._entries[-1]
+        pairs = heat_pairs_from_entries([a, b])
+        if not pairs or a.mode == "cool" or b.mode == "cool":
+            return
+        sample, duty = pairs[0]
+        self._auto_heat_gain = adjust_heat_gain(self._auto_heat_gain, sample, duty, self._heat_rate, self._tpi.k, self._tpi.g)
 
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
@@ -998,6 +1012,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._entries.append(reading)
             self._entries = self._entries[-MAX_ENTRIES:]
             self._learn_cool_gain()
+            self._learn_heat_gain()
             self._samples_since_fit += 1
             if self._samples_since_fit >= FIT_EVERY_N_SAMPLES or self._fit is None:
                 self._refit()
@@ -1358,34 +1373,37 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 motion_idle,
             )
         result["preheat"] = "off"
+        result["heat_up_min"] = None
         if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < comfort_raw:
-            heat_target_c, result["preheat"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
+            heat_target_c, result["preheat"], result["heat_up_min"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 
-    def _preheat(self, now_h: float, blocks: list[ScheduleBlock], heat_target_c: float, comfort_c: float) -> tuple[float, str]:
+    def _preheat(self, now_h: float, blocks: list[ScheduleBlock], heat_target_c: float, comfort_c: float) -> tuple[float, str, float | None]:
         """Heat to comfort early when the next comfort block starts within the learned heat-up time.
 
-        Returns the heat target and a state: "active", "waiting", "no heat model", "cannot reach comfort" or "no comfort block".
-        Needs the room model and a heat rate. Without them the heat target stays as it is.
+        Returns the heat target, a state and the heat-up time in minutes. The state is "active", "waiting",
+        "no heat model", "cannot reach comfort" or "no comfort block". The heat-up time uses the learned heat rate
+        times the online heat gain. Without a heat rate the heat target stays as it is.
         """
         if self._tpi is None or self._heat_rate is None:
-            return heat_target_c, "no heat model"
+            return heat_target_c, "no heat model", None
         lead_min = minutes_until_preset(now_h, blocks, Preset.COMFORT.value)
         if lead_min is None:
-            return heat_target_c, "no comfort block"
+            return heat_target_c, "no comfort block", None
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if not rooms or outdoor is None:
-            return heat_target_c, "no heat model"
-        needed = heat_up_minutes(statistics.median(rooms), comfort_c, outdoor, self._tpi.k, self._tpi.g, self._heat_rate)
+            return heat_target_c, "no heat model", None
+        rate = self._heat_rate * self._auto_heat_gain
+        needed = heat_up_minutes(statistics.median(rooms), comfort_c, outdoor, self._tpi.k, self._tpi.g, rate)
         if needed is None:
-            return heat_target_c, "cannot reach comfort"
+            return heat_target_c, "cannot reach comfort", None
         if lead_min <= needed:
-            return comfort_c, "active"
-        return heat_target_c, "waiting"
+            return comfort_c, "active", needed
+        return heat_target_c, "waiting", needed
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
@@ -1804,7 +1822,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
             "room_fit": self._room_fit,
             "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
-            "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4)},
+            "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4), "heat": round(self._auto_heat_gain, 4)},
         }
         active = self._active_fit()
         if active is None:
