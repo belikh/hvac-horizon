@@ -1930,7 +1930,7 @@ async def test_stalled_sensor_turns_the_ac_off(hass, enable_custom_integrations,
     assert "cool" not in modes
 
 
-async def _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0"):
+async def _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0", ac_heat=True):
     """A control-on entry with no heater switch, so the AC is the only heat source.
 
     The fake climate services record each call and report the new mode and setpoint on the entity,
@@ -1954,7 +1954,7 @@ async def _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0"):
 
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", record_temp)
-    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True), unique_id=CLIMATE)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, ac_heat=ac_heat), unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -2919,7 +2919,7 @@ async def test_pm25_still_forces_the_fan_on_during_the_off_half(hass, enable_cus
     assert all(await _fan_states(hass, config_data, freezer, co2="1000", pm25="30"))
 
 
-async def _fan_mode_run(hass, config_data, *, state="cool", room="27.0", fan_mode="auto", control=True):
+async def _fan_mode_run(hass, config_data, *, state="cool", room="27.0", fan_mode="auto", control=True, auto_fan=True):
     """Set up the AC with fan modes and return the set_fan_mode commands. The target is 24.04 C, so a 27 C room is a gap of about 3 K."""
     set_inputs(hass)
     _set_ac_rooms(hass, room)
@@ -2947,7 +2947,7 @@ async def _fan_mode_run(hass, config_data, *, state="cool", room="27.0", fan_mod
     hass.services.async_register("climate", "set_fan_mode", record_fan)
     hass.services.async_register("climate", "set_hvac_mode", ignore)
     hass.services.async_register("climate", "set_temperature", ignore)
-    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=control), unique_id=CLIMATE)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=control, auto_fan=auto_fan), unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -3320,3 +3320,16 @@ async def test_investigation_report_survives_unload_and_setup(hass, enable_custo
     assert entry.runtime_data.data["investigation_report_at"] == stamp
     assert entry.runtime_data.data["investigation_report_source"] == "rule"
 
+
+
+async def test_ac_does_not_heat_by_default(hass, enable_custom_integrations, config_data):
+    """The AC heat source writes heat only after the user sets ac_heat."""
+    entry, modes, _ = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0", ac_heat=False)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert "heat" not in modes
+
+
+async def test_fan_mode_is_left_alone_by_default(hass, enable_custom_integrations, config_data):
+    """The fan mode follows the room gap only after the user sets auto_fan."""
+    assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", auto_fan=False) == []

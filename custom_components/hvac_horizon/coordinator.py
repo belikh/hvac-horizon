@@ -95,6 +95,8 @@ from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, sol
 
 from .const import (
     CONF_DRY_FOR_HUMIDITY,
+    CONF_AC_HEAT,
+    CONF_AUTO_FAN,
     CONF_BOOST_C,
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_TRV_TEMPERATURE,
@@ -1593,7 +1595,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._write_setpoint(climate_id, climate, action.setpoint_c, now)
         if climate.state == "cool" and rooms:
             # The fan follows the room gap while the AC was already cooling before this cycle.
-            await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
+            if self.entry.data.get(CONF_AUTO_FAN, False):
+                await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
 
     async def _write_fan_mode(self, climate_id: str, climate: State, gap_c: float) -> None:
         """Set the AC fan mode from the room gap. Sends only when the device lists the mode and it differs from the current one."""
@@ -1696,6 +1699,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return (
             action.mode is Mode.OFF
+            and bool(self.entry.data.get(CONF_AC_HEAT, False))
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
             and self._someone_home
