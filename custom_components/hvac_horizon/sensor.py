@@ -58,6 +58,7 @@ STATUS_KEYS: dict[str, str] = {
     "heating_failure": "Heating failure",
     "heater_pid_output": "Heater PID output",
     "heater_output_pct": "Heater output",
+    "preheat": "Preheat",
     "cool_on_above_c": "Cool above",
     "heat_on_below_c": "Heat below",
     "backtest_runs": "Backtest runs",

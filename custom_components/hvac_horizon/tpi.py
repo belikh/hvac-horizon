@@ -55,6 +55,50 @@ def adjust_cool_gain(gain: float, sample: Sample, tpi: TpiFit) -> float:
     return min(GAIN_MAX, max(GAIN_MIN, gain + step))
 
 
+HEAT_RATE_MAX = 20.0  # K/h at full heater output; a learned heat rate above this is clamped
+
+
+def learn_heat_rate(pairs: list[tuple[Sample, float]], k: float, g: float) -> float:
+    """Heat rate in K/h at 100 percent heater output, from the AC-off intervals in which the heater ran.
+
+    Each interval gives: measured rise per hour minus the passive rise (k * (outdoor - room) + g) equals h * duty.
+    The fit is least squares through zero. Raises NotEnoughData with fewer than MIN_STATE_SAMPLES heating intervals.
+    """
+    rows: list[tuple[float, float]] = []
+    for sample, duty_pct in pairs:
+        if sample.minutes <= 0 or sample.power_kw > 0 or duty_pct <= 0:
+            continue
+        duty = duty_pct / 100.0
+        rise = (sample.temp_next_c - sample.temp_c) / (sample.minutes / 60.0)
+        rows.append((duty, rise - (k * (sample.outdoor_c - sample.temp_c) + g)))
+    if len(rows) < MIN_STATE_SAMPLES:
+        raise NotEnoughData(f"need {MIN_STATE_SAMPLES} heating intervals, got {len(rows)}")
+    den = sum(x * x for x, _ in rows)
+    if den <= 0:
+        raise NotEnoughData("heater duty is zero in every interval; cannot fit the heat rate")
+    return min(HEAT_RATE_MAX, max(0.0, sum(x * y for x, y in rows) / den))
+
+
+def heat_up_minutes(room_c: float, target_c: float, outdoor_c: float, k: float, g: float, heat_rate: float, limit_min: float = 360.0) -> float | None:
+    """Minutes for the room to reach `target_c` at full heater output, stepping the room model one minute at a time.
+
+    Returns 0 when the room is already at the target. Returns None when it does not get there within `limit_min`.
+    """
+    if room_c >= target_c:
+        return 0.0
+    temp = room_c
+    minutes = 0.0
+    while minutes < limit_min:
+        rate = k * (outdoor_c - temp) + g + heat_rate  # K per hour, heater at full output
+        if rate <= 0:
+            return None
+        temp += rate / 60.0
+        minutes += 1.0
+        if temp >= target_c:
+            return minutes
+    return None
+
+
 def learn_room_rates(samples: list[Sample]) -> TpiFit:
     """Fit the room's k and g from the AC-off intervals, then c from the AC-on intervals.
 

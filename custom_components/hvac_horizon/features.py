@@ -153,6 +153,14 @@ class ScheduleBlock:
     preset: str
 
 
+def minutes_until_preset(now_h: float, blocks: list[ScheduleBlock], preset: str, horizon_min: int = 1440) -> float | None:
+    """Minutes from `now_h` to the next minute the schedule selects `preset`, within `horizon_min`. None when it never does."""
+    for minute in range(1, horizon_min + 1):
+        if scheduled_preset((now_h + minute / 60.0) % 24.0, blocks) == preset:
+            return float(minute)
+    return None
+
+
 def scheduled_preset(now_h: float, blocks: list[ScheduleBlock], default: str = "comfort") -> str:
     """The preset of the first block that covers `now_h`, or `default` when none does.
 

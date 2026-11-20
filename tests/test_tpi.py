@@ -3,7 +3,17 @@ import unittest
 
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.model import NotEnoughData, Sample
-from custom_components.hvac_horizon.tpi import GAIN_MAX, GAIN_MIN, GAIN_STEP_MAX, TpiFit, adjust_cool_gain, learn_room_rates
+from custom_components.hvac_horizon.tpi import (
+    GAIN_MAX,
+    GAIN_MIN,
+    GAIN_STEP_MAX,
+    HEAT_RATE_MAX,
+    TpiFit,
+    adjust_cool_gain,
+    heat_up_minutes,
+    learn_heat_rate,
+    learn_room_rates,
+)
 
 K, G, C = 0.3, 0.2, 1.4
 
@@ -81,3 +91,47 @@ class AdjustCoolGainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def heating_pairs(n, k=0.1, g=0.0, h=4.0):
+    """Heater-on intervals at alternating 50 and 100 percent duty, with the AC off. The true heat rate is h."""
+    pairs = []
+    temp = 20.0
+    for i in range(n):
+        duty = 50.0 if i % 2 == 0 else 100.0
+        outdoor = 10.0
+        rate = k * (outdoor - temp) + g + h * duty / 100.0
+        nxt = temp + rate * (5 / 60)
+        pairs.append((Sample(minutes=5.0, temp_c=temp, temp_next_c=nxt, outdoor_c=outdoor, power_kw=0.0), duty))
+        temp = nxt
+    return pairs
+
+
+class HeatRateTests(unittest.TestCase):
+    def test_learns_the_heat_rate_from_heating_intervals(self):
+        self.assertAlmostEqual(learn_heat_rate(heating_pairs(12), k=0.1, g=0.0), 4.0, places=6)
+
+    def test_clamps_the_heat_rate_to_its_bound(self):
+        self.assertEqual(learn_heat_rate(heating_pairs(12, h=50.0), k=0.1, g=0.0), HEAT_RATE_MAX)
+
+    def test_needs_twelve_heating_intervals(self):
+        with self.assertRaises(NotEnoughData):
+            learn_heat_rate(heating_pairs(11), k=0.1, g=0.0)
+
+    def test_ignores_intervals_with_the_ac_running(self):
+        pairs = [(Sample(minutes=s.minutes, temp_c=s.temp_c, temp_next_c=s.temp_next_c, outdoor_c=s.outdoor_c, power_kw=1.0), d) for s, d in heating_pairs(12)]
+        with self.assertRaises(NotEnoughData):
+            learn_heat_rate(pairs, k=0.1, g=0.0)
+
+    def test_heat_up_minutes_steps_the_room_model(self):
+        # A 4 K rise at 4 K/h takes 60 minutes. Stepping by minute can land one minute either side.
+        minutes = heat_up_minutes(20.0, 24.0, outdoor_c=10.0, k=0.0, g=0.0, heat_rate=4.0)
+        self.assertIsNotNone(minutes)
+        self.assertAlmostEqual(minutes, 60.0, delta=1.0)
+
+    def test_heat_up_minutes_is_zero_at_the_target(self):
+        self.assertEqual(heat_up_minutes(24.0, 24.0, outdoor_c=10.0, k=0.1, g=0.0, heat_rate=4.0), 0.0)
+
+    def test_heat_up_minutes_is_none_when_the_room_cannot_warm(self):
+        self.assertIsNone(heat_up_minutes(19.0, 24.0, outdoor_c=5.0, k=0.5, g=0.0, heat_rate=0.0))
+

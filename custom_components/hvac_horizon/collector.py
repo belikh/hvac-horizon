@@ -34,6 +34,7 @@ class Entry:
     price: float | None = None
     energy_kwh: float | None = None  # cumulative energy counter, when the meter has one
     power_mean_w: float | None = None  # integral of power over the interval, from state changes
+    heat_pct: float | None = None  # heater output in percent during the tick before this reading
     power_2_w: float | None = None  # power of the second AC at this reading, W; None when no second power sensor
 
 
@@ -62,21 +63,25 @@ def _interval_power_kw(a: Entry, b: Entry) -> float:
 
 def samples_from_entries(entries: list[Entry]) -> list[Sample]:
     """Pair consecutive readings that are one step apart. Gaps break the chain."""
+    return [sample for sample, _ in heat_pairs_from_entries(entries)]
+
+
+def heat_pairs_from_entries(entries: list[Entry]) -> list[tuple[Sample, float]]:
+    """Like samples_from_entries, with the heater output in percent during each interval (from the first reading)."""
     ordered = sorted(entries, key=lambda e: e.t)
-    out: list[Sample] = []
+    out: list[tuple[Sample, float]] = []
     for a, b in zip(ordered, ordered[1:]):
         gap = b.t - a.t
         if abs(gap - STEP_S) > TOLERANCE_S:
             continue
-        out.append(
-            Sample(
-                minutes=gap / 60.0,
-                temp_c=a.room_c,
-                temp_next_c=b.room_c,
-                outdoor_c=a.outdoor_c,
-                power_kw=_interval_power_kw(a, b),
-            )
+        sample = Sample(
+            minutes=gap / 60.0,
+            temp_c=a.room_c,
+            temp_next_c=b.room_c,
+            outdoor_c=a.outdoor_c,
+            power_kw=_interval_power_kw(a, b),
         )
+        out.append((sample, a.heat_pct or 0.0))
     return out
 
 

@@ -16,6 +16,8 @@ from custom_components.hvac_horizon.features import (
     learned_solar_scale,
     humidity_action,
     minimum_time_ok,
+    ScheduleBlock,
+    minutes_until_preset,
     room_devices,
     round_to_step,
     mould_target,
@@ -984,3 +986,18 @@ class PresenceSourcesTests(unittest.TestCase):
         self.assertEqual(presence_sources("binary_sensor.a"), ["binary_sensor.a"])
         self.assertEqual(presence_sources(None), [])
         self.assertEqual(presence_sources([]), [])
+
+
+class MinutesUntilPresetTests(unittest.TestCase):
+    def test_counts_minutes_to_the_next_block_that_selects_the_preset(self):
+        blocks = [ScheduleBlock(0.0, 7.0, "eco")]
+        self.assertEqual(minutes_until_preset(6.0, blocks, "comfort"), 60.0)
+        self.assertEqual(minutes_until_preset(5.0, blocks, "comfort"), 120.0)
+
+    def test_wraps_past_midnight(self):
+        blocks = [ScheduleBlock(0.0, 7.0, "eco")]
+        self.assertEqual(minutes_until_preset(23.0, blocks, "eco"), 60.0)
+
+    def test_is_none_when_the_preset_never_comes(self):
+        self.assertIsNone(minutes_until_preset(6.0, [ScheduleBlock(0.0, 24.0, "eco")], "comfort"))
+

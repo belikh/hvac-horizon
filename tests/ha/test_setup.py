@@ -17,7 +17,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, async_
 from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.features import room_devices
+from custom_components.hvac_horizon import coordinator as coordinator_module
 from custom_components.hvac_horizon.pid import Pid
+from custom_components.hvac_horizon.tpi import TpiFit
 from custom_components.hvac_horizon.const import (
     CONF_BOOST_C,
     CONF_AWAY_DELAY_MIN,
@@ -3052,4 +3054,36 @@ async def test_output_limits_fall_back_to_config_when_the_entity_is_unavailable(
     )
     await refresh(hass, entry)
     assert entry.runtime_data.data["heater_output_pct"] == 30.0
+
+
+async def test_preheat_starts_the_heater_one_heat_up_time_before_comfort(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    # Eco 00:00 to 07:00 heats to 16 C. Comfort starts at 07:00. The learned room model needs 60 minutes to warm 19 C to 24 C.
+    # Stub the learned model: k 0, g 0 and a heat rate of 5 K/h at full output, so the warm-up is 60 steps.
+    monkeypatch.setattr(coordinator_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
+    monkeypatch.setattr(coordinator_module, "learn_heat_rate", lambda pairs, k, g: 5.0)
+    local = dt_util.get_time_zone(hass.config.time_zone)
+    freezer.move_to(datetime(2026, 11, 20, 5, 55, tzinfo=local))
+    extra = {CONF_SCHEDULE_BLOCKS: [{"start_h": 0, "end_h": 7, "preset": "eco"}], CONF_HEAT_ECO_C: 16.0}
+    entry, calls = await setup_heater(hass, config_data, room="19.0", extra=extra)
+    calls.clear()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preheat"] == "waiting"  # 65 minutes to comfort, 60 needed
+    assert "turn_on" not in calls
+
+    freezer.tick(timedelta(minutes=5))  # 06:00, 60 minutes to comfort
+    calls.clear()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preheat"] == "active"
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(23.5)
+    assert "turn_on" in calls
+
+
+async def test_preheat_is_off_without_a_learned_heat_model(hass, enable_custom_integrations, config_data, freezer):
+    local = dt_util.get_time_zone(hass.config.time_zone)
+    freezer.move_to(datetime(2026, 11, 20, 6, 0, tzinfo=local))
+    extra = {CONF_SCHEDULE_BLOCKS: [{"start_h": 0, "end_h": 7, "preset": "eco"}], CONF_HEAT_ECO_C: 16.0}
+    entry, _ = await setup_heater(hass, config_data, room="19.0", extra=extra)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preheat"] == "no heat model"
+    assert entry.runtime_data.data["heat_on_below_c"] == pytest.approx(15.5)
 

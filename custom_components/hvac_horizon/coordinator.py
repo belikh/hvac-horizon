@@ -21,6 +21,7 @@ from homeassistant.util import dt as dt_util
 from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.collector import (
     Entry,
+    heat_pairs_from_entries,
     entries_from_history,
     has_enough_cycles,
     price_slots,
@@ -83,12 +84,12 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, learn_room_rates
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, heat_up_minutes, learn_heat_rate, learn_room_rates
 from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -273,6 +274,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._report_budget = CallBudget()  # on-demand report calls per day; separate from the mode-change budget
         self._report: dict[str, Any] = {"investigation_report": None, "investigation_report_source": None, "investigation_report_at": None}
         self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
+        self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
@@ -546,6 +548,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._tpi = learn_room_rates(samples)
         except NotEnoughData:
             self._tpi = None
+        self._heat_rate = None
+        if self._tpi is not None:
+            try:
+                self._heat_rate = learn_heat_rate(heat_pairs_from_entries(self._entries), self._tpi.k, self._tpi.g)
+            except NotEnoughData:
+                self._heat_rate = None
         self._backtest_runs = []
         if not has_enough_cycles(samples):
             self._fit = None
@@ -962,6 +970,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             humidity_pct=_float(self._optional(CONF_HUMIDITY)),
             price=price,
             energy_kwh=_float(self._optional(CONF_ENERGY)),
+            heat_pct=self._pwm_pct_now,
         )
 
     def _price_forecast(self, now: float) -> list:
@@ -1293,6 +1302,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         house_away = not effective_home(True, house_mode)
         someone_home = effective_home(someone_home, house_mode)
         comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        comfort_raw = comfort
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.
         energy_weight = float(self.entry.data.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
         eco_c = _optional_float(self.entry.data.get(CONF_ECO_C))
@@ -1318,8 +1328,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
             for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
         ]
-        preset_name = scheduled_preset(dt_util.now().hour + dt_util.now().minute / 60.0, blocks)
-        preset_name = self._effective_preset(now_min, preset_name)
+        now_h = dt_util.now().hour + dt_util.now().minute / 60.0
+        scheduled_name = scheduled_preset(now_h, blocks)
+        preset_name = self._effective_preset(now_min, scheduled_name)
         if self.entry.data.get(CONF_CONTROL):
             result["preset"] = preset_name
         self._preset_now = preset_name
@@ -1346,10 +1357,35 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _optional_float(self.entry.data.get(CONF_HEAT_BOOST_C)),
                 motion_idle,
             )
+        result["preheat"] = "off"
+        if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < comfort_raw:
+            heat_target_c, result["preheat"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
+
+    def _preheat(self, now_h: float, blocks: list[ScheduleBlock], heat_target_c: float, comfort_c: float) -> tuple[float, str]:
+        """Heat to comfort early when the next comfort block starts within the learned heat-up time.
+
+        Returns the heat target and a state: "active", "waiting", "no heat model", "cannot reach comfort" or "no comfort block".
+        Needs the room model and a heat rate. Without them the heat target stays as it is.
+        """
+        if self._tpi is None or self._heat_rate is None:
+            return heat_target_c, "no heat model"
+        lead_min = minutes_until_preset(now_h, blocks, Preset.COMFORT.value)
+        if lead_min is None:
+            return heat_target_c, "no comfort block"
+        rooms = self._rooms()
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if not rooms or outdoor is None:
+            return heat_target_c, "no heat model"
+        needed = heat_up_minutes(statistics.median(rooms), comfort_c, outdoor, self._tpi.k, self._tpi.g, self._heat_rate)
+        if needed is None:
+            return heat_target_c, "cannot reach comfort"
+        if lead_min <= needed:
+            return comfort_c, "active"
+        return heat_target_c, "waiting"
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
