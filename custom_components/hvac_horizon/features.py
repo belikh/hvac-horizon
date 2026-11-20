@@ -334,3 +334,16 @@ def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_
     Ported from ClimateAdvisor's humidity handling. Drying through the AC's dry mode happens only then.
     """
     return humidity_pct is not None and humidity_pct > band_high_pct and cool_gap_c <= 0.0
+
+
+def stale_price_fallback(price_per_kwh: float | None, last_good_per_kwh: float | None, last_good_age_min: float, max_age_min: float = 60.0) -> float | None:
+    """Use the current price, or the last good price for up to `max_age_min` minutes. None after that.
+
+    Ported from the price fallback in RoomMind. A stale price is kept for a short time so a brief outage does not
+    stop price-based decisions, but it is not used indefinitely.
+    """
+    if price_per_kwh is not None:
+        return price_per_kwh
+    if last_good_per_kwh is not None and last_good_age_min <= max_age_min:
+        return last_good_per_kwh
+    return None

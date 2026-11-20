@@ -355,3 +355,20 @@ class DryingTests(unittest.TestCase):
 
         self.assertFalse(drying_needed(None))
         self.assertFalse(drying_needed(50.0))
+
+
+class PriceFallbackTests(unittest.TestCase):
+    def test_current_price_is_used(self):
+        from custom_components.hvac_horizon.features import stale_price_fallback
+
+        self.assertEqual(stale_price_fallback(0.3, 0.2, 5.0), 0.3)
+
+    def test_last_good_price_within_age(self):
+        from custom_components.hvac_horizon.features import stale_price_fallback
+
+        self.assertEqual(stale_price_fallback(None, 0.2, 30.0), 0.2)
+
+    def test_no_price_after_max_age(self):
+        from custom_components.hvac_horizon.features import stale_price_fallback
+
+        self.assertIsNone(stale_price_fallback(None, 0.2, 120.0))
