@@ -140,3 +140,40 @@ async def test_reconfigure_keeps_entry_and_samples(hass, enable_custom_integrati
     assert entry.data[CONF_PRICE] == PRICE
     assert entry.state is config_entries.ConfigEntryState.LOADED
     assert entry.runtime_data.data["samples"] >= before
+
+
+async def test_control_off_sends_no_climate_calls(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    calls = []
+    hass.services.async_register("climate", "set_hvac_mode", lambda call: calls.append(("mode", call.data)))
+    hass.services.async_register("climate", "set_temperature", lambda call: calls.append(("temp", call.data)))
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert calls == []
+
+
+async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)  # room 26.0 C, comfort defaults to 24.0 C
+    calls = []
+
+    async def record_mode(call):
+        calls.append(("mode", call.data))
+
+    async def record_temp(call):
+        calls.append(("temp", call.data))
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    data = dict(config_data, control=True)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert ("mode", {"entity_id": CLIMATE, "hvac_mode": "cool"}) in calls
+    assert ("temp", {"entity_id": CLIMATE, "temperature": 24.0}) in calls

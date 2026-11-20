@@ -16,16 +16,27 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.collector import Entry, price_slots, running_power_kw, samples_from_entries
 from custom_components.hvac_horizon.forecast import forecast
+from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
+from custom_components.hvac_horizon.control import plan_precool
 
 from .const import (
+    CONF_AWAY_C,
     CONF_CLIMATE,
+    CONF_COMFORT_C,
+    CONF_CONTROL,
     CONF_ENERGY,
     CONF_HUMIDITY,
     CONF_OUTDOOR,
     CONF_POWER,
     CONF_PRICE,
+    CONF_PRESENCE,
     CONF_ROOM_SENSORS,
+    CONF_WINDOW,
+    CONF_WINDOW_DELAY_MIN,
+    DEFAULT_AWAY_C,
+    DEFAULT_COMFORT_C,
+    DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
     FIT_EVERY_N_SAMPLES,
     MAX_ENTRIES,
@@ -69,6 +80,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fit: Fit | None = None
         self._fit_reason = "not enough data"
         self._samples_since_fit = 0
+        self._window_open_since: float | None = None
 
     async def async_load(self) -> None:
         data = await self._store.async_load() or {}
@@ -142,7 +154,48 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._refit()
                 self._samples_since_fit = 0
             self._store.async_delay_save(self._save_payload, 60)
-        return self._forecast(now)
+        result = self._forecast(now)
+        if self.entry.data.get(CONF_CONTROL):
+            await self._async_control(now, result)
+        return result
+
+    async def _async_control(self, now: float, result: dict[str, Any]) -> None:
+        """Send one climate action per cycle. Runs only when the control option is on."""
+        climate_id = self.entry.data[CONF_CLIMATE]
+        rooms = self._rooms()
+        if not rooms:
+            return
+        window = self._optional(CONF_WINDOW)
+        if window is not None and window.state == "on":
+            self._window_open_since = self._window_open_since or now
+        else:
+            self._window_open_since = None
+        window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
+        presence = self._optional(CONF_PRESENCE)
+        someone_home = presence is None or presence.state == "home"
+        precool = None
+        if result.get("minutes") is not None and result.get("status") == "reachable":
+            precool = 0.0
+        state = RoomState(
+            room_c=statistics.median(rooms),
+            window_open_min=window_open_min,
+            someone_home=someone_home,
+            precool_start_in_min=precool,
+        )
+        settings = Settings(
+            comfort_c=float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+            away_c=float(self.entry.data.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
+            window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
+        )
+        action = decide(state, settings)
+        result["action"] = f"{action.mode.value}: {action.reason}"
+        if action.mode is Mode.OFF:
+            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+        else:
+            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
+            await self.hass.services.async_call(
+                "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
+            )
 
     def _forecast(self, now: float) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -163,13 +216,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        target = climate.attributes.get("temperature") if climate else None
-        if not rooms or outdoor is None or target is None:
+        target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        if not rooms or outdoor is None or climate is None:
             result.update(status="no input")
             return result
 
         room = statistics.median(rooms)
-        if room <= float(target):
+        if room <= target:
             result.update(status="at setpoint", minutes=0.0, energy_kwh=0.0, cost=0.0)
             return result
 
@@ -180,7 +233,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.update(status="no running power yet")
             return result
 
-        f = forecast(self._fit, room, float(target), outdoor, power_kw, self._price_forecast(now))
+        f = forecast(self._fit, room, target, outdoor, power_kw, self._price_forecast(now))
         result.update(
             status="reachable" if f.reachable else "unreachable",
             minutes=None if f.minutes is None else round(f.minutes, 1),
