@@ -1510,3 +1510,22 @@ async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, e
     assert restarted.kp == pytest.approx(tuned.kp)
     assert restarted.ki == pytest.approx(tuned.ki)
     assert restarted.kd == pytest.approx(tuned.kd)
+
+
+@pytest.mark.parametrize("room", ["26.0", "unavailable"], ids=["hot_room", "rooms_unavailable"])
+async def test_stalled_sensor_turns_the_ac_off(hass, enable_custom_integrations, config_data, monkeypatch, freezer, room):
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A])
+    entry, _ = await setup_heater(hass, config_data, room=room, climate="cool", outdoor="30.0")
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    # The AC has run for a while, so the minimum on time does not hold the stop.
+    freezer.tick(timedelta(minutes=10))
+    await refresh(hass, entry)
+    assert "off" in modes
+    assert "cool" not in modes

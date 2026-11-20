@@ -28,7 +28,7 @@ from custom_components.hvac_horizon.collector import (
     samples_from_entries,
 )
 from custom_components.hvac_horizon.forecast import forecast, price_at
-from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Settings, cool_above_c, decide
+from custom_components.hvac_horizon.decide import Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     room_devices,
@@ -1172,7 +1172,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_sent_min = now_min
             self._inhibited_for_setpoint = None  # the resend answers the manual change
         rooms = self._rooms()
-        if not rooms:
+        stalled = bool(result.get("sensors_stalled"))
+        if not rooms and not stalled:
             return
         window = self._optional(CONF_WINDOW)
         if window is not None and window.state == "on":
@@ -1187,14 +1188,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         precool = self._precool_start(now, rooms)
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        state = RoomState(
-            room_c=statistics.median(rooms),
-            window_open_min=window_open_min,
-            someone_home=self._someone_home,
-            precool_start_in_min=precool,
-            outdoor_c=outdoor,
-        )
-        action = decide(state, self._settings)
+        if stalled:
+            # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
+            action = Action(Mode.OFF, None, "sensor stalled")
+        else:
+            state = RoomState(
+                room_c=statistics.median(rooms),
+                window_open_min=window_open_min,
+                someone_home=self._someone_home,
+                precool_start_in_min=precool,
+                outdoor_c=outdoor,
+            )
+            action = decide(state, self._settings)
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
@@ -1217,7 +1222,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
             bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
-            climate.state == "cool",
+            climate is not None and climate.state == "cool",
             outdoor_now,
             statistics.median(rooms_wh) if rooms_wh else 0.0,
         )
