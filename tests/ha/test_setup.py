@@ -1442,3 +1442,33 @@ async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_cus
     await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
     await refresh(hass, entry)
     assert entry.runtime_data._pwm_output_pct == 0.0
+
+
+@pytest.mark.parametrize(
+    "gate",
+    [
+        {"extra": {"window": WINDOW}, "setup": lambda hass: hass.states.async_set(WINDOW, "on")},
+        {"extra": {"lock_pin": "1234"}, "setup": lambda hass: None, "lock": True},
+        {"extra": {"control": False}, "setup": lambda hass: None},
+    ],
+    ids=["window_open", "locked", "control_off"],
+)
+async def test_relay_test_does_not_command_the_heater_behind_a_closed_gate(hass, enable_custom_integrations, config_data, gate):
+    gate["setup"](hass)
+    entry, calls = await setup_heater(hass, config_data, extra=gate["extra"])
+    if gate.get("lock"):
+        assert entry.runtime_data.set_lock(True, None) is True
+    entry.runtime_data.start_autotune(24.0)
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+
+
+async def test_pwm_timer_does_not_command_the_heater_during_a_relay_test(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator.start_autotune(24.0)
+    await refresh(hass, entry)
+    calls.clear()
+    await coordinator._pwm_timer(dt_util.utcnow())
+    assert calls == []

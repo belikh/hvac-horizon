@@ -405,26 +405,28 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return [asdict(e) for e in self._entries]
 
     def start_autotune(self, setpoint_c: float) -> None:
-        """Begin a relay test at `setpoint_c`. The switch is driven only by the cycle while this is active."""
+        """Begin a relay test at `setpoint_c`. The heater follows the test only while control is on and no gate is closed."""
         self._tuner = RelayTuner(setpoint_c=setpoint_c)
         self._autotune_result = None
 
-    def _autotune_step(self, room_c: float, now: float) -> None:
-        """One relay step. Drives the heater switch only when a tuner is active and a heater switch is configured."""
-        if self._tuner is None:
-            return
+    def _relay_tick(self, now: float, room_c: float | None, may_drive: bool) -> bool:
+        """One relay test step. Returns the heater state to command.
+
+        `may_drive` is False when control is off or a gate is closed. The test then records nothing and the
+        heater stays off, because the room is not under relay control.
+        """
+        if self._tuner is None or room_c is None or not may_drive:
+            return False
         want_on = self._tuner.step(room_c, now / 3600.0)
         if self._tuner.done:
-            self._autotune_result = self._tuner.result()
-            self._tuner = None
-        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
-        if switch and self._tuner is not None:
-            command_on = apply_polarity(bool(want_on), bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
-            self._heater_switch_driven = switch
-            self._heater_commanded_on = command_on
-            self.hass.async_create_task(
-                self.hass.services.async_call("switch", "turn_on" if command_on else "turn_off", {"entity_id": switch}, blocking=True)
-            )
+            self._finish_relay()
+            return False
+        return want_on
+
+    def _finish_relay(self) -> None:
+        """Keep the result and end the test. The heater stays off this step and the PWM path resumes on the next."""
+        self._autotune_result = self._tuner.result()
+        self._tuner = None
 
     def _save_payload(self) -> dict[str, Any]:
         return {"entries": [asdict(e) for e in self._entries]}
@@ -525,6 +527,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _pwm_timer(self, _when: datetime) -> None:
         """Runs at an off edge or a window end. Recomputes the state and drives the switch when control is on."""
+        if self._tuner is not None:
+            return  # a relay test owns the heater switch until it ends
         self._pwm_step(dt_util.utcnow().timestamp())
         if self.entry.data.get(CONF_CONTROL) and self._heater_switch():
             await self._drive_heater_switch()
@@ -558,11 +562,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         pct = self._pwm_output_pct
         if driving and (self._heater_gated or self._ac_cooling_tick or room_c is None or room_c >= self._heat_on_below_c):
             pct = 0.0
-        self._pwm_pct_now = pct
-        self._pwm_step(now)
+        relay_running = self._tuner is not None
+        if relay_running:
+            # The relay test replaces the PWM output. The PWM timers stay cancelled until the test ends.
+            self._cancel_pwm_timers()
+            self._pwm_on_now = self._relay_tick(now, room_c, driving and not self._heater_gated)
+        else:
+            self._pwm_pct_now = pct
+            self._pwm_step(now)
         heater_on = self._pwm_on_now
         result["heater_pwm_on"] = heater_on
-        failed = self._heating_check(now, driving and pct > 0, heater_on, room_c)
+        failed = self._heating_check(now, driving and pct > 0 and not relay_running, heater_on, room_c)
         result["heating_failure"] = failed
         self._report_heating_failure(failed)
         if driving:
@@ -846,10 +856,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._samples_since_fit = 0
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result = self._forecast(now)
-        rooms_tune = self._rooms()
-        if rooms_tune:
-            self._autotune_step(statistics.median(rooms_tune), now)
-        result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         result["sensors_stalled"] = self._stalled_sensors(now)
         self._report_stalls(result["sensors_stalled"])
         result["external_change"] = self._external_change()
@@ -1013,6 +1019,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heater_state.state if heater_state is not None else None,
         )
         result["safety_output_pct"] = safety_output(bool(result["sensors_stalled"]), 100.0, fallback_pct=0.0)
+        result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         if valve_opening is not None:
             await self._drive_valve(valve_opening)
         return result
