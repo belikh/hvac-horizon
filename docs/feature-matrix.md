@@ -116,7 +116,7 @@ This file reflects the code on `main` at the time of the last update. Update it 
 | TRV or valve control | VT, RM | drives (valve entity, if configured) |
 | Modulating valve opening | RM, VT | drives (valve entity, if configured) |
 | Valve anti-seize exercise | RM | pure |
-| TRV offset learning | RM | missing |
+| TRV offset learning | RM | pure (trv_offset and corrected_setpoint; no TRV in the house, so no caller) |
 | Radiator and underfloor residual heat | RM | missing |
 | Heat source selection (boiler or AC) | RM | drives (outdoor temperature picks the source; the boiler switch follows demand) |
 | Central boiler activation | VT | drives (boiler switch, if configured) |
