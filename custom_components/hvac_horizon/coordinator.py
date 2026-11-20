@@ -31,6 +31,7 @@ from custom_components.hvac_horizon.decide import Mode, Preset, RoomState, Setti
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     classify_day,
+    economizer_phase,
     forecast_highs,
     natural_ventilation_window,
     daily_briefing,
@@ -176,6 +177,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._minutes_in_open: float = 0.0
+        self._last_economizer_t: float | None = None
         self._forecast_highs: list[float] = []
         self._weather_checked_min: float | None = None
         self._pwm_output_pct: float = 0.0
@@ -669,6 +672,21 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
         result["window_advice"] = self._window_advice()
+        outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        rooms_econ = self._rooms()
+        if outdoor_now is not None and rooms_econ:
+            phase = economizer_phase(
+                outdoor_now,
+                statistics.median(rooms_econ),
+                float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+                self._minutes_in_open,
+            )
+            if phase == "off":
+                self._minutes_in_open = 0.0
+            elif self._last_economizer_t is not None:
+                self._minutes_in_open += (now - self._last_economizer_t) / 60.0
+            self._last_economizer_t = now
+            result["economizer"] = phase
         low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None

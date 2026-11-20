@@ -276,6 +276,22 @@ def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: f
     return "hold"
 
 
+def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0) -> str:
+    """Two-phase window cooling advice: 'off', 'open_windows' or 'fan_assist'.
+
+    'off' when outdoors is above `max_outdoor_c` or less than `min_delta_c` cooler than indoors.
+    Otherwise 'fan_assist' when the room is above `comfort_c` after `fan_after_min` minutes of open windows, else 'open_windows'.
+    Ported from ClimateAdvisor's economizer FSM. Publishes advice only.
+    """
+    if min_delta_c < 0 or fan_after_min <= 0:
+        raise ValueError("min_delta_c must be >= 0 and fan_after_min must be > 0")
+    if outdoor_c > max_outdoor_c or outdoor_c > indoor_c - min_delta_c:
+        return "off"
+    if indoor_c > comfort_c and minutes_in_open >= fan_after_min:
+        return "fan_assist"
+    return "open_windows"
+
+
 def comfort_band(comfort_c: float, band_c: float = 1.0) -> tuple[float, float]:
     """Heat and cool edges around comfort. Heating starts below the low edge, cooling above the high edge.
 

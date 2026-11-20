@@ -115,6 +115,20 @@ async def test_window_advice_open_when_outdoor_cooler(hass, enable_custom_integr
     assert entry.runtime_data.data["window_advice"] == "open"
 
 
+async def test_economizer_opens_windows_when_outdoor_is_cool(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)  # rooms 26.0 and 26.2 C, comfort defaults to 24.0 C
+    hass.services.async_register("climate", "set_hvac_mode", lambda call: None)
+    hass.services.async_register("climate", "set_temperature", lambda call: None)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["economizer"] == "open_windows"
+
+
 async def test_samples_survive_unload_and_setup(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)

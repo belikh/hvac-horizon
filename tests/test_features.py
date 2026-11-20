@@ -4,6 +4,7 @@ from custom_components.hvac_horizon.features import (
     DayType,
     air_quality_ventilation,
     classify_day,
+    economizer_phase,
     forecast_highs,
     humidity_action,
     minimum_time_ok,
@@ -644,3 +645,28 @@ class ShedPlanTests(unittest.TestCase):
     def test_negative_margin_raises(self):
         with self.assertRaises(ValueError):
             shed_plan(100.0, 4000.0, self.LOADS, margin_w=-1.0)
+
+
+class TestEconomizerPhase(unittest.TestCase):
+    def test_cool_outdoor_opens_windows(self):
+        self.assertEqual(economizer_phase(18.0, 26.0, 24.0, 0.0), "open_windows")
+
+    def test_too_hot_outdoors_is_off(self):
+        self.assertEqual(economizer_phase(25.0, 30.0, 24.0, 0.0), "off")
+
+    def test_warm_room_after_30_minutes_gives_fan_assist(self):
+        self.assertEqual(economizer_phase(18.0, 26.0, 24.0, 30.0), "fan_assist")
+
+    def test_warm_room_before_30_minutes_stays_open_windows(self):
+        self.assertEqual(economizer_phase(18.0, 26.0, 24.0, 29.0), "open_windows")
+
+    def test_room_at_comfort_stays_open_windows(self):
+        self.assertEqual(economizer_phase(18.0, 24.0, 24.0, 45.0), "open_windows")
+
+    def test_negative_delta_raises(self):
+        with self.assertRaises(ValueError):
+            economizer_phase(18.0, 26.0, 24.0, 0.0, min_delta_c=-1.0)
+
+    def test_zero_fan_after_raises(self):
+        with self.assertRaises(ValueError):
+            economizer_phase(18.0, 26.0, 24.0, 0.0, fan_after_min=0.0)
