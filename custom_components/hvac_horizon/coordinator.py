@@ -1045,8 +1045,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
         current = climate.attributes.get("temperature")
-        step = float(climate.attributes.get("target_temp_step") or 1.0)
-        setpoint = round_to_step(action.setpoint_c, step)
+        # Round to the device's own step only when it reports one. A device without a step gets the raw setpoint.
+        raw_step = climate.attributes.get("target_temp_step")
+        try:
+            step = float(raw_step) if raw_step is not None else 0.0
+        except (TypeError, ValueError):
+            step = 0.0
+        setpoint = round_to_step(action.setpoint_c, step) if step > 0 else float(action.setpoint_c)
         if current is None or float(current) != setpoint:
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": setpoint}, blocking=True

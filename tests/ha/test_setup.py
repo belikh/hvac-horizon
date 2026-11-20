@@ -198,7 +198,7 @@ async def test_control_on_sends_setpoint_when_room_is_hot(hass, enable_custom_in
     hass.services.async_register("climate", "set_hvac_mode", record_mode)
     hass.services.async_register("climate", "set_temperature", record_temp)
     # Start from an off AC at 22 C, so the cool mode and the setpoint both have to be written.
-    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
     data = dict(config_data, control=True)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
