@@ -718,6 +718,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         switch = self._heater_switch()
         if not switch:
             return
+        if not self._heater_gated and inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
+            # The inhibit window after a manual change keeps the switch as it is. A closed gate still turns it off.
+            return
         command_on = apply_polarity(self._pwm_on_now, bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
         await self._command_heater(switch, command_on)
 
@@ -1360,9 +1363,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
         """Open or close the window actuator on the natural ventilation or economizer advice.
 
-        The gates (control on, unlocked, house not away, no stalled sensor) stop an open only. A close, when this
-        integration opened the actuator and the advice has ended, goes ahead whatever the gates say.
-        The actuator is written only on a state change.
+        The gates (control on, unlocked, house not away, no stalled sensor, not in the inhibit window after a manual
+        change) stop an open only. A close, when this integration opened the actuator and the advice has ended, goes
+        ahead whatever the gates say. The actuator is written only on a state change.
         """
         actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
         state = self.hass.states.get(actuator) if actuator else None
@@ -1379,7 +1382,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if command is None:
             return
         house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
-        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or bool(result.get("sensors_stalled"))
+        inhibit_on = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
+        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or bool(result.get("sensors_stalled")) or inhibit_on
         if command == "open" and gated:
             return
         domain = actuator.split(".", 1)[0]

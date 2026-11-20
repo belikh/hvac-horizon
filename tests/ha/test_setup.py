@@ -1306,6 +1306,37 @@ async def test_window_actuator_closes_after_a_gate_closes_when_the_advice_ends(h
     assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
 
 
+async def test_inhibit_window_blocks_the_window_open_until_it_ends(hass, enable_custom_integrations, config_data, freezer):
+    # Outdoor 26 C keeps the advice closed. A manual change arms the inhibit, then outdoor drops to 18 C and the advice says open.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="26.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    coordinator = entry.runtime_data
+    coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert coordinator.data["window_advice"] == "open"
+    assert calls == [], "no open command inside the inhibit window"
+    # The inhibit ends after 30 minutes. The sensors report again, so the stall gate does not block the open.
+    freezer.tick(timedelta(minutes=31))
+    set_room(hass, "24.0")
+    hass.states.async_set(OUTDOOR, "18.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert calls == [("open", "cover.test_window")]
+
+
+async def test_inhibit_window_still_allows_the_window_close(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    assert calls == [("open", "cover.test_window")]
+    entry.runtime_data._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    hass.states.async_set(OUTDOOR, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["window_advice"] == "close"
+    assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
+
+
 PEER_ROOM = "sensor.peer_room"
 PEER_CLIMATE = "climate.peer_ac"
 PEER_VALVE = "number.peer_valve"
@@ -1876,6 +1907,32 @@ async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrat
     coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 60.0
     await refresh(hass, entry)
     assert coordinator._pwm_output_pct == 40.0
+
+
+async def test_inhibit_window_keeps_the_heater_switch_off(hass, enable_custom_integrations, config_data, freezer):
+    # The held output is 40 %, so the PWM window is on. The inhibit must stop the turn_on.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0")
+    coordinator = entry.runtime_data
+    calls.clear()
+    hass.states.async_set(HEATER, "off")
+    coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    coordinator.set_heater_output(40.0)
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+
+
+async def test_closed_gate_still_turns_the_heater_switch_off_during_inhibit(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, outdoor="10.0", room="20.0", heater_state="on")
+    coordinator = entry.runtime_data
+    calls.clear()
+    coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    coordinator.set_heater_output(40.0)
+    await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
+    await refresh(hass, entry)
+    assert coordinator._heater_gated
+    assert "turn_off" in calls
 
 
 # The AC cools above these values. Eco and boost use the setpoints set in the entry; comfort is 24 C.
