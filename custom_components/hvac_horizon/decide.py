@@ -45,7 +45,10 @@ def decide(state: RoomState, settings: Settings) -> Action:
     if state.window_open_min >= settings.window_delay_min:
         return Action(Mode.OFF, None, f"window open {state.window_open_min:.0f} min")
     if not state.someone_home:
-        return Action(Mode.COOL, settings.away_c, "away setback")
+        # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
+        if state.room_c > settings.away_c:
+            return Action(Mode.COOL, settings.away_c, "away setback")
+        return Action(Mode.OFF, None, "away, room within setback")
     if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
     if state.room_c > settings.comfort_c:

@@ -25,7 +25,7 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(a.mode, Mode.OFF)
 
     def test_away_uses_away_setpoint(self):
-        a = decide(state(someone_home=False), S)
+        a = decide(state(someone_home=False, room_c=28.0), S)
         self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 27.0))
 
     def test_precool_starts_when_planner_says(self):
@@ -52,3 +52,13 @@ class DecideTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SafetyFixTests(unittest.TestCase):
+    def test_away_does_not_switch_on_for_a_cool_room(self):
+        a = decide(state(someone_home=False, room_c=25.0), S)  # away_c is 27
+        self.assertEqual(a.mode, Mode.OFF)
+
+    def test_away_holds_setback_for_a_hot_room(self):
+        a = decide(state(someone_home=False, room_c=28.0), S)
+        self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 27.0))

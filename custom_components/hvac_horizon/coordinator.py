@@ -234,7 +234,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._window_open_since = None
         window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
         presence = self._optional(CONF_PRESENCE)
-        someone_home = presence is None or presence.state == "home"
+        # A binary presence sensor reports "on" for home. A person or tracker reports "home".
+        someone_home = presence is None or presence.state in ("on", "home")
         precool = None
         if result.get("minutes") is not None and result.get("status") == "reachable":
             precool = 0.0
@@ -251,10 +252,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         action = decide(state, settings)
         result["action"] = f"{action.mode.value}: {action.reason}"
+        climate = self.hass.states.get(climate_id)
+        if climate is None or climate.state in ("unavailable", "unknown"):
+            return
+        # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF:
-            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
-        else:
+            if climate.state != "off":
+                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+            return
+        if climate.state != "cool":
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
+        current = climate.attributes.get("temperature")
+        if current is None or float(current) != float(action.setpoint_c):
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
             )
