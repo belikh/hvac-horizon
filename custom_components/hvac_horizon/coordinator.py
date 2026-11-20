@@ -26,8 +26,10 @@ from custom_components.hvac_horizon.control import precool_start_in_min
 from .const import (
     CONF_AWAY_C,
     CONF_CLIMATE,
+    CONF_CO2,
     CONF_COMFORT_C,
     CONF_MIN_OFF_MIN,
+    CONF_PM25,
     CONF_MIN_ON_MIN,
     CONF_CONTROL,
     CONF_ENERGY,
@@ -258,6 +260,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         action = decide(state, settings)
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
+        result["ventilation"] = air_quality_ventilation(
+            _float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25))
+        ).reason
+        result["humidity"] = humidity_action(_float(self._optional(CONF_HUMIDITY))).reason
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         # Minimum on and off times: do not change state until the current state has lasted long enough.

@@ -29,3 +29,5 @@ DEFAULT_COMFORT_C = 24.0
 CONF_SCHEDULE = "schedule"  # optional entity; its next_event attribute is the pre-cool deadline
 CONF_MIN_ON_MIN = "min_on_min"
 CONF_MIN_OFF_MIN = "min_off_min"
+CONF_CO2 = "co2"
+CONF_PM25 = "pm25"
