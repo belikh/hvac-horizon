@@ -2258,3 +2258,20 @@ async def test_model_calls_follow_mode_changes_and_stop_at_the_budget(hass, enab
     assert len(calls) == 2
     assert entry.runtime_data.data["ai_calls_today"] == 2
     assert entry.runtime_data.data["investigation_ai"] == "The room is above the comfort target."
+
+
+async def test_target_uses_the_last_good_price_when_the_price_sensor_drops(hass, enable_custom_integrations, config_data, freezer):
+    # 0.50 $/kWh is above the 0.40 band top, so the target shifts by the full 1 K: 24.0 to 25.0 C.
+    entry, _, _ = await _setup_ac_only(hass, config_data, room="26.0")
+    hass.states.async_set(PRICE, "0.50", {"unit_of_measurement": "$/kWh"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["target_c"] == 25.0
+    hass.states.async_set(PRICE, STATE_UNAVAILABLE, {"unit_of_measurement": "$/kWh"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["price_used_per_kwh"] == 0.50
+    assert entry.runtime_data.data["target_c"] == 25.0
+    # After the 60 minute limit the last good price is no longer used, and the target returns to comfort.
+    freezer.tick(timedelta(minutes=61))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["price_used_per_kwh"] is None
+    assert entry.runtime_data.data["target_c"] == 24.0

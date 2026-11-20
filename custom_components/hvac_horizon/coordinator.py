@@ -1213,7 +1213,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         eco_c = _optional_float(self.entry.data.get(CONF_ECO_C))
         if energy_weight > 0 and eco_c is not None:
             comfort = comfort_energy_setpoint(comfort, eco_c, min(max(energy_weight, 0.0), 1.0))
-        price = _float(self._optional(CONF_PRICE))
+        # The last good price stands in for a dropped price sensor for up to 60 minutes (stale_price_fallback).
+        price = result.get("price_used_per_kwh")
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         target_c = vacation_target(
             vacation_on,
