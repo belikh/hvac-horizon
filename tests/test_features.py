@@ -412,6 +412,15 @@ class NaturalVentilationTests(unittest.TestCase):
         self.assertEqual(natural_ventilation_window(outdoor_c=23.5, indoor_c=24.5), "hold")
 
 
+class InhibitionTests(unittest.TestCase):
+    def test_inhibited_until_period_ends(self):
+        from custom_components.hvac_horizon.features import inhibited
+
+        self.assertTrue(inhibited(10.0, 30.0))
+        self.assertFalse(inhibited(30.0, 30.0))
+        self.assertFalse(inhibited(10.0, None))
+
+
 class LockTests(unittest.TestCase):
     def test_lock_blocks_control(self):
         from custom_components.hvac_horizon.features import lock_allows_control

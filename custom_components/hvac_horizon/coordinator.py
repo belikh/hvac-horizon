@@ -34,6 +34,7 @@ from custom_components.hvac_horizon.features import (
     daily_briefing,
     check_pin,
     heating_failure,
+    inhibited,
     hot_streak,
     lock_allows_control,
     learning_suggestion,
@@ -102,6 +103,7 @@ from .const import (
     DEFAULT_WINDOW_DELAY_MIN,
     DOMAIN,
     FIT_EVERY_N_SAMPLES,
+    INHIBIT_MIN,
     MAX_ENTRIES,
     SAMPLE_INTERVAL_S,
     STORE_VERSION,
@@ -155,6 +157,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tuner: RelayTuner | None = None
         self._stall_reported = False
         self._locked = False
+        self._inhibit_until_min: float | None = None
         self._last_written_setpoint: float | None = None
         self._autotune_result = None
         self._last_good_price_at: float | None = None
@@ -593,6 +596,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate_id = self.entry.data[CONF_CLIMATE]
         if not lock_allows_control(self._locked):
             result["action"] = "locked"
+            return
+        now_min = now / 60.0
+        if self._external_change():
+            self._inhibit_until_min = now_min + INHIBIT_MIN
+        if inhibited(now_min, self._inhibit_until_min):
+            result["action"] = "inhibited after a manual change"
             return
         rooms = self._rooms()
         if not rooms:

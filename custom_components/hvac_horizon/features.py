@@ -376,6 +376,14 @@ def ventilation_rate_from_co2(co2_ppm: float | None, low_ppm: float = 800.0, hig
     return (co2_ppm - low_ppm) / (high_ppm - low_ppm)
 
 
+def inhibited(now_min: float, inhibit_until_min: float | None) -> bool:
+    """True while an inhibition period is running. Ported from Versatile Thermostat's inhibition manager.
+
+    After a manual change the integration stops sending commands until `inhibit_until_min`.
+    """
+    return inhibit_until_min is not None and now_min < inhibit_until_min
+
+
 def lock_allows_control(locked: bool) -> bool:
     """Control commands are allowed only when the lock is off. Ported from Versatile Thermostat's lock."""
     return not locked
