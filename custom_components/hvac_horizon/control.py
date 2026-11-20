@@ -52,3 +52,22 @@ def plan_precool(
     if best is None:
         return None
     return best
+
+
+def precool_start_in_min(
+    fit: Fit,
+    room_c: float,
+    setpoint_c: float,
+    outdoor_c: float,
+    running_power_kw: float,
+    minutes_to_deadline: float | None,
+    prices: list[PriceSlot],
+) -> float | None:
+    """Minutes from now to start pre-cooling, or None when there is no deadline or no feasible plan.
+
+    A deadline is the time the room should reach the setpoint. With no deadline the planner stays idle.
+    """
+    if minutes_to_deadline is None or minutes_to_deadline <= 0:
+        return None
+    plan = plan_precool(fit, room_c, setpoint_c, outdoor_c, running_power_kw, minutes_to_deadline, prices)
+    return None if plan is None else plan.start_in_min

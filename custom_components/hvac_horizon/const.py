@@ -26,3 +26,4 @@ DEFAULT_AWAY_C = 27.0
 DEFAULT_WINDOW_DELAY_MIN = 10.0
 CONF_COMFORT_C = "comfort_c"
 DEFAULT_COMFORT_C = 24.0
+CONF_SCHEDULE = "schedule"  # optional entity; its next_event attribute is the pre-cool deadline

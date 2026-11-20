@@ -37,3 +37,22 @@ class PrecoolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrecoolStartTests(unittest.TestCase):
+    def test_no_deadline_means_no_start(self):
+        from custom_components.hvac_horizon.control import precool_start_in_min
+
+        self.assertIsNone(precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, None, []))
+
+    def test_start_is_returned_for_a_reachable_deadline(self):
+        from custom_components.hvac_horizon.control import precool_start_in_min
+
+        start = precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, 300.0, [])
+        self.assertIsNotNone(start)
+        self.assertGreaterEqual(start, 0.0)
+
+    def test_unreachable_deadline_returns_none(self):
+        from custom_components.hvac_horizon.control import precool_start_in_min
+
+        self.assertIsNone(precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, 60.0, []))

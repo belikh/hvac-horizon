@@ -20,7 +20,7 @@ from custom_components.hvac_horizon.collector import Entry, has_enough_cycles, p
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
-from custom_components.hvac_horizon.control import plan_precool
+from custom_components.hvac_horizon.control import precool_start_in_min
 
 from .const import (
     CONF_AWAY_C,
@@ -28,6 +28,7 @@ from .const import (
     CONF_COMFORT_C,
     CONF_CONTROL,
     CONF_ENERGY,
+    CONF_SCHEDULE,
     CONF_HUMIDITY,
     CONF_OUTDOOR,
     CONF_POWER,
@@ -236,9 +237,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         presence = self._optional(CONF_PRESENCE)
         # A binary presence sensor reports "on" for home. A person or tracker reports "home".
         someone_home = presence is None or presence.state in ("on", "home")
-        precool = None
-        if result.get("minutes") is not None and result.get("status") == "reachable":
-            precool = 0.0
+        precool = self._precool_start(now, rooms)
         state = RoomState(
             room_c=statistics.median(rooms),
             window_open_min=window_open_min,
@@ -267,6 +266,36 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": action.setpoint_c}, blocking=True
             )
+
+    def _precool_start(self, now: float, rooms: list[float]) -> float | None:
+        """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""
+        schedule = self._optional(CONF_SCHEDULE)
+        if schedule is None or self._fit is None:
+            return None
+        raw = schedule.attributes.get("next_event")
+        try:
+            deadline = datetime.fromisoformat(raw).timestamp() if raw else None
+        except (TypeError, ValueError):
+            return None
+        if deadline is None:
+            return None
+        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        setpoint = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        if climate is None or outdoor is None or not rooms:
+            return None
+        power_kw = running_power_kw(self._entries, now) or 0.0
+        if power_kw <= 0:
+            return None
+        return precool_start_in_min(
+            self._fit,
+            statistics.median(rooms),
+            setpoint,
+            outdoor,
+            power_kw,
+            (deadline - now) / 60.0,
+            self._price_forecast(now),
+        )
 
     def _forecast(self, now: float) -> dict[str, Any]:
         result: dict[str, Any] = {
