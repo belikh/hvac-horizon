@@ -1,0 +1,97 @@
+---
+title: Read the forecast
+summary: What the HVAC Horizon sensors show, what each status means, and how long the model takes to learn.
+section: guides
+order: 20
+audience: users
+status: draft
+---
+
+## Forecast sensors
+
+Six sensors belong to each entry. The forecast is in the first three.
+
+| Sensor | Key | Unit | Meaning |
+| :-- | :-- | :-- | :-- |
+| Minutes to setpoint | `minutes` | min | Time for the room to reach the target at the current power. |
+| Energy to setpoint | `energy_kwh` | kWh | AC energy used until the target is reached. |
+| Cost to setpoint | `cost` | none | Energy priced slot by slot, from the price forecast. |
+| Status | `status` | none | State of the forecast. See the table below. |
+| Samples collected | `samples` | none | Stored readings. The store keeps up to 8640 readings, 30 days at 5 minutes. |
+| Forecast error | `forecast_error_min` | min | Median error of the backtest runs. |
+
+The Status sensor holds more values in its attributes. Its `reason` attribute explains the current state.
+
+## Status values
+
+| `status` | Meaning |
+| :-- | :-- |
+| `learning` | No model yet. `reason` says what is missing. |
+| `no input` | A room sensor, the outdoor sensor or the climate entity is missing. |
+| `no running power yet` | The AC power reads below 0.2 kW, and the stored readings hold no running power. |
+| `at setpoint` | The room is at or below the target. Minutes, energy and cost are 0. |
+| `reachable` | The forecast gives minutes, energy and cost. |
+| `unreachable` | The model does not reach the target within 12 hours at the current power. |
+
+Observe mode compares the room with the climate entity's setpoint. Control mode compares it with `comfort_c`.
+
+## Learning
+
+The model learns from each 5-minute reading. A reading holds the room temperature, the outdoor temperature, the AC power, the AC mode, the setpoint, and the price when set.
+
+The first model needs the following. Each rule is a code limit.
+
+1. At least 36 readings with the AC on and 36 with it off. That is 3 hours of each state.
+2. At least 3 separate AC runs.
+3. Outdoor minus room temperature varies by at least 1 K.
+4. AC power varies by at least 0.05 kW.
+
+Until these hold, `status` stays `learning`. The `reason` attribute shows the rule that fails. The model refits every 12 readings, about one hour. At setup, the integration reads up to 10 days of recorder history.
+
+Learning time depends on how often the AC runs. Run the AC through both states to reach the first fit sooner.
+
+## Accuracy
+
+The backtest replays past cool-downs. It fits only on readings before each cool-down, then compares the prediction with the measured time.
+
+- `forecast_error_min` is the median absolute error, in minutes, over all backtest runs.
+- The `accuracy_pairs` attribute lists the last 20 runs. Each entry holds `predicted_min`, `measured_min` and `error_min`. The error is predicted minus measured.
+
+A run needs 60 readings, 5 hours, before its cool-down starts.
+
+## Status attributes
+
+These attributes sit on the Status sensor.
+
+| Attribute | Meaning |
+| :-- | :-- |
+| `reason` | Why the forecast or the fit is in its current state. |
+| `k_per_h`, `g_k_per_h`, `c_k_per_kw` | Coefficients of the fitted model: heat gain toward outdoors, constant gain, and cooling per kW. |
+| `investigation` | Rule-based answer to why the AC runs or does not, with recent actions. |
+| `investigation_ai` | Answer from the conversation agent. Set when the AI conversation field is set. |
+| `investigation_ai_mode` | The AC mode that the AI answer explains. |
+| `ai_calls_today` | Model calls made today. |
+| `investigation_report` | The 24-hour report from `generate_investigation_report`. None until the service runs. |
+| `investigation_report_source` | `model` when the agent wrote the report, `rule` otherwise. |
+| `investigation_report_at` | Time the report was stored, ISO format. |
+| `room_rate_coefficients` | Rates fitted from the AC-off and AC-on readings. Holds `k_per_h`, `g_k_per_h`, `c_k_per_h_per_kw`, `samples_off` and `samples_on`. None until fitted. |
+| `auto_tpi_gains` | Online gains for cooling (`cool`) and heating (`heat`). Each starts at 1.0. The cool gain stays between 0.5 and 1.5 and moves at most 0.02 per interval. |
+| `autotune` | PID gains `kp`, `ki` and `kd` after a relay test. None before. |
+
+The AI calls are limited by `ai_budget_per_day`. Absent or 0 means no model calls.
+
+## Published status keys
+
+Some status sensors show the control state. They update with control on.
+
+| Sensor | Meaning |
+| :-- | :-- |
+| Target temperature (`target_c`) | The planned target for this tick. |
+| Preset (`preset`) | The preset in use: `comfort`, `eco`, `boost` or `away`. See [[guides/services-and-presets]]. |
+| Cool above (`cool_on_above_c`) | The AC cools when the room is above this value. |
+| Heat below (`heat_on_below_c`) | The heater heats when the room is below this value. It is 0.5 K under the heat target. |
+
+:::see-also
+- [[guides/troubleshoot]]: what to check when the forecast stays in one state.
+- [[guides/services-and-presets]]: the `what_if` and `reset_learning` services.
+:::

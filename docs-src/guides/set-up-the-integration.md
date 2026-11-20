@@ -1,0 +1,123 @@
+---
+title: Set up the integration
+summary: Add HVAC Horizon with the AC, power, room and outdoor sensors, then turn on control when you are ready.
+section: guides
+order: 10
+audience: users
+status: draft
+---
+
+[![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=hvac_horizon)
+
+## Before you start
+
+Four fields are required. Have these entities ready.
+
+| Field | Form label | Entity |
+| :-- | :-- | :-- |
+| `climate` | AC climate entity | A `climate` entity for the AC |
+| `power` | AC power sensor (W) | A `sensor` with device class `power`, in watts |
+| `room_sensors` | Room temperature sensors | One or more `sensor` entities with device class `temperature` |
+| `outdoor` | Outdoor temperature sensor | A `sensor` with device class `temperature` |
+
+## Add the integration
+
+1. Select **Add integration** above. Or open **Settings > Devices & services**, select **Add integration**, and search for **HVAC Horizon**.
+2. Fill in the four required fields.
+3. Select **Submit**.
+
+The entry takes the friendly name of the climate entity. One climate entity can have one entry. A second entry for the same entity stops with `This AC is already set up.`
+
+The integration takes a sample every 5 minutes.
+
+## Optional fields
+
+Every optional field is off until you set it, unless the table gives a default. Labels are the form labels.
+
+### Price and energy
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `price` | Electricity price sensor (optional) | none | Sets the price used for cost. Without it the target does not move with price. |
+| `price_cheap` | Cheap price threshold | 0.15 | At or below this price the target moves 1 K down. |
+| `price_expensive` | Expensive price threshold | 0.40 | At or above this price the target moves 1 K up. |
+| `energy` | Energy counter (optional, kWh) | none | Stored with each reading. |
+
+The price thresholds use the same unit as the price sensor, per kWh. Between the thresholds the shift is linear.
+
+### Presence, motion and windows
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `presence` | Presence sources | none | A source in state `on` or `home` means home. All sources away for `away_delay_min` means away. |
+| `away_delay_min` | Minutes without presence before away mode | 30 | Delay before an empty house counts as away. |
+| `motion` | Motion sensor | none | When set, motion decides occupancy. |
+| `motion_away_min` | Minutes without motion before the room counts as unoccupied | 30 | Used only with `motion`. Minimum 1. |
+| `window` | Window or door sensor | none | A window open longer than `window_delay_min` pauses cooling. The heater is also gated. |
+| `window_delay_min` | Minutes a window may stay open before the AC pauses | 10 | |
+| `window_azimuth` | Window facing direction, degrees from north | 180 | Direction of the window for solar gain. |
+| `window_area_m2` | Window area, m² | none | Needed for solar gain. |
+| `irradiance` | Irradiance sensor on the window, W/m² | none | Measured sun on the window for solar gain. |
+| `cover` | Cover or blind | none | Closes the cover above 0.5 kW of solar gain. Opens it again below that. |
+
+### Setpoints and presets
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `comfort_c` | Comfort setpoint (°C) | 24.0 | The normal target. Range 16 to 30. |
+| `eco_c` | Eco setpoint (°C) | none | Target for the eco preset. An unoccupied house cools to this value when set. |
+| `boost_c` | Boost setpoint (°C) | 23.0 | Target for the boost preset. |
+| `away_c` | Away setpoint (°C) | 27.0 | Cooling target for an unoccupied house when `eco_c` is not set. Also the away preset target. |
+| `heat_eco_c` | Heat setpoint under eco and when motion is idle (°C) | comfort minus 1 | Heat target for eco. |
+| `heat_boost_c` | Heat setpoint under boost (°C) | comfort plus 1 | Heat target for boost. |
+| `comfort_energy_weight` | Comfort to eco weight, 0 to 1 | 0 | 0 keeps the comfort target. 1 uses the eco setpoint. Needs `eco_c`. |
+| `vacation` | Vacation switch, on means vacation mode | none | While on, cooling holds `vacation_c` and heating holds 16 °C. |
+| `vacation_c` | Vacation setpoint (°C) | 27.0 | Cooling target while vacation is on. |
+| `schedule_blocks` | Schedule blocks | empty | Presets by hour of day. See [[guides/services-and-presets]]. |
+| `schedule` | Schedule entity (optional) | none | Its `next_event` attribute, an ISO time, sets the deadline for pre-cooling. |
+
+### Heater and limits
+
+| Field | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `heater_switch` | Heater switch (optional) | none | Switch for the heater plug. The heater output runs in 10 minute windows. |
+| `heater_inverted` | Heater switch is inverted (on means off) | off | Swaps the on and off commands for the heater switch. |
+| `heater_algorithm` | Heater algorithm | `pid` | `pid` or `tpi`. |
+| `output_min` | Minimum heater output (%) | 0 | Lower limit for the heater output. |
+| `output_max` | Maximum heater output (%) | 100 | Upper limit for the heater output. |
+| `output_min_entity` | Minimum heater output number entity (optional) | none | When set, its value overrides `output_min`. |
+| `output_max_entity` | Maximum heater output number entity (optional) | none | When set, its value overrides `output_max`. |
+| `min_on_min` | Minimum AC on time (min) | 5 | Shortest time the AC runs before a mode change. |
+| `min_off_min` | Minimum AC off time (min) | 3 | Shortest time the AC stays off before a mode change. |
+| `stall_window_s` | Seconds without a report before a sensor counts as stalled | 900 | Range 300 to 3600 seconds. See [[guides/troubleshoot]]. |
+| `lock_pin` | Lock PIN (optional) | none | Needed to lock control. See [[guides/troubleshoot]]. |
+| `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel | off | Adds this entry to one shared sidebar panel. |
+
+The form also has fields for fans, humidity, CO2, PM2.5, boilers, valves, a second AC, load shedding, a peer room and an AI conversation agent. Each label says what its field does.
+
+## Observe only and control
+
+Observe only is the default. The `control` field is off.
+
+With control off, the integration reads sensors, learns and publishes forecasts. It does not set the AC mode or setpoint, and it does not drive the heater switch.
+
+To turn control on:
+
+1. Open the HVAC Horizon entry and start its reconfigure action. The form is titled **Edit HVAC Horizon**.
+2. Turn on **Let HVAC Horizon control the AC (off = observe only)**.
+3. Select **Submit**. The entry reloads.
+
+The form reports `Settings updated. Stored samples are kept.` when the save works.
+
+With control on, `target_c` and `preset` on the Status sensor show the planned values. With control off, `target_c` shows the comfort setpoint.
+
+## Change settings later
+
+The reconfigure form replaces the whole set of fields. A field you clear is removed. The lock PIN is the exception: a blank PIN box keeps the stored PIN.
+
+Stored samples stay. Only the `reset_learning` service clears them. See [[guides/services-and-presets]].
+
+:::see-also
+- [[guides/read-the-forecast]]: what the sensors show after setup.
+- [[guides/services-and-presets]]: presets, schedule blocks and the services.
+:::

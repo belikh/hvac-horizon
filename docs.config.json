@@ -17,10 +17,22 @@
       "icon": "home"
     },
     {
+      "id": "guides",
+      "title": "Guides",
+      "summary": "Set up, read and troubleshoot the integration.",
+      "icon": "menu"
+    },
+    {
       "id": "concepts",
       "title": "Concepts",
       "summary": "How it works and why it is built this way.",
       "icon": "search"
+    },
+    {
+      "id": "develop",
+      "title": "Develop",
+      "summary": "Architecture, tests and release.",
+      "icon": "settings"
     }
   ]
 }
