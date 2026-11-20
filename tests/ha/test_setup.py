@@ -1065,6 +1065,43 @@ async def test_heater_pid_publishes_output_with_control_on(hass, enable_custom_i
     assert 0.0 <= out <= 100.0
 
 
+async def test_tpi_duty_drives_the_heater_switch(hass, enable_custom_integrations, config_data, freezer):
+    # Room 20 C, target 24 C, outdoor 5 C. coef_int 0.1 and coef_ext 0.01 give 0.1 * 4 + 0.01 * 19 = 59 %.
+    # The switch turns on at the window start and off at 59 % of the 10-minute window.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    extra = {"comfort_c": 24.0, "heater_algorithm": "tpi", "tpi_coef_int": 0.1, "tpi_coef_ext": 0.01}
+    entry, calls = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra=extra)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    expected = 100.0 * (0.1 * (24.0 - 20.0) + 0.01 * (24.0 - 5.0))
+    assert coordinator.data["tpi_output_pct"] == pytest.approx(expected, abs=1.0)
+    assert coordinator._pwm_output_pct == pytest.approx(expected, abs=1.0)
+    assert "heater_pid_output" not in coordinator.data
+    # The fake switch service does not change state, so mark the switch on to match the turn_on it received.
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    freezer.tick(timedelta(minutes=5.5))
+    await coordinator._pwm_timer(dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert "turn_off" not in calls
+    freezer.tick(timedelta(minutes=0.5))
+    await coordinator._pwm_timer(dt_util.utcnow())
+    await hass.async_block_till_done()
+    # At least one turn_off: a real timer may fire too, because the freezer moves the loop clock.
+    assert "turn_off" in calls
+
+
+async def test_pid_algorithm_is_the_default_and_publishes_no_tpi_output(hass, enable_custom_integrations, config_data):
+    # Same inputs as the TPI test. Without heater_algorithm the PID sets the output and tpi_output_pct stays unset.
+    extra = {"comfort_c": 24.0}
+    entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="20.0", extra=extra)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    assert "tpi_output_pct" not in coordinator.data
+    assert 0.0 <= coordinator.data["heater_pid_output"] <= 100.0
+    assert coordinator._pwm_output_pct == pytest.approx(coordinator.data["heater_pid_output"], abs=0.01)
+
+
 async def test_version_1_default_eco_of_25_is_dropped_on_migration(hass, enable_custom_integrations, config_data, freezer):
     # Version 1 stored eco = 25 C as the form default. Migration drops it, so an empty house uses away_c.
     freezer.move_to("2026-11-20T10:00:00+00:00")

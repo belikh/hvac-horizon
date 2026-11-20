@@ -15,7 +15,15 @@ from .const import (
     CONF_DRY_FOR_HUMIDITY,
     CONF_AC_HEAT,
     CONF_AUTO_FAN,
+    CONF_HEATER_ALGORITHM,
     CONF_HEATER_KD,
+    CONF_HEATER_KI,
+    CONF_TPI_COEF_EXT,
+    CONF_TPI_COEF_INT,
+    DEFAULT_TPI_COEF_EXT,
+    DEFAULT_TPI_COEF_INT,
+    HEATER_ALGORITHM_PID,
+    HEATER_ALGORITHM_TPI,
     CONF_HEATER_KI,
     CONF_HEATER_KP,
     CONF_HEATER_SWITCH,
@@ -185,6 +193,19 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
             key(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
             key(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),
+            key(CONF_HEATER_ALGORITHM, default=defaults.get(CONF_HEATER_ALGORITHM, HEATER_ALGORITHM_PID)): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[HEATER_ALGORITHM_PID, HEATER_ALGORITHM_TPI],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_HEATER_ALGORITHM,
+                )
+            ),
+            key(CONF_TPI_COEF_INT, default=defaults.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=5, step=0.01, mode="box")
+            ),
+            key(CONF_TPI_COEF_EXT, default=defaults.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=1, step=0.001, mode="box")
+            ),
             key(CONF_WHOLE_HOUSE_FAN): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_LOCK_PIN, secret=True): selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)),
             key(CONF_COIL_DRY, default=defaults.get(CONF_COIL_DRY, False)): selector.BooleanSelector(),

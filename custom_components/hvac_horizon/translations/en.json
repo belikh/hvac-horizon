@@ -57,6 +57,9 @@
           "heater_kp": "Heater PID proportional gain",
           "heater_ki": "Heater PID integral gain (per hour)",
           "heater_kd": "Heater PID derivative time (hours)",
+          "heater_algorithm": "Heater algorithm",
+          "tpi_coef_int": "TPI coefficient for the room gap (per K, used with TPI)",
+          "tpi_coef_ext": "TPI coefficient for the outdoor gap (per K, used with TPI)",
           "whole_house_fan": "Whole-house fan switch (optional)",
           "lock_pin": "Lock PIN (optional)",
           "coil_dry": "Dry the AC coil after cooling",
@@ -131,6 +134,9 @@
           "heater_kp": "Heater PID proportional gain",
           "heater_ki": "Heater PID integral gain (per hour)",
           "heater_kd": "Heater PID derivative time (hours)",
+          "heater_algorithm": "Heater algorithm",
+          "tpi_coef_int": "TPI coefficient for the room gap (per K, used with TPI)",
+          "tpi_coef_ext": "TPI coefficient for the outdoor gap (per K, used with TPI)",
           "whole_house_fan": "Whole-house fan switch (optional)",
           "lock_pin": "Lock PIN (optional)",
           "coil_dry": "Dry the AC coil after cooling",
@@ -156,6 +162,14 @@
     },
     "error": {
       "invalid_schedule_blocks": "Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
+    }
+  },
+  "selector": {
+    "heater_algorithm": {
+      "options": {
+        "pid": "PID (default)",
+        "tpi": "TPI duty cycle (Versatile Thermostat rule)"
+      }
     }
   },
   "issues": {

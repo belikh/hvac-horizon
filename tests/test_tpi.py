@@ -1,6 +1,8 @@
 import math
 import unittest
 
+import pytest
+
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.model import NotEnoughData, Sample
 from custom_components.hvac_horizon.tpi import (
@@ -14,6 +16,7 @@ from custom_components.hvac_horizon.tpi import (
     heat_up_minutes,
     learn_heat_rate,
     learn_room_rates,
+    tpi_on_percent,
 )
 
 K, G, C = 0.3, 0.2, 1.4
@@ -163,3 +166,14 @@ class HeatGainTests(unittest.TestCase):
         self.assertEqual(adjust_heat_gain(1.0, self.heating_sample(0.25, power_kw=1.0), 50.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
         self.assertEqual(adjust_heat_gain(1.0, self.heating_sample(0.25), 0.0, heat_rate=4.0, k=0.0, g=0.0), 1.0)
 
+
+def test_tpi_on_percent_follows_the_vt_heat_rule():
+    # coef_int * (target - room) + coef_ext * (target - outdoor), in percent.
+    assert tpi_on_percent(24.0, 20.0, 5.0, 0.1, 0.01) == pytest.approx(59.0)
+    assert tpi_on_percent(22.0, 21.0, 10.0, 0.5, 0.02) == pytest.approx(74.0)  # 0.5 * 1 + 0.02 * 12
+
+
+def test_tpi_on_percent_clamps_to_0_and_100():
+    # Documented defaults (0.6, 0.01) saturate at 100 % for a 4 K gap.
+    assert tpi_on_percent(24.0, 20.0, 5.0, 0.6, 0.01) == 100.0
+    assert tpi_on_percent(24.0, 25.0, 5.0, 0.6, 0.01) == 0.0

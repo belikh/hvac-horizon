@@ -89,7 +89,7 @@ from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates
+from custom_components.hvac_horizon.tpi import TpiFit, adjust_cool_gain, adjust_heat_gain, heat_up_minutes, learn_heat_rate, learn_room_rates, tpi_on_percent
 from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPORT_WINDOW_MIN, ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
@@ -113,6 +113,12 @@ from .const import (
     CONF_HEATER_KP,
     CONF_HEATER_KI,
     CONF_HEATER_KD,
+    CONF_HEATER_ALGORITHM,
+    CONF_TPI_COEF_EXT,
+    CONF_TPI_COEF_INT,
+    DEFAULT_TPI_COEF_EXT,
+    DEFAULT_TPI_COEF_INT,
+    HEATER_ALGORITHM_TPI,
     DEFAULT_HEATER_KP,
     DEFAULT_HEATER_KI,
     DEFAULT_HEATER_KD,
@@ -1148,26 +1154,40 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._heater_pid is not None:
                 self._heater_pid.reset()
         elif heater_configured and pid_rooms and pid_outdoor is not None and not inhibit_active:
-            if self._heater_pid is None:
-                kp, ki, kd = self._heater_gain_values()
-                self._heater_pid = Pid(
-                    kp,
-                    ki,
-                    kd,
-                    ke=0.0,
-                    out_min=0.0,
-                    out_max=100.0,
-                )
             pid_room = statistics.median(pid_rooms)
-            climate_now = self.hass.states.get(self.entry.data[CONF_CLIMATE])
-            # The heater output is forced to 0 in the heat band and while the AC cools. Hold the integral then,
-            # so the positive error of that time does not wind it up.
-            forced_off = pid_room >= self._heat_on_below_c or (climate_now is not None and climate_now.state == "cool")
-            pid_out = self._heater_pid.update(
-                self._heat_target_c, pid_room, SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor, freeze_integral=forced_off
-            )
-            self.set_heater_output(boost_output(self._preset_now or "", pid_out))
-            result["heater_pid_output"] = round(pid_out, 2)
+            if self.entry.data.get(CONF_HEATER_ALGORITHM) == HEATER_ALGORITHM_TPI:
+                # The TPI duty cycle replaces the PID output. The PID is reset so a switch back starts clean.
+                tpi_pct = tpi_on_percent(
+                    self._heat_target_c,
+                    pid_room,
+                    pid_outdoor,
+                    float(self.entry.data.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
+                    float(self.entry.data.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
+                )
+                if self._heater_pid is not None:
+                    self._heater_pid.reset()
+                self.set_heater_output(boost_output(self._preset_now or "", tpi_pct))
+                result["tpi_output_pct"] = round(tpi_pct, 2)
+            else:
+                if self._heater_pid is None:
+                    kp, ki, kd = self._heater_gain_values()
+                    self._heater_pid = Pid(
+                        kp,
+                        ki,
+                        kd,
+                        ke=0.0,
+                        out_min=0.0,
+                        out_max=100.0,
+                    )
+                climate_now = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+                # The heater output is forced to 0 in the heat band and while the AC cools. Hold the integral then,
+                # so the positive error of that time does not wind it up.
+                forced_off = pid_room >= self._heat_on_below_c or (climate_now is not None and climate_now.state == "cool")
+                pid_out = self._heater_pid.update(
+                    self._heat_target_c, pid_room, SAMPLE_INTERVAL_S / 3600.0, outdoor=pid_outdoor, freeze_integral=forced_off
+                )
+                self.set_heater_output(boost_output(self._preset_now or "", pid_out))
+                result["heater_pid_output"] = round(pid_out, 2)
         elif heater_configured and not inhibit_active:
             # The PID cannot run (no room or outdoor reading). A stale output must not keep the heater on.
             # Boost still heats: boost_output returns 100 in boost and 0 otherwise.

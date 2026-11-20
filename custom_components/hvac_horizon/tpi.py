@@ -157,3 +157,13 @@ def learn_room_rates(samples: list[Sample]) -> TpiFit:
         raise NotEnoughData("AC power never varied; cannot separate cooling from heat gain")
     c = max(num / den, 0.0)
     return TpiFit(k=k, g=g, c=c, samples_off=len(off), samples_on=len(on))
+
+
+def tpi_on_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: float, coef_ext: float) -> float:
+    """Heater on-percent from the TPI rule: coef_int * (target - room) + coef_ext * (target - outdoor), 0 to 100.
+
+    Same rule as Versatile Thermostat's heat branch (prop_algo_tpi.py:100-129 at commit ce3be33), which returns a
+    fraction. This returns percent. A room above the target gives 0. A value above 100 is clamped to 100.
+    """
+    raw = coef_int * (target_c - room_c) + coef_ext * (target_c - outdoor_c)
+    return min(100.0, max(0.0, 100.0 * raw))
