@@ -8,13 +8,16 @@ tick. It is the cool threshold while the mode is cool or off, and the heat targe
 follow the preset, so eco shows its own cooling setpoint. Setting a temperature stores the user's comfort target,
 the base the presets work from. It leaves the preset unchanged. Under eco the shown value stays at the eco
 setpoint until the preset changes.
+
+hvac_mode is the user's intent and hvac_action is what the devices do. With control off the mode reads off and
+the `control` attribute reads "observe only".
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode
+from homeassistant.components.climate import ClimateEntity, HVACAction, ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
@@ -63,6 +66,18 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     @property
     def target_temperature(self) -> float:
         return self.coordinator.effective_target_c(self.hvac_mode == HVACMode.HEAT)
+
+    @property
+    def hvac_action(self) -> HVACAction:
+        return {
+            "cooling": HVACAction.COOLING,
+            "heating": HVACAction.HEATING,
+            "idle": HVACAction.IDLE,
+        }.get(self.coordinator.device_action(), HVACAction.OFF)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {} if self._entry.data.get(CONF_CONTROL) else {"control": "observe only"}
 
     @property
     def preset_mode(self) -> str | None:

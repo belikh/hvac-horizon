@@ -6022,3 +6022,28 @@ async def test_room_entity_set_temperature_sets_the_comfort_target(hass, enable_
     state = hass.states.get(entity_id)
     assert state.attributes["temperature"] == 23.0
     assert state.attributes["preset_mode"] == "comfort"
+
+
+async def test_room_entity_action_follows_the_devices(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data, room="25.0", climate="cool")
+    entity_id = _room_climate_id(hass, entry)
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "cooling"
+    hass.states.async_set(CLIMATE, "off", {"temperature": 22.0})
+    hass.states.async_set(HEATER, "on")
+    await refresh(hass, entry)
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "heating"
+    hass.states.async_set(HEATER, "off")
+    await refresh(hass, entry)
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"
+
+
+async def test_room_entity_says_observe_only_when_control_is_off(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    state = hass.states.get(_room_climate_id(hass, entry))
+    assert state.state == "off"
+    assert state.attributes["control"] == "observe only"
+    assert state.attributes["hvac_action"] == "cooling"

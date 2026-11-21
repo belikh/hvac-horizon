@@ -595,6 +595,24 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """The target the last tick planned: the heat target when `heating`, else the cool threshold. Both follow the preset."""
         return self._heat_target_c if heating else self._cool_above_c
 
+    def device_action(self) -> str:
+        """What the room's devices do now, from their own states: "cooling", "heating", "idle" or "off".
+
+        Reads the first AC, the heater switch and the fleet devices. "off" means the user holds the room off and
+        nothing runs. A room with control off and nothing running is "idle".
+        """
+        data = self.entry.data
+        climate = self.hass.states.get(data[CONF_CLIMATE])
+        if climate is not None and climate.state in ("cool", "heat"):
+            return "cooling" if climate.state == "cool" else "heating"
+        heater = self.hass.states.get(data[CONF_HEATER_SWITCH]) if data.get(CONF_HEATER_SWITCH) else None
+        if heater is not None and heater.state == "on":
+            return "heating"
+        for device in self._fleet():
+            if self._fleet_running(device):
+                return "cooling" if device.kind == COOL else "heating"
+        return "off" if self._user_off else "idle"
+
     @property
     def preset_now(self) -> str | None:
         return self._preset_now
