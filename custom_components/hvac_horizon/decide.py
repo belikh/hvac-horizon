@@ -9,8 +9,10 @@ Priority, highest first:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
+
+from custom_components.hvac_horizon.features import mould_target
 
 
 COOL_MIN_OUTDOOR_C = 16.0  # below this outdoors, cooling is blocked
@@ -56,6 +58,20 @@ def cool_above_c(settings: Settings, someone_home: bool) -> float:
     if not someone_home:
         return settings.eco_c if settings.eco_c is not None else settings.away_c
     return _preset_setpoint(settings)
+
+
+def raise_cool_thresholds(settings: Settings, mould: bool, bump_c: float = 1.0) -> Settings:
+    """Raise every cooling setpoint (comfort, eco, boost, away) by `bump_c` when there is mould risk."""
+    def raised(setpoint_c: float) -> float:
+        return mould_target(setpoint_c, mould, bump_c)
+
+    return replace(
+        settings,
+        comfort_c=raised(settings.comfort_c),
+        away_c=raised(settings.away_c),
+        eco_c=None if settings.eco_c is None else raised(settings.eco_c),
+        boost_c=None if settings.boost_c is None else raised(settings.boost_c),
+    )
 
 
 def _preset_setpoint(settings: Settings) -> float:

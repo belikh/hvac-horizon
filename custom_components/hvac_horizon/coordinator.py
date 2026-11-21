@@ -35,7 +35,7 @@ from custom_components.hvac_horizon.collector import (
 )
 from custom_components.hvac_horizon.devices import COOL, HEAT, HEATER, RoomFit, fit_room, forecast_fit
 from custom_components.hvac_horizon.forecast import forecast, price_at
-from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, decide
+from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, decide, raise_cool_thresholds
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
     weather_day_summary,
@@ -74,7 +74,6 @@ from custom_components.hvac_horizon.features import (
     ventilation_rate_from_co2,
     whole_house_fan_allowed,
     mould_risk,
-    mould_target,
     surface_humidity,
     presence_mode,
     presence_sources,
@@ -1755,7 +1754,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 expensive_per_kwh=self._price_thresholds()[1],
             ),
         )
-        target_c = mould_target(target_c, bool(result.get("mould_risk")))
+        mould = bool(result.get("mould_risk"))
         blocks = [
             ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
             for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
@@ -1802,6 +1801,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             and heat_target_c + DEFAULT_HEATER_DEADBAND_C > settings.boost_c
         ):
             settings = replace(settings, boost_c=heat_target_c + DEFAULT_HEATER_DEADBAND_C)
+        # Mould risk raises the cooling threshold of every preset by one degree. The heat target is unchanged.
+        settings = raise_cool_thresholds(settings, mould)
         self._settings = settings
         self._cool_above_c = cool_above_c(settings, someone_home)
         heat_target_c = min(heat_target_c, self._cool_above_c)

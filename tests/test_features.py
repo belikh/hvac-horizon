@@ -1055,3 +1055,36 @@ class MinutesUntilPresetTests(unittest.TestCase):
     def test_is_none_when_the_preset_never_comes(self):
         self.assertIsNone(minutes_until_preset(6.0, [ScheduleBlock(0.0, 24.0, "eco")], "comfort"))
 
+
+
+class RaiseCoolThresholdsTests(unittest.TestCase):
+    def setUp(self):
+        from custom_components.hvac_horizon.decide import Preset, Settings
+
+        self.Preset = Preset
+        self.settings = Settings(comfort_c=24.0, preset=Preset.COMFORT, away_c=27.0, window_delay_min=5.0, eco_c=26.0, boost_c=22.0)
+
+    def test_every_preset_cool_threshold_rises_by_one(self):
+        from dataclasses import replace
+
+        from custom_components.hvac_horizon.decide import cool_above_c, raise_cool_thresholds
+
+        for preset in self.Preset:
+            for home in (True, False):
+                s = replace(self.settings, preset=preset)
+                raised = raise_cool_thresholds(s, True)
+                self.assertAlmostEqual(cool_above_c(raised, home), cool_above_c(s, home) + 1.0, msg=f"{preset} home={home}")
+
+    def test_no_mould_returns_settings_unchanged(self):
+        from custom_components.hvac_horizon.decide import raise_cool_thresholds
+
+        self.assertEqual(raise_cool_thresholds(self.settings, False), self.settings)
+
+    def test_unset_eco_and_boost_stay_unset(self):
+        from dataclasses import replace
+
+        from custom_components.hvac_horizon.decide import raise_cool_thresholds
+
+        raised = raise_cool_thresholds(replace(self.settings, eco_c=None, boost_c=None), True)
+        self.assertIsNone(raised.eco_c)
+        self.assertIsNone(raised.boost_c)

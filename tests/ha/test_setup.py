@@ -3653,6 +3653,35 @@ async def test_motion_away_delay_is_a_flow_field(hass, enable_custom_integration
     assert entry.runtime_data.data["cool_on_above_c"] == 26.0
 
 
+async def _mould_delta(hass, entry, freezer=None):
+    """cool_on_above_c with a dry room, then with a cold outdoor surface and humid room (mould risk)."""
+    hass.states.async_set("sensor.test_room_humidity", "40", {"unit_of_measurement": "%"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["mould_risk"] is False
+    base = entry.runtime_data.data["cool_on_above_c"]
+    heat_base = entry.runtime_data.data["heat_on_below_c"]
+    hass.states.async_set("sensor.test_room_humidity", "70", {"unit_of_measurement": "%"})
+    hass.states.async_set(OUTDOOR, "5.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["mould_risk"] is True
+    assert entry.runtime_data.data["heat_on_below_c"] >= heat_base
+    return base, entry.runtime_data.data["cool_on_above_c"]
+
+
+@pytest.mark.parametrize("idle_min, extra, expected", [(0, {}, 24.0), (31, {}, 26.0), (31, {"eco_c": None}, 27.0)])
+async def test_mould_risk_raises_the_cool_threshold_by_1k_in_every_preset(
+    hass, enable_custom_integrations, config_data, freezer, idle_min, extra, expected
+):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry = await _motion_setup(hass, config_data, room_humidity="sensor.test_room_humidity", **extra)
+    if idle_min:
+        hass.states.async_set(MOTION, "off")
+        freezer.tick(timedelta(minutes=idle_min))
+    base, with_mould = await _mould_delta(hass, entry)
+    assert base == expected
+    assert with_mould == pytest.approx(base + 1.0)
+
+
 async def test_shed_loads_switch_back_on_highest_priority_first_below_90_percent(hass, enable_custom_integrations, config_data):
     # Limit 4000 W, restore ceiling 3600 W. The low load is 500 W and the high load 1000 W.
     set_inputs(hass)
