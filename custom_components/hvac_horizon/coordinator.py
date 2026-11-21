@@ -1350,8 +1350,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """The stall window in seconds, from the stall_window_s option. Defaults to SENSOR_STALL_S."""
         return float(self.entry.data.get(CONF_STALL_WINDOW_S, SENSOR_STALL_S))
 
-    def _rooms(self) -> list[float]:
-        """Room readings for the median: the room sensors only.
+    def _room_states(self) -> list[State]:
+        """The room sensor states whose readings feed the median: the room sensors only.
 
         The AC's own temperature reading is whole degrees, so it is kept out of the median.
         """
@@ -1360,7 +1360,19 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fresh = [s for e, s in zip(self.entry.data[CONF_ROOM_SENSORS], every) if e not in stalled]
         # Stale room sensors drop out only when a fresh one exists. With none, the stop rule in _stall_blocks decides.
         states = fresh if any(_float(s) is not None for s in fresh) else every
-        return [v for v in (_float(s) for s in states) if v is not None]
+        return [s for s in states if _float(s) is not None]
+
+    def _rooms(self) -> list[float]:
+        """Room readings for the median."""
+        return [_float(s) for s in self._room_states()]
+
+    def _rooms_max_age_s(self, now: float) -> float | None:
+        """Age in seconds of the oldest reading the median uses, from last_reported. None when no reading is used.
+
+        The readings can be up to one stall window apart, so the median mixes times by that much.
+        """
+        ages = [now - s.last_reported.timestamp() for s in self._room_states()]
+        return round(max(ages), 1) if ages else None
 
     def _optional(self, key: str) -> State | None:
         entity = self.entry.data.get(key)
@@ -1445,6 +1457,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result.update(self._forecast(now))
         result["sensors_stalled"] = self._stalled_sensors(now)
+        result["rooms_max_age_s"] = self._rooms_max_age_s(now)
         self._report_stalls(result["sensors_stalled"])
         if self._rooms() or self._last_room_data_s is None:
             self._last_room_data_s = now

@@ -5932,3 +5932,23 @@ async def test_shed_load_the_user_changed_after_the_shed_is_not_restored(hass, e
     assert calls == []
     assert "restored" not in entry.runtime_data.data
     assert entry.runtime_data._shed_loads == set()
+
+
+async def test_rooms_max_age_is_the_age_of_the_oldest_reading_used(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["rooms_max_age_s"] == 0.0
+    # Room A last reported 6 minutes ago, inside the 15 minute stall window, so the median still uses it.
+    freezer.tick(timedelta(minutes=6))
+    hass.states.async_set(ROOM_B, "26.4", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.5", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(POWER, "1105", {"unit_of_measurement": "W", "device_class": "power"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["rooms_max_age_s"] == 360.0
+    state = hass.states.get("sensor.hvac_horizon_test_ac_room_reading_age")
+    assert state is not None and state.state == "360.0"
+    assert state.attributes["unit_of_measurement"] == "s"
