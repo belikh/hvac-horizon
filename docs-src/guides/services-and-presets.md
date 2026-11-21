@@ -48,7 +48,7 @@ Set `schedule_blocks` in the form. The value is a list of blocks. Each block has
 ]
 ```
 
-A form error reads `Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away.`
+A form error reads `Schedule blocks must be a list of [start_h, end_h, preset]. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away.`
 
 Before a comfort block, the heater starts early when the learned heat-up time needs it. The Heat-up time sensor shows the estimate in minutes.
 

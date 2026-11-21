@@ -96,8 +96,8 @@ A heater gain from a relay test replaces the unset or default value of `heater_k
 | `output_max` | optional | unset (code uses `100.0`) | Maximum heater output (%) |
 | `output_min_entity` | optional | unset | Minimum heater output number entity (optional, overrides the minimum above) |
 | `output_max_entity` | optional | unset | Maximum heater output number entity (optional, overrides the maximum above) |
-| `schedule_blocks` | optional | `[]` | Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional) |
-| `fleet` | optional | `[]` | Room devices: a list of {device_id, kind (cool or heat), rate_k_per_h_per_kw, rated_w, power_sensor (optional)} |
+| `schedule_blocks` | optional | `[]` | Schedule blocks: a list of [start_h, end_h, preset], hours 0 to 24, preset comfort, eco, boost or away (optional) |
+| `fleet` | optional | `[]` | Room devices: a list of [device_id, kind cool or heat, rate_k_per_h_per_kw, rated_w, power_sensor optional] |
 | `dispatch_mode` | optional | `fast` | Device choice: fast (highest effect first) or economy (lowest cost per kelvin) |
 | `ai_conversation` | optional | unset | AI conversation agent for the investigator (optional) |
 | `ai_budget_per_day` | optional | unset | Model calls per day for the investigator (0 or empty is off) |

@@ -1,13 +1,20 @@
 {
   "domain": "hvac_horizon",
   "name": "HVAC Horizon",
-  "after_dependencies": ["frontend"],
-  "codeowners": ["@belikh"],
+  "after_dependencies": [
+    "frontend",
+    "recorder"
+  ],
+  "codeowners": [
+    "@belikh"
+  ],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/belikh/hvac-horizon",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/belikh/hvac-horizon/issues",
   "requirements": [],
-  "version": "0.3.0"
+  "version": "0.4.0"
 }

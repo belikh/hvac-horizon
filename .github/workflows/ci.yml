@@ -39,3 +39,5 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # No brand images yet. Remove this line once brand assets exist.
+          ignore: brands

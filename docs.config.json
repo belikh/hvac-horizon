@@ -3,7 +3,7 @@
   "id": "hvac-horizon",
   "description": "Forecasts how long an air conditioner takes to reach its setpoint, and what the run costs. Learns from the room's own history.",
   "icon": "home",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "repo": "belikh/hvac-horizon",
   "glossary": {
     "setpoint": "The temperature the AC is asked to reach.",

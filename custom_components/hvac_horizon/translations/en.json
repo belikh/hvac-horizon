@@ -23,7 +23,7 @@
           "heat_boost_c": "Heat setpoint under boost (°C, optional). Unset heats to comfort plus 1.",
           "comfort_energy_weight": "Comfort to eco weight, 0 to 1 (optional, 0 is off)",
           "schedule": "Schedule entity (optional)",
-          "schedule_blocks": "Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional)",
+          "schedule_blocks": "Schedule blocks: a list of [start_h, end_h, preset], hours 0 to 24, preset comfort, eco, boost or away (optional)",
           "vacation": "Vacation switch, on means vacation mode (optional)",
           "vacation_c": "Vacation setpoint (°C)",
           "away_delay_min": "Minutes without presence before away mode"
@@ -108,7 +108,7 @@
         "data": {
           "climate_2": "Second AC in the same room (optional)",
           "power_2": "Second AC power sensor, W (optional, enables the two-device fit)",
-          "fleet": "Room devices: a list of {device_id, kind (cool or heat), rate_k_per_h_per_kw, rated_w, power_sensor (optional)}",
+          "fleet": "Room devices: a list of [device_id, kind cool or heat, rate_k_per_h_per_kw, rated_w, power_sensor optional]",
           "dispatch_mode": "Device choice: fast (highest effect first) or economy (lowest cost per kelvin)",
           "whole_house_power": "Whole-house power sensor (optional)",
           "shed_max_w": "Power limit in watts (optional)",
@@ -171,7 +171,7 @@
       "invalid_fleet": "Room devices are invalid: {fleet_problem}",
       "invalid_price": "Enter a price as a number from 0 to 10.",
       "price_order": "The cheap price threshold must be below the expensive price threshold.",
-      "invalid_schedule_blocks": "Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
+      "invalid_schedule_blocks": "Schedule blocks must be a list of [start_h, end_h, preset]. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
     }
   },
   "selector": {

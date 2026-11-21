@@ -2,9 +2,9 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## Unreleased
+## 0.4.0 (2026-11-21)
 
-Changes on the `remedy-3` branch since 0.3.0.
+Changes since 0.3.0.
 
 - Safety stop and unload turn off every output the entry commanded on: AC in dry mode, second AC, fan, humidifier, dehumidifier, boiler, whole-house fan and valve.
 - A failed update tick no longer swallows `KeyboardInterrupt`, `SystemExit` or `CancelledError`.
