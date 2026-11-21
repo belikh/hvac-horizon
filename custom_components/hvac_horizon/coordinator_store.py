@@ -12,6 +12,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
+from custom_components.hvac_horizon.outdoor import OutdoorBias
 from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTRIES, SAMPLE_INTERVAL_S
 from custom_components.hvac_horizon.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.model import Fit
@@ -193,6 +194,7 @@ class StoreMixin:
             for k, v in (data.get("device_rates") or {}).items()
             if isinstance(v, dict) and v.get("rate")
         }
+        self._outdoor_bias = OutdoorBias.from_dict(data.get("outdoor_bias"))
         self._refit()
         self._store_loaded = True
 
@@ -210,6 +212,8 @@ class StoreMixin:
         self._backtest_runs = []
         self._forecast_error_min = None
         self._samples_since_fit = 0
+        self._outdoor_bias = OutdoorBias()
+        self._series_cache = None
         self._store.async_delay_save(self._save_payload, 0)
 
     def export_samples(self) -> list[dict[str, Any]]:
@@ -277,6 +281,7 @@ class StoreMixin:
             "shed_at": {e: t for e, t in sorted(self._shed_at.items()) if e in self._shed_loads},
             "actuator_opened_by_us": self._actuator_opened_by_us,
             "device_rates": self._device_rates,
+            "outdoor_bias": self._outdoor_bias.to_dict(),
         }
 
     async def async_shutdown_store(self) -> None:

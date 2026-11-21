@@ -1890,9 +1890,9 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
     assert primary == PRIMARY_KEYS and len(primary) == 11
-    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 26
-    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 32
-    assert len(sensors) == 69
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 28
+    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 36
+    assert len(sensors) == 75
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -6993,3 +6993,313 @@ async def test_home_assistant_logs_no_deprecation_for_this_integration(hass, ena
         if "deprecat" in record.getMessage().lower() and ("hvac_horizon" in record.getMessage() or "Horizon" in record.getMessage())
     ]
     assert offending == []
+
+
+# Weather entity: hourly outdoor series, heatwave warning, cloud factor, outdoor fallback, daily lows and the learned bias.
+
+WEATHER = "weather.test"
+NOON_UTC = "2026-11-21T20:00:00+00:00"  # noon in the test time zone (US/Pacific, UTC-8)
+
+
+class FakeWeather:
+    """A weather.get_forecasts service that answers by type, counts calls per type and can be made to fail."""
+
+    def __init__(self, hass, hourly=None, daily=None):
+        self.hass = hass
+        self.calls = {"hourly": 0, "daily": 0}
+        self.fail = False
+        self.hourly = hourly or (lambda start: [{"datetime": (start + timedelta(hours=i)).isoformat(), "temperature": 20.0, "condition": "sunny"} for i in range(72)])
+        self.daily = daily or [{"datetime": "2026-11-21T00:00:00", "temperature": 25.0, "templow": None}]
+        hass.services.async_register("weather", "get_forecasts", self._handle, supports_response=SupportsResponse.ONLY)
+
+    async def _handle(self, call):
+        kind = call.data["type"]
+        self.calls[kind] += 1
+        if self.fail:
+            raise HomeAssistantError("weather offline")
+        if kind == "hourly":
+            start = dt_util.now().replace(minute=0, second=0, microsecond=0)
+            items = self.hourly(start)
+        else:
+            items = self.daily
+        return {call.data["entity_id"]: {"forecast": items}}
+
+
+def local_naive(hours_from_now):
+    """A forecast datetime without an offset: local time, as the BOM integration reports it."""
+    start = dt_util.now().replace(minute=0, second=0, microsecond=0)
+    return (start + timedelta(hours=hours_from_now)).replace(tzinfo=None).isoformat()
+
+
+async def setup_weather(hass, config_data, freezer, *, extra=None, outdoor="30.0", **fake):
+    """Set up an entry with a weather entity at noon, with the fake service registered. Returns (entry, fake, calls)."""
+    freezer.move_to(NOON_UTC)
+    weather = FakeWeather(hass, **fake)
+    entry, calls = await setup_heater(hass, config_data, outdoor=outdoor, room="26.0", extra=dict(extra or {}, weather=WEATHER))
+    return entry, weather, calls
+
+
+def keep_sensors_fresh(hass, *, outdoor=None, room="26.0"):
+    """Report the room sensors, and the outdoor sensor when a value is given, so only the others can go stale."""
+    for room_id in (ROOM_A, ROOM_B):
+        hass.states.async_set(room_id, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    if outdoor is not None:
+        hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+
+async def test_hourly_forecast_gives_an_outdoor_series_anchored_to_the_sensor(hass, enable_custom_integrations, config_data, freezer):
+    temps = [30.0, 28.0, 26.0, 24.0, 22.0, 20.0, 18.0, 16.0]
+    hourly = lambda start: [{"datetime": local_naive(i), "temperature": temps[min(i, 7)], "condition": "sunny"} for i in range(72)]
+    entry, weather, _ = await setup_weather(hass, config_data, freezer, hourly=hourly, outdoor="31.0")
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["outdoor_forecast_used"] is True
+    # The sensor reads 1 K above the forecast, so the anchor adds 1 K that fades over 3 hours. The first pair also teaches a bias of 0.5 K.
+    one, three, six = data["outdoor_forecast_next_c"]
+    assert one == pytest.approx(28.0 + 0.5 + (1.0 - 0.5) * (1 - 60 / 180), abs=0.1)
+    assert three == pytest.approx(24.0 + 0.5, abs=0.1)
+    assert six == pytest.approx(18.0 + 0.5, abs=0.1)
+    assert data["outdoor_source"] == "sensor"
+
+
+async def test_without_a_weather_entity_the_series_is_not_used(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to(NOON_UTC)
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["outdoor_forecast_used"] is False
+    assert data["outdoor_forecast_next_c"] is None
+    assert data["outdoor_source"] == "sensor"
+
+
+async def test_hourly_forecast_is_fetched_at_most_every_30_minutes(hass, enable_custom_integrations, config_data, freezer):
+    entry, weather, _ = await setup_weather(hass, config_data, freezer)
+    await refresh(hass, entry)
+    assert weather.calls == {"hourly": 1, "daily": 1}
+    for _ in range(5):
+        freezer.tick(timedelta(minutes=5))
+        keep_sensors_fresh(hass, outdoor="30.0")
+        await refresh(hass, entry)
+    assert weather.calls == {"hourly": 1, "daily": 1}
+    freezer.tick(timedelta(minutes=6))
+    keep_sensors_fresh(hass, outdoor="30.0")
+    await refresh(hass, entry)
+    assert weather.calls == {"hourly": 2, "daily": 2}
+
+
+async def test_failed_weather_call_keeps_the_last_forecast_and_logs_once(hass, enable_custom_integrations, config_data, freezer, caplog):
+    entry, weather, _ = await setup_weather(hass, config_data, freezer)
+    await refresh(hass, entry)
+    weather.fail = True
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=31))
+        keep_sensors_fresh(hass, outdoor="30.0")
+        await refresh(hass, entry)
+    assert weather.calls["hourly"] == 4
+    assert entry.runtime_data.data["outdoor_forecast_used"] is True
+    assert len([r for r in caplog.records if "hourly forecast unavailable" in r.getMessage()]) == 1
+    assert len([r for r in caplog.records if "daily forecast unavailable" in r.getMessage()]) == 1
+    weather.fail = False
+    freezer.tick(timedelta(minutes=31))
+    keep_sensors_fresh(hass, outdoor="30.0")
+    await refresh(hass, entry)
+    weather.fail = True
+    freezer.tick(timedelta(minutes=31))
+    keep_sensors_fresh(hass, outdoor="30.0")
+    await refresh(hass, entry)
+    assert len([r for r in caplog.records if "hourly forecast unavailable" in r.getMessage()]) == 2
+
+
+async def test_failed_hourly_call_keeps_the_daily_highs(hass, enable_custom_integrations, config_data, freezer):
+    daily = [{"datetime": local_naive(0), "temperature": 31.0}, {"datetime": local_naive(24), "temperature": 32.0}, {"datetime": local_naive(48), "temperature": 33.0}]
+    entry, weather, _ = await setup_weather(hass, config_data, freezer, daily=daily)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heatwave"] is True
+    assert entry.runtime_data._forecast_highs == [31.0, 32.0, 33.0]
+
+
+async def test_heatwave_warning_sensor_sets_heatwave(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    hass.states.async_set("binary_sensor.heat_warning", "off", {"device_class": "safety"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, heatwave_warning="binary_sensor.heat_warning"), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heatwave"] is False
+    hass.states.async_set("binary_sensor.heat_warning", "on", {"device_class": "safety"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heatwave"] is True
+
+
+async def test_heatwave_warning_overrides_a_cool_streak(hass, enable_custom_integrations, config_data, freezer):
+    hass.states.async_set("binary_sensor.heat_warning", "on", {"device_class": "safety"})
+    daily = [{"datetime": local_naive(24 * i), "temperature": 22.0} for i in range(5)]
+    entry, _, _ = await setup_weather(hass, config_data, freezer, daily=daily, extra={"heatwave_warning": "binary_sensor.heat_warning"})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heatwave"] is True
+
+
+async def test_cloudy_condition_scales_the_clear_sky_solar_estimate(hass, enable_custom_integrations, config_data, freezer):
+    hourly = lambda start: [{"datetime": (start + timedelta(hours=i)).isoformat(), "temperature": 20.0, "condition": "cloudy"} for i in range(72)]
+    entry, _, _ = await setup_weather(hass, config_data, freezer, hourly=hourly, extra={"window_area_m2": 4.0})
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    modelled = entry.runtime_data._modelled_solar_kw()
+    assert modelled > 0
+    assert data["solar_factor"] == 0.4
+    assert data["solar_gain_kw"] == pytest.approx(modelled * 0.4, abs=0.001)
+    assert entry.runtime_data._solar_pairs == []
+
+
+async def test_irradiance_sensor_takes_over_from_the_cloud_factor(hass, enable_custom_integrations, config_data, freezer):
+    hass.states.async_set("sensor.test_irradiance", "500", {"unit_of_measurement": "W/m²"})
+    hourly = lambda start: [{"datetime": (start + timedelta(hours=i)).isoformat(), "temperature": 20.0, "condition": "cloudy"} for i in range(72)]
+    entry, _, _ = await setup_weather(hass, config_data, freezer, hourly=hourly, extra={"window_area_m2": 4.0, "irradiance": "sensor.test_irradiance"})
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["solar_factor"] is None
+    assert data["solar_gain_kw"] == pytest.approx(entry.runtime_data._solar_gain())
+    assert data["solar_gain_kw"] == pytest.approx(500 * 4.0 * 0.001 * 1.0, rel=0.5)  # from the sensor, not the model
+    assert entry.runtime_data._solar_pairs != []
+
+
+async def test_no_solar_estimate_without_a_forecast_condition(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to(NOON_UTC)
+    entry, _ = await setup_heater(hass, config_data, extra={"window_area_m2": 4.0})
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["solar_gain_kw"] is None
+    assert entry.runtime_data.data["solar_factor"] is None
+
+
+async def test_stalled_outdoor_sensor_uses_the_fresh_forecast(hass, enable_custom_integrations, config_data, freezer):
+    from homeassistant.helpers import issue_registry as ir
+
+    hourly = lambda start: [{"datetime": local_naive(i), "temperature": 30.0 - 2.0 * i, "condition": "sunny"} for i in range(72)]
+    entry, weather, _ = await setup_weather(hass, config_data, freezer, hourly=hourly)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    assert coordinator.data["outdoor_source"] == "sensor"
+    freezer.tick(timedelta(minutes=20))  # the outdoor sensor stays silent past the 15 minute stall window
+    keep_sensors_fresh(hass)
+    await refresh(hass, entry)
+    assert weather.calls["hourly"] == 1
+    assert OUTDOOR in coordinator.data["sensors_stalled"]
+    assert coordinator.data["outdoor_source"] == "forecast"
+    assert coordinator._outdoor_now() == pytest.approx(30.0 - 2.0 * (20 / 60), abs=0.1)
+    assert coordinator._stall_blocks(coordinator.data) is False
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_stalled") is not None
+
+
+async def test_unavailable_outdoor_sensor_uses_the_fresh_forecast(hass, enable_custom_integrations, config_data, freezer):
+    entry, _, _ = await setup_weather(hass, config_data, freezer)
+    await refresh(hass, entry)
+    hass.states.async_set(OUTDOOR, STATE_UNAVAILABLE)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["outdoor_source"] == "forecast"
+    assert entry.runtime_data._outdoor_now() == pytest.approx(20.0, abs=0.6)
+
+
+async def test_stalled_outdoor_sensor_stops_control_when_the_forecast_is_old(hass, enable_custom_integrations, config_data, freezer):
+    entry, weather, _ = await setup_weather(hass, config_data, freezer)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    weather.fail = True
+    for _ in range(5):  # 2 hours 5 minutes without a good fetch
+        freezer.tick(timedelta(minutes=25))
+        keep_sensors_fresh(hass)
+        await refresh(hass, entry)
+    assert OUTDOOR in coordinator.data["sensors_stalled"]
+    assert coordinator.data["outdoor_source"] == "sensor"
+    assert coordinator._stall_blocks(coordinator.data) is True
+
+
+async def test_stalled_outdoor_sensor_stops_control_without_a_weather_entity(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to(NOON_UTC)
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    freezer.tick(timedelta(minutes=20))
+    keep_sensors_fresh(hass)
+    await refresh(hass, entry)
+    assert entry.runtime_data._stall_blocks(entry.runtime_data.data) is True
+
+
+async def test_daily_low_drives_the_night_plan(hass, enable_custom_integrations, config_data, freezer):
+    daily = [{"datetime": local_naive(0), "temperature": 33.0, "templow": None}, {"datetime": local_naive(24), "temperature": 30.0, "templow": 15.0}]
+    entry, _, _ = await setup_weather(hass, config_data, freezer, daily=daily, outdoor="30.0")
+    await refresh(hass, entry)
+    # The room is above comfort and the coming night's low is 15 C, so the plan pre-cools. The current 30 C reading alone gives none.
+    assert entry.runtime_data.data["night_plan"] == "pre-cool"
+
+
+async def test_night_plan_uses_the_reading_without_a_daily_low(hass, enable_custom_integrations, config_data, freezer):
+    daily = [{"datetime": local_naive(0), "temperature": 33.0, "templow": None}]
+    entry, _, _ = await setup_weather(hass, config_data, freezer, daily=daily, outdoor="30.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["night_plan"] == "none"
+
+
+async def feed(hass, entry, freezer, count, outdoor, minutes=31):
+    for _ in range(count):
+        freezer.tick(timedelta(minutes=minutes))
+        keep_sensors_fresh(hass, outdoor=outdoor)
+        await refresh(hass, entry)
+
+
+async def test_sensor_two_kelvin_above_the_forecast_is_learned_and_used(hass, enable_custom_integrations, config_data, freezer):
+    entry, _, _ = await setup_weather(hass, config_data, freezer, outdoor="22.0")  # the forecast is 20 C at every hour
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    await feed(hass, entry, freezer, 45, "22.0")
+    data = coordinator.data
+    assert data["outdoor_bias_pairs"] >= 40
+    assert data["outdoor_bias_now_k"] == pytest.approx(2.0, abs=0.1)
+    # Every hour ahead is the flat 20 C forecast plus the bias, and the anchor starts at the sensor's 22 C.
+    assert data["outdoor_forecast_next_c"] == pytest.approx([22.0, 22.0, 22.0], abs=0.15)
+    # With the sensor silent, the fallback is the forecast plus the bias.
+    freezer.tick(timedelta(minutes=20))
+    keep_sensors_fresh(hass)
+    await refresh(hass, entry)
+    assert coordinator.data["outdoor_source"] == "forecast"
+    assert coordinator._outdoor_now() == pytest.approx(22.0, abs=0.15)
+
+
+async def test_nothing_is_learned_from_a_stale_sensor(hass, enable_custom_integrations, config_data, freezer):
+    entry, _, _ = await setup_weather(hass, config_data, freezer, outdoor="25.0")
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    pairs = coordinator.data["outdoor_bias_pairs"]
+    assert pairs == 1
+    for _ in range(4):  # the outdoor sensor never reports again; the weather refreshes every 31 minutes
+        freezer.tick(timedelta(minutes=31))
+        keep_sensors_fresh(hass)
+        await refresh(hass, entry)
+    assert coordinator.data["outdoor_source"] == "forecast"
+    assert coordinator.data["outdoor_bias_pairs"] == pairs
+
+
+async def test_nothing_is_learned_from_an_unavailable_sensor(hass, enable_custom_integrations, config_data, freezer):
+    entry, _, _ = await setup_weather(hass, config_data, freezer, outdoor="25.0")
+    await refresh(hass, entry)
+    hass.states.async_set(OUTDOOR, STATE_UNAVAILABLE)
+    freezer.tick(timedelta(minutes=31))
+    keep_sensors_fresh(hass)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["outdoor_bias_pairs"] == 1
+
+
+async def test_learned_bias_survives_a_reload_and_reset_learning_clears_it(hass, enable_custom_integrations, config_data, freezer):
+    entry, _, _ = await setup_weather(hass, config_data, freezer, outdoor="22.0")
+    await refresh(hass, entry)
+    await feed(hass, entry, freezer, 12, "22.0")
+    before = entry.runtime_data._outdoor_bias
+    assert before.total == 13
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    # The reload's first weather refresh adds one pair to the 13 restored from the store.
+    assert entry.runtime_data._outdoor_bias.total == before.total + 1
+    assert entry.runtime_data._outdoor_bias.overall == pytest.approx(before.overall, abs=0.1)
+    await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": entry.entry_id}, blocking=True)
+    assert entry.runtime_data._outdoor_bias.total == 0
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["outdoor_bias_pairs"] <= 1

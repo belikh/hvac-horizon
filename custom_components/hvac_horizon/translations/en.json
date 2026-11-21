@@ -80,7 +80,8 @@
           "window_azimuth": "Window facing direction, degrees from north (optional)",
           "window_area_m2": "Window area, m² (optional, needed for solar gain)",
           "irradiance": "Irradiance sensor on the window, W/m² (optional)",
-          "weather": "Weather entity for the forecast (optional)"
+          "weather": "Weather entity for the forecast (optional)",
+          "heatwave_warning": "Heatwave warning binary sensor, on means a warning is current (optional)"
         }
       },
       "air_quality": {

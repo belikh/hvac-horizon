@@ -81,6 +81,12 @@ STATUS_KEYS: dict[str, str] = {
     "ac_sensor_offset_k": "Sensor offset",
     "minutes_low": "Minutes to setpoint, low",
     "minutes_high": "Minutes to setpoint, high",
+    "outdoor_forecast_used": "Outdoor forecast used",
+    "outdoor_forecast_next_c": "Outdoor forecast ahead",
+    "outdoor_source": "Outdoor source",
+    "solar_factor": "Solar cloud factor",
+    "outdoor_bias_now_k": "Outdoor forecast bias",
+    "outdoor_bias_pairs": "Outdoor bias pairs",
 }
 
 # Sensors a user reads every day. They are enabled and have no entity category.
@@ -96,7 +102,7 @@ DIAGNOSTIC_ENABLED_KEYS = frozenset(
         "sensors_stalled", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
         "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
         "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
-        "learning_suggestion", "external_change", "pending", "ac_setpoint_sent_c", "ac_sensor_offset_k",
+        "learning_suggestion", "external_change", "pending", "outdoor_forecast_used", "outdoor_source", "ac_setpoint_sent_c", "ac_sensor_offset_k",
     }
 )
 # Diagnostic sensors that are internal detail. They are created disabled; enable one in the entity settings.
@@ -104,7 +110,7 @@ DIAGNOSTIC_DISABLED_KEYS = frozenset(
     {
         "heater_pwm_on", "heater_pid_output", "heater_output_pct", "tpi_output_pct", "safety_output_pct", "heater_feedback",
         "mpc_plan", "mpc_heat_steps", "shed", "restored", "room_fit", "backtest_runs", "rooms_max_age_s", "samples_heat",
-        "samples_dry", "forecast_days", "trv_offset_k", "valve_opening_pct", "solar_scale", "solar_gain_kw",
+        "samples_dry", "forecast_days", "outdoor_forecast_next_c", "solar_factor", "outdoor_bias_now_k", "outdoor_bias_pairs", "trv_offset_k", "valve_opening_pct", "solar_scale", "solar_gain_kw",
         "ventilation_rate", "fan_speed", "band_action", "house_cooling", "heat_up_min", "boiler_demand", "second_ac",
         "economizer", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
     }
@@ -127,6 +133,7 @@ STATUS_UNITS = {
     "trv_offset_k": "K",
     "ac_setpoint_sent_c": "°C",
     "ac_sensor_offset_k": "K",
+    "outdoor_bias_now_k": "K",
     "price_used_per_kwh": None,
 }
 

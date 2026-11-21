@@ -858,8 +858,12 @@ def mpc_plan(
     step_min: float = 15.0,
     discomfort_per_k_step: float = 1.0,
     cost_weight: float = 1.0,
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> list[bool]:
     """Choose AC on/off per step by dynamic programming over room temperature.
+
+    `outdoor_series` maps minutes from now to the outdoor temperature. Each step uses the value at its midpoint,
+    rounded to 0.1 C. Without it `outdoor_c` holds for every step.
 
     The room follows dT/dt = k (T_out - T) - c P + g (same as `forecast()`), with P = `running_kw` when on
     and 0 when off. Temperature is bucketed to 0.1 C over [target - 5, target + 10] and clamped.
@@ -877,12 +881,14 @@ def mpc_plan(
     return _mpc_dp(
         room_c,
         target_c - 5.0,
-        lambda temp, power: fit_k * (outdoor_c - temp) - fit_c * power + fit_g,
+        lambda temp, power, outdoor: fit_k * (outdoor - temp) - fit_c * power + fit_g,
         running_kw,
         lambda temp: discomfort_per_k_step * max(0.0, temp - target_c),
         prices,
         step_min,
         cost_weight,
+        outdoor_c,
+        outdoor_series,
     )
 
 
@@ -898,8 +904,11 @@ def mpc_heat_plan(
     step_min: float = 15.0,
     discomfort_per_k_step: float = 1.0,
     cost_weight: float = 1.0,
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> list[bool]:
     """Choose heat on or off per step by dynamic programming over room temperature.
+
+    `outdoor_series` works as in `mpc_plan`.
 
     The room follows dT/dt = k (T_out - T) + c P + g, with P = `heat_kw` when heating and 0 when idle. The heat side
     reuses the cooling coefficient c, so the heater adds heat at the rate the AC removes it. Temperature is bucketed
@@ -917,26 +926,30 @@ def mpc_heat_plan(
     return _mpc_dp(
         room_c,
         target_c - 10.0,
-        lambda temp, power: fit_k * (outdoor_c - temp) + fit_c * power + fit_g,
+        lambda temp, power, outdoor: fit_k * (outdoor - temp) + fit_c * power + fit_g,
         heat_kw,
         lambda temp: discomfort_per_k_step * max(0.0, target_c - temp),
         prices,
         step_min,
         cost_weight,
+        outdoor_c,
+        outdoor_series,
     )
 
 
 def _mpc_dp(
     room_c: float,
     low: float,
-    rate: Callable[[float, float], float],
+    rate: Callable[[float, float, float], float],
     running_kw: float,
     discomfort_at: Callable[[float], float],
     prices: list[float],
     step_min: float,
     cost_weight: float,
+    outdoor_c: float,
+    outdoor_series: Callable[[float], float] | None,
 ) -> list[bool]:
-    """Plan the on or off state per step. `rate(temp, power_kw)` is dT/dt in K/h, and the grid runs 15 K up from `low`.
+    """Plan the on or off state per step. `rate(temp, power_kw, outdoor_c)` is dT/dt in K/h, and the grid runs 15 K up from `low`.
 
     The state is the temperature bucket. Each step costs the discomfort at its start, plus the energy cost when on.
     """
@@ -951,20 +964,31 @@ def _mpc_dp(
     substeps = max(1, int(math.ceil(step_min)))
     dt_h = step_min / 60.0 / substeps
 
-    def advance(temp: float, power_kw: float) -> float:
+    def advance(temp: float, power_kw: float, outdoor: float) -> float:
         for _ in range(substeps):
-            temp += rate(temp, power_kw) * dt_h
+            temp += rate(temp, power_kw, outdoor) * dt_h
         return temp
 
-    nxt_off = [index(advance(t, 0.0)) for t in temps]
-    nxt_on = [index(advance(t, running_kw)) for t in temps]
     discomfort = [discomfort_at(t) for t in temps]
+    # Transitions depend on the outdoor value only, so steps with the same value share one table.
+    tables: dict[float, tuple[list[int], list[int]]] = {}
+
+    def transitions(step: int) -> tuple[list[int], list[int]]:
+        outdoor = outdoor_c if outdoor_series is None else round(outdoor_series((step + 0.5) * step_min), 1)
+        if outdoor not in tables:
+            tables[outdoor] = (
+                [index(advance(t, 0.0, outdoor)) for t in temps],
+                [index(advance(t, running_kw, outdoor)) for t in temps],
+            )
+        return tables[outdoor]
 
     hours = step_min / 60.0
     horizon = len(prices)
     cost_to_go = [0.0] * n
     best_action = [[False] * n for _ in range(horizon)]
+    steps = [transitions(i) for i in range(horizon)]
     for i in range(horizon - 1, -1, -1):
+        nxt_off, nxt_on = steps[i]
         energy_cost = cost_weight * prices[i] * running_kw * hours
         new_cost = [0.0] * n
         for b in range(n):
@@ -982,6 +1006,7 @@ def _mpc_dp(
     for i in range(horizon):
         action = best_action[i][state]
         plan.append(action)
+        nxt_off, nxt_on = steps[i]
         state = nxt_on[state] if action else nxt_off[state]
     return plan
 

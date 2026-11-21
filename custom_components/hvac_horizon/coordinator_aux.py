@@ -160,7 +160,7 @@ class AuxMixin:
         if state is None or state.state in ("unavailable", "unknown"):
             return
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         if not rooms or outdoor is None:
             return
         house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))

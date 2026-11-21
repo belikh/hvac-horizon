@@ -29,6 +29,7 @@ from .const import (
     DOMAIN,
 )
 from custom_components.hvac_horizon.collector import Entry
+from custom_components.hvac_horizon.outdoor import night_low
 from custom_components.hvac_horizon.features import (
     SENSOR_STALL_S,
     classify_day,
@@ -47,6 +48,7 @@ from custom_components.hvac_horizon.coordinator_common import _float
 class InputsMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _cool_above_c: float
+    _forecast_daily: list[dict]
     _forecast_highs: list[float]
     _last_home_at: float | None
     _last_room_data_s: float | None
@@ -65,7 +67,7 @@ class InputsMixin:
         """
         room_rh = _float(self._optional(CONF_ROOM_HUMIDITY))
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         if room_rh is None or not rooms or outdoor is None:
             return False
         surface = surface_humidity(room_rh, statistics.median(rooms), outdoor)
@@ -82,13 +84,19 @@ class InputsMixin:
         return presence_mode(home, float(self.entry.data.get(CONF_AWAY_DELAY_MIN, DEFAULT_AWAY_DELAY_MIN)), since)
 
     def _night_plan(self) -> str | None:
-        """Overnight plan from the room and outdoor readings. Uses the current outdoor reading as the low until a forecast is wired in."""
+        """Overnight plan from the room temperature and the coming night's low.
+
+        The low is `templow` of the first daily forecast item dated today or later that has one. Without it
+        the current outdoor reading stands in.
+        """
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        if not rooms or outdoor is None:
+        low = night_low(self._forecast_daily, dt_util.now().date(), dt_util.get_default_time_zone())
+        if low is None:
+            low = self._outdoor_now()
+        if not rooms or low is None:
             return None
         comfort = self.comfort_c
-        return night_plan(outdoor, statistics.median(rooms), comfort)
+        return night_plan(low, statistics.median(rooms), comfort)
 
     def _switch_on(self, entity_id: str | None) -> bool:
         """True when the switch entity exists and is on. The on-state that the hysteresis decisions take."""
@@ -98,7 +106,7 @@ class InputsMixin:
     def _window_advice(self) -> str | None:
         """Advice to open, close or hold windows from the outdoor reading and the room median. Publishes advice only."""
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         if not rooms or outdoor is None:
             return None
         return natural_ventilation_window(outdoor, statistics.median(rooms), cool_above_c=self._cool_above_c, is_open=self._window_advice_open)
@@ -107,7 +115,7 @@ class InputsMixin:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
         if self._forecast_highs:
             return classify_day(self._forecast_highs[0]).value
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         return None if outdoor is None else classify_day(outdoor).value
 
     def _report_stalls(self, stalled: list[str]) -> None:
@@ -153,12 +161,12 @@ class InputsMixin:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
 
     def _stall_blocks(self, result: dict[str, Any]) -> bool:
-        """True when a stall stops the AC and the heater. A stalled outdoor sensor does, and so does every room sensor being stale.
+        """True when a stall stops the AC and the heater. A stalled outdoor sensor does unless a fresh hourly forecast stands in for it, and so does every room sensor being stale.
 
         One stale room sensor drops out of the median, and a fresh one keeps control running.
         """
         stalled = set(result.get("sensors_stalled") or [])
-        if self.entry.data[CONF_OUTDOOR] in stalled:
+        if self.entry.data[CONF_OUTDOOR] in stalled and self._forecast_outdoor(dt_util.utcnow().timestamp()) is None:
             return True
         rooms = list(self.entry.data.get(CONF_ROOM_SENSORS) or [])
         fresh = [r for r in rooms if r not in stalled and _float(self.hass.states.get(r)) is not None]

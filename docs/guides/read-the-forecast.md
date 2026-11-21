@@ -4,7 +4,7 @@
 
 ## Forecast sensors
 
-Each entry has six forecast sensors. The first three hold the forecast. Each published status key also has its own sensor, 57 in all. See [Sensors](../reference/sensors.md). The forecast covers cooling only. A room below the cooling target shows `at setpoint`, with no heat forecast.
+Each entry has six forecast sensors. The first three hold the forecast. Each published status key also has its own sensor, 69 in all. See [Sensors](../reference/sensors.md). The forecast covers cooling only. A room below the cooling target shows `at setpoint`, with no heat forecast.
 
 | Sensor | Key | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
@@ -16,6 +16,10 @@ Each entry has six forecast sensors. The first three hold the forecast. Each pub
 | Forecast error | `forecast_error_min` | min | Median error of the backtest runs. |
 
 The Status sensor holds more values in its attributes. Its `reason` attribute explains the state of the fit or the forecast. It does not show the control decision. The action text is in the `investigation` attribute and the Daily briefing sensor.
+
+## What the weather entity supplies
+
+With a weather entity set, the integration calls the standard `weather.get_forecasts` service for the daily and the hourly forecast, at most every 30 minutes, and keeps the last good result when a call fails. The daily highs set the day type and the heatwave streak, and the daily `templow` sets the night plan. The hourly forecast gives an outdoor temperature series: linear between hours, starting at the measured outdoor reading and fading to the forecast over 3 hours. The time-to-setpoint forecast, the MPC plans, pre-cool and preheat use that series instead of a constant outdoor temperature. The integration also learns the steady difference between the outdoor sensor and the forecast, per hour of day, and adds it to the forecast. Without an irradiance sensor and with a window area set, the hourly condition scales the clear-sky solar estimate. When the outdoor sensor is stale or unavailable and the hourly forecast is under 2 hours old, the forecast temperature replaces the reading, and the repair issue for the stalled sensor stays.
 
 ## Status values
 

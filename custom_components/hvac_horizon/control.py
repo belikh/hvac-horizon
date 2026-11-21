@@ -5,6 +5,7 @@ Pure logic. The integration turns the plan into climate service calls.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .forecast import Forecast, PriceSlot, forecast
@@ -33,15 +34,21 @@ def _plan_precool(
     running_power_kw: float,
     deadline_min: float,
     prices: list[PriceSlot],
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> Plan | None:
     """Pick the cheapest start that still reaches the setpoint by `deadline_min` minutes from now.
 
     Returns None when no start reaches the setpoint in time. The earliest possible start is 0.
+    `outdoor_series` maps minutes from now to the outdoor temperature. A start at `start` sees it shifted by `start`.
     """
     best: Plan | None = None
     start = 0.0
     while start <= deadline_min:
-        f = forecast(fit, room_c, setpoint_c, outdoor_c, running_power_kw, _shift(prices, start))
+        shifted = None if outdoor_series is None else (lambda m, s=start: outdoor_series(m + s))
+        f = forecast(
+            fit, room_c, setpoint_c, outdoor_c if shifted is None else shifted(0.0), running_power_kw,
+            _shift(prices, start), outdoor_series=shifted,
+        )
         if f.reachable and f.minutes is not None and start + f.minutes <= deadline_min:
             # Rank by cost, then prefer the later start. A missing price counts as zero, so with no
             # prices every feasible start ties and the latest one wins.
@@ -62,6 +69,7 @@ def precool_start_in_min(
     running_power_kw: float,
     minutes_to_deadline: float | None,
     prices: list[PriceSlot],
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> float | None:
     """Minutes from now to start pre-cooling, or None when there is no deadline or no feasible plan.
 
@@ -69,5 +77,5 @@ def precool_start_in_min(
     """
     if minutes_to_deadline is None or minutes_to_deadline <= 0:
         return None
-    plan = _plan_precool(fit, room_c, setpoint_c, outdoor_c, running_power_kw, minutes_to_deadline, prices)
+    plan = _plan_precool(fit, room_c, setpoint_c, outdoor_c, running_power_kw, minutes_to_deadline, prices, outdoor_series)
     return None if plan is None else plan.start_in_min

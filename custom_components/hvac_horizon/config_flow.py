@@ -94,6 +94,7 @@ from .const import (
     CONF_WINDOW,
     CONF_WINDOW_AZIMUTH,
     CONF_WINDOW_AREA_M2,
+    CONF_HEATWAVE_WARNING,
     CONF_IRRADIANCE,
     CONF_WINDOW_DELAY_MIN,
     DEFAULT_AWAY_C,
@@ -222,6 +223,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
             ),
             key(CONF_WEATHER): selector.EntitySelector(selector.EntitySelectorConfig(domain="weather")),
+            key(CONF_HEATWAVE_WARNING): selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
             key(CONF_PRICE): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             key(CONF_HUMIDITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
@@ -399,6 +401,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     "occupancy": (
         CONF_PRESENCE, CONF_MOTION, CONF_MOTION_AWAY_MIN, CONF_WINDOW, CONF_WINDOW_DELAY_MIN, CONF_WINDOW_ACTUATOR,
         CONF_COVER, CONF_WINDOW_AZIMUTH, CONF_WINDOW_AREA_M2, CONF_IRRADIANCE, CONF_WEATHER,
+        CONF_HEATWAVE_WARNING,
     ),
     "air_quality": (
         CONF_HUMIDITY, CONF_ROOM_HUMIDITY, CONF_CO2, CONF_PM25, CONF_FAN, CONF_AUTO_FAN, CONF_DEHUMIDIFIER,

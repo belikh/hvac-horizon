@@ -69,6 +69,7 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
     return Entry(**clean)
 
 MPC_STEP_MIN = 15.0
+OUTDOOR_AHEAD_H = (1, 3, 6)  # hours ahead published as outdoor_forecast_next_c
 
 MPC_STEPS = 16  # 4 hours
 

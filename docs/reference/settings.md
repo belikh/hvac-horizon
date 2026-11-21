@@ -19,6 +19,7 @@ A heater gain from a relay test replaces the unset or default value of `heater_k
 | `climate_2` | optional | unset | Second AC in the same room (optional) |
 | `power_2` | optional | unset | Second AC power sensor, W (optional, enables the two-device fit) |
 | `weather` | optional | unset | Weather entity for the forecast (optional) |
+| `heatwave_warning` | optional | unset | Heatwave warning binary sensor, on means a warning is current (optional) |
 | `price` | optional | unset | Electricity price sensor (optional) |
 | `humidity` | optional | unset | Outdoor humidity sensor (optional) |
 | `room_humidity` | optional | unset | Room humidity sensor, e.g. the bedroom monitor (optional) |

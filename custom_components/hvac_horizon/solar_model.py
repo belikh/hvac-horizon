@@ -43,3 +43,31 @@ def window_irradiance(direct_w_m2: float, elevation_deg: float, azimuth_deg: flo
         return 0.0
     cos_incidence = math.cos(math.radians(elevation_deg)) * math.cos(math.radians(azimuth_deg - window_azimuth_deg))
     return direct_w_m2 * max(0.0, cos_incidence)
+
+
+# Share of the clear-sky irradiance that reaches the window under each forecast condition.
+CLOUD_FACTOR_CLEAR = 1.0
+CLOUD_FACTOR_PARTLY_CLOUDY = 0.7
+CLOUD_FACTOR_CLOUDY = 0.4
+CLOUD_FACTOR_RAIN = 0.2
+CONDITION_FACTORS: dict[str, float] = {
+    "sunny": CLOUD_FACTOR_CLEAR,
+    "clear-night": CLOUD_FACTOR_CLEAR,
+    "windy": CLOUD_FACTOR_CLEAR,
+    "partlycloudy": CLOUD_FACTOR_PARTLY_CLOUDY,
+    "windy-variant": CLOUD_FACTOR_PARTLY_CLOUDY,
+    "cloudy": CLOUD_FACTOR_CLOUDY,
+    "fog": CLOUD_FACTOR_CLOUDY,
+    "lightning": CLOUD_FACTOR_CLOUDY,
+    "rainy": CLOUD_FACTOR_RAIN,
+    "pouring": CLOUD_FACTOR_RAIN,
+    "lightning-rainy": CLOUD_FACTOR_RAIN,
+    "hail": CLOUD_FACTOR_RAIN,
+    "snowy": CLOUD_FACTOR_RAIN,
+    "snowy-rainy": CLOUD_FACTOR_RAIN,
+}
+
+
+def condition_factor(condition: str | None) -> float | None:
+    """Clear-sky scale for a Home Assistant weather condition. None when the condition is missing or not in the table."""
+    return None if condition is None else CONDITION_FACTORS.get(condition)

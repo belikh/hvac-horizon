@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_CLIMATE,
     CONF_CONTROL,
+    CONF_HEATWAVE_WARNING,
     CONF_IRRADIANCE,
     CONF_OUTDOOR,
     CONF_POWER,
@@ -27,6 +28,7 @@ from .const import (
     DEFAULT_PRICE_CHEAP,
     DEFAULT_PRICE_EXPENSIVE,
     DEFAULT_WINDOW_AZIMUTH,
+    FORECAST_FRESH_S,
 )
 from custom_components.hvac_horizon.collector import Entry, price_slots, running_power_kw
 from custom_components.hvac_horizon.model import Fit, fit_confidence
@@ -41,7 +43,8 @@ from custom_components.hvac_horizon.features import (
 )
 from custom_components.hvac_horizon.tpi import TpiFit, heat_up_minutes
 from custom_components.hvac_horizon.backfill import accuracy_pairs
-from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
+from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, condition_factor, solar_elevation_azimuth, window_irradiance
+from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
 from custom_components.hvac_horizon.forecast import forecast, forecast_range
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.coordinator_common import _LOGGER, _parse_deadline, _round_or_none, _float
@@ -56,7 +59,14 @@ class ForecastMixin:
     _fit: Fit | None
     _fit_reason: str
     _forecast_error_min: float | None
+    _forecast_daily: list[dict]
     _forecast_highs: list[float]
+    _hourly: list[HourlyPoint]
+    _hourly_at: float | None
+    _outdoor_bias: OutdoorBias
+    _series_cache: tuple[tuple, OutdoorSeries | None] | None
+    _store: Any
+    _weather_warned: set[str]
     _heat_rate: float | None
     _mode_counts: dict[str, int]
     _outdoor_history: list[float]
@@ -70,42 +80,152 @@ class ForecastMixin:
     hass: HomeAssistant
 
     async def _refresh_weather(self) -> None:
+        """Fetch the daily and the hourly forecast. A failed fetch keeps the last good result of its type."""
         weather_id = self.entry.data.get(CONF_WEATHER)
         if not weather_id:
             return
+        daily = await self._fetch_forecast(weather_id, "daily")
+        if daily is not None:
+            self._forecast_daily = daily
+            self._forecast_highs = forecast_highs(daily)
+        hourly = await self._fetch_forecast(weather_id, "hourly")
+        if hourly is not None:
+            self._hourly = parse_hourly(hourly, dt_util.get_default_time_zone())
+            self._hourly_at = dt_util.utcnow().timestamp()
+        self._learn_outdoor_bias()
+
+    def _local_hour(self, epoch: float) -> int:
+        return datetime.fromtimestamp(epoch, dt_util.get_default_time_zone()).hour
+
+    def _bias_at(self, epoch: float) -> float:
+        """The learned sensor-minus-forecast bias for the hour of day of `epoch`."""
+        return self._outdoor_bias.for_hour(self._local_hour(epoch))
+
+    def _fresh_outdoor_sensor(self, now: float) -> float | None:
+        """The outdoor sensor reading, or None when it is unavailable or stalled."""
+        outdoor_id = self.entry.data[CONF_OUTDOOR]
+        reading = _float(self.hass.states.get(outdoor_id))
+        return None if reading is None or outdoor_id in self._stalled_sensors(now) else reading
+
+    def _learn_outdoor_bias(self) -> None:
+        """Record one pair of the outdoor sensor and the forecast for the current time.
+
+        Nothing is recorded without a fresh sensor reading and a fresh hourly forecast that spans now.
+        """
+        now = dt_util.utcnow().timestamp()
+        sensor = self._fresh_outdoor_sensor(now)
+        forecast_c = temperature_now(self._hourly, now) if self._hourly_fresh(now) else None  # raw, without the bias
+        if sensor is None or forecast_c is None:
+            return
+        self._outdoor_bias = self._outdoor_bias.record(sensor, forecast_c, self._local_hour(now))
+        self._store.async_delay_save(self._save_payload, 900)
+
+    async def _fetch_forecast(self, weather_id: str, kind: str) -> list[dict] | None:
+        """The forecast items of one type, or None when the call fails. The first failure in a row logs a warning."""
         try:
             response = await self.hass.services.async_call(
                 "weather",
                 "get_forecasts",
-                {"entity_id": weather_id, "type": "daily"},
+                {"entity_id": weather_id, "type": kind},
                 blocking=True,
                 return_response=True,
             )
-            self._forecast_highs = forecast_highs(response[weather_id]["forecast"])
-        except Exception:  # a missing weather service must not break the cycle
-            _LOGGER.debug("Weather forecast unavailable for %s", weather_id, exc_info=True)
+            items = response[weather_id]["forecast"]
+            if not isinstance(items, list):
+                raise TypeError("forecast is not a list")
+        except Exception as err:  # a missing weather service must not break the cycle
+            if kind not in self._weather_warned:
+                self._weather_warned.add(kind)
+                _LOGGER.warning("Weather %s forecast unavailable for %s (%s); keeping the last one", kind, weather_id, err)
+            return None
+        self._weather_warned.discard(kind)
+        return items
+
+    def _hourly_fresh(self, now: float) -> bool:
+        """True when the hourly forecast was fetched within FORECAST_FRESH_S."""
+        return self._hourly_at is not None and bool(self._hourly) and now - self._hourly_at <= FORECAST_FRESH_S
+
+    def _forecast_outdoor(self, now: float) -> float | None:
+        """The hourly forecast temperature for the current time plus the learned bias, or None without a fresh forecast that spans it."""
+        raw = temperature_now(self._hourly, now) if self._hourly_fresh(now) else None
+        return None if raw is None else raw + self._bias_at(now)
+
+    def _outdoor_reading(self) -> tuple[float | None, str]:
+        """The outdoor temperature and its source, "sensor" or "forecast".
+
+        A stalled or unavailable outdoor sensor is replaced by the fresh hourly forecast for the current time.
+        With no fresh forecast the sensor value stands, which can be None.
+        """
+        now = dt_util.utcnow().timestamp()
+        sensor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        if self._fresh_outdoor_sensor(now) is not None:
+            return sensor, "sensor"
+        fallback = self._forecast_outdoor(now)
+        return (sensor, "sensor") if fallback is None else (fallback, "forecast")
+
+    def _outdoor_now(self) -> float | None:
+        """The outdoor temperature for control and planning. See `_outdoor_reading`."""
+        return self._outdoor_reading()[0]
+
+    def _outdoor_series(self) -> OutdoorSeries | None:
+        """Outdoor temperature per minute from now, or None without a fresh hourly forecast that reaches now.
+
+        The series starts at the measured reading. It is rebuilt once a minute and when a new forecast arrives.
+        """
+        now = dt_util.utcnow().timestamp()
+        if not self._hourly_fresh(now):
+            return None
+        reading, source = self._outdoor_reading()
+        anchor = reading if source == "sensor" else None
+        key = (self._hourly_at, int(now // 60), anchor, self._outdoor_bias.total)
+        if self._series_cache is not None and self._series_cache[0] == key:
+            return self._series_cache[1]
+        series = build_series(self._hourly, now, anchor, self._bias_at)
+        self._series_cache = (key, series)
+        return series
 
     def _heatwave(self) -> bool:
-        """True when the outdoor readings have reached 30 C on at least three cycles in a row.
+        """True when the heatwave warning sensor is on, or the daily highs reach 30 C on three days in a row.
 
-        Uses the recent outdoor readings as the forecast until a weather entity is wired in.
+        Without a forecast the recent outdoor readings stand in for the highs, three cycles in a row.
         """
+        warning = self._optional(CONF_HEATWAVE_WARNING)
+        warned = warning is not None and warning.state == "on"
         if self._forecast_highs:
-            return hot_streak(self._forecast_highs)
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+            return hot_streak(self._forecast_highs) or warned
+        outdoor = self._outdoor_now()
         if outdoor is None:
-            return False
+            return warned
         self._outdoor_history.append(outdoor)
         self._outdoor_history = self._outdoor_history[-24:]
-        return hot_streak(self._outdoor_history)
+        return hot_streak(self._outdoor_history) or warned
+
+    def _solar_factor(self) -> float | None:
+        """Clear-sky scale from the forecast condition of the current hour, from CONDITION_FACTORS.
+
+        None when an irradiance sensor is configured, there is no window area, no fresh hourly forecast,
+        or the condition is not in the table.
+        """
+        if self.entry.data.get(CONF_IRRADIANCE) or self.entry.data.get(CONF_WINDOW_AREA_M2) is None:
+            return None
+        now = dt_util.utcnow().timestamp()
+        return condition_factor(condition_now(self._hourly, now)) if self._hourly_fresh(now) else None
 
     def _solar_gain(self) -> float | None:
-        """Solar gain from the optional irradiance sensor and window area. None when either is not configured."""
-        irradiance = _float(self._optional(CONF_IRRADIANCE))
+        """Solar gain in kW on the window. None without a window area.
+
+        With an irradiance sensor the gain comes from its reading. Without one it is the clear-sky model
+        scaled by the forecast condition factor, and None when there is no factor.
+        """
         area = self.entry.data.get(CONF_WINDOW_AREA_M2)
-        if irradiance is None or area is None:
+        if area is None:
             return None
-        return round(sun_heat_gain(irradiance, float(area)), 3)
+        if self.entry.data.get(CONF_IRRADIANCE):
+            irradiance = _float(self._optional(CONF_IRRADIANCE))
+            return None if irradiance is None else round(sun_heat_gain(irradiance, float(area)), 3)
+        factor = self._solar_factor()
+        modelled = self._modelled_solar_kw()
+        return None if factor is None or modelled is None else round(modelled * factor, 3)
 
     def _modelled_solar_kw(self) -> float | None:
         """Clear-sky gain in kW on the window from the sun position at the house location. None without a window area."""
@@ -171,11 +291,11 @@ class ForecastMixin:
         if lead_min is None:
             return heat_target_c, "no comfort block", None
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         if not rooms or outdoor is None:
             return heat_target_c, "no heat model", None
         rate = self._heat_rate * self._auto_heat_gain
-        needed = heat_up_minutes(statistics.median(rooms), comfort_c, outdoor, self._tpi.k, self._tpi.g, rate)
+        needed = heat_up_minutes(statistics.median(rooms), comfort_c, outdoor, self._tpi.k, self._tpi.g, rate, outdoor_series=self._outdoor_series())
         if needed is None:
             return heat_target_c, "cannot reach comfort", None
         if lead_min <= needed:
@@ -205,7 +325,7 @@ class ForecastMixin:
             self._precool_status = "no deadline: schedule has no next_event"
             return None
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         setpoint = self.comfort_c
         if climate is None or outdoor is None or not rooms:
             self._precool_status = "no climate, outdoor or room reading"
@@ -223,6 +343,7 @@ class ForecastMixin:
             power_kw,
             minutes,
             self._price_forecast(now),
+            self._outdoor_series(),
         )
         if minutes <= 0:
             self._precool_status = "no deadline: next_event is in the past"
@@ -297,7 +418,7 @@ class ForecastMixin:
         )
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         # Observe-only uses the climate entity's own setpoint, as the original request asked.
         # Control mode uses the comfort setting, because the integration writes that setpoint.
         if self.entry.data.get(CONF_CONTROL):
@@ -324,8 +445,9 @@ class ForecastMixin:
             return result
 
         active, power_kw = self._forecast_model(active, power_kw, now)
-        f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now))
-        low, high = forecast_range(active, room, target, outdoor, power_kw, self._price_forecast(now)) if f.reachable else (None, None)
+        series = self._outdoor_series()
+        f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series)
+        low, high = forecast_range(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series) if f.reachable else (None, None)
         result.update(
             status="reachable" if f.reachable else "unreachable",
             minutes=None if f.minutes is None else round(f.minutes, 1),

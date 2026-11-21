@@ -16,6 +16,8 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget
 from .const import (
+    CONF_IRRADIANCE,
+    WEATHER_REFRESH_MIN,
     BOILER_BELOW_C,
     CONF_AC_HEAT,
     CONF_AWAY_C,
@@ -114,6 +116,7 @@ from custom_components.hvac_horizon.features import (
 )
 from custom_components.hvac_horizon.tpi import TpiFit, tpi_on_percent, tpi_threshold_forced_off
 from custom_components.hvac_horizon.forecast import price_at
+from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries
 from custom_components.hvac_horizon.coordinator_store import StoreMixin
 from custom_components.hvac_horizon.coordinator_user import UserMixin
 from custom_components.hvac_horizon.coordinator_learning import LearningMixin
@@ -126,7 +129,7 @@ from custom_components.hvac_horizon.coordinator_aux import AuxMixin
 from custom_components.hvac_horizon.coordinator_peers import PeersMixin
 from custom_components.hvac_horizon.coordinator_investigator import InvestigatorMixin
 from custom_components.hvac_horizon.coordinator_ac import AcMixin
-from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float, _optional_float, MPC_STEP_MIN, MPC_STEPS, MPC_HEAT_COST_WEIGHT, SAFETY_FALLBACK_PCT, _HorizonStore
+from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float, _optional_float, MPC_STEP_MIN, MPC_STEPS, OUTDOOR_AHEAD_H, MPC_HEAT_COST_WEIGHT, SAFETY_FALLBACK_PCT, _HorizonStore
 
 
 class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, InputsMixin, HeaterMixin, SafetyMixin, FleetMixin, AuxMixin, PeersMixin, InvestigatorMixin, AcMixin, DataUpdateCoordinator[dict[str, Any]]):
@@ -210,6 +213,12 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._heater_stopped_min: float | None = None  # when the heater last turned off, for residual heat
         self._trv_pairs: list[tuple[float, float]] = []  # (TRV reading, room reading) per cycle, for the offset
         self._forecast_highs: list[float] = []
+        self._forecast_daily: list[dict] = []  # the last good daily forecast items
+        self._hourly: list[HourlyPoint] = []  # the last good hourly forecast
+        self._outdoor_bias = OutdoorBias()  # sensor minus forecast, per hour of day; kept in the store
+        self._hourly_at: float | None = None  # epoch seconds of the last good hourly fetch
+        self._series_cache: tuple[tuple, OutdoorSeries | None] | None = None
+        self._weather_warned: set[str] = set()  # forecast types whose last fetch failed and was logged
         self._weather_checked_min: float | None = None
         self._pwm_output_pct: float = 0.0
         self._last_sent_min: float | None = None
@@ -291,10 +300,10 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
 
     async def _async_update_steps(self, now: float, result: dict[str, Any]) -> dict[str, Any]:
         now_min = now / 60.0
-        if self._weather_checked_min is None or now_min - self._weather_checked_min >= 30:
+        if self._weather_checked_min is None or now_min - self._weather_checked_min >= WEATHER_REFRESH_MIN:
             self._weather_checked_min = now_min
             await self._refresh_weather()
-        if self._rooms() and _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR])) is not None:
+        if self._rooms() and self._outdoor_now() is not None:
             self._inputs_seen = True
         reading = self._read_inputs(now)
         interval_mean = self._take_interval_mean(now)
@@ -310,6 +319,12 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                 self._samples_since_fit = 0
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
         result.update(self._forecast(now))
+        series = self._outdoor_series()
+        result["outdoor_forecast_used"] = series is not None
+        result["outdoor_forecast_next_c"] = None if series is None else [round(series(60.0 * h), 1) for h in OUTDOOR_AHEAD_H]
+        result["outdoor_source"] = self._outdoor_reading()[1]
+        result["outdoor_bias_now_k"] = round(self._bias_at(now), 2)
+        result["outdoor_bias_pairs"] = self._outdoor_bias.total
         result["sensors_stalled"] = self._stalled_sensors(now)
         result["rooms_max_age_s"] = self._rooms_max_age_s(now)
         self._report_stalls(result["sensors_stalled"])
@@ -330,13 +345,14 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         result["occupancy"] = self._occupancy_mode(now)
         result["solar_gain_kw"] = self._solar_gain()
         modelled_kw = self._modelled_solar_kw()
-        if modelled_kw is not None and result["solar_gain_kw"] is not None:
+        result["solar_factor"] = self._solar_factor()
+        if modelled_kw is not None and result["solar_gain_kw"] is not None and self.entry.data.get(CONF_IRRADIANCE):
             self._solar_pairs.append((modelled_kw, result["solar_gain_kw"]))
             del self._solar_pairs[:-288]
         result["solar_scale"] = learned_solar_scale([m for m, _ in self._solar_pairs], [v for _, v in self._solar_pairs]) if self._solar_pairs else None
         result["window_advice"] = self._window_advice()
         self._window_advice_open = result["window_advice"] == "open"
-        outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor_now = self._outdoor_now()
         rooms_econ = self._rooms()
         if outdoor_now is not None and rooms_econ:
             phase = economizer_phase(
@@ -412,6 +428,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                         running_power_kw(self._entries, now) or 0.0,
                         step_prices,
                         step_min=MPC_STEP_MIN,
+                        outdoor_series=series,
                     )
                 ]
                 if self.entry.data.get(CONF_MPC_HEAT_PLAN, False):
@@ -432,10 +449,11 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                                 step_prices,
                                 step_min=MPC_STEP_MIN,
                                 cost_weight=MPC_HEAT_COST_WEIGHT,
+                                outdoor_series=series,
                             )
                         ]
         pid_rooms = self._rooms()
-        pid_outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        pid_outdoor = self._outdoor_now()
         heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool(self._heater_switch())
         inhibit_active = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
         self._publish_cooling(result)

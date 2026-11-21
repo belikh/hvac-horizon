@@ -25,7 +25,7 @@ Each entry creates the 66 sensors below, plus the room climate entity. See [Serv
 | `drying_needed` | Drying needed | none | Diagnostic |
 | `mould_risk` | Mould risk | none | Diagnostic |
 | `compliance_pct` | Comfort compliance | % | Diagnostic |
-| `heatwave` | Heatwave | none | Diagnostic |
+| `heatwave` | Heatwave | none | Diagnostic. On when the `heatwave_warning` sensor is on or the daily highs reach 30 °C three days running. |
 | `fan_speed` | Fan speed | none | Disabled by default |
 | `price_used_per_kwh` | Price used per kWh | none | Disabled by default |
 | `occupancy` | Occupancy | none | Diagnostic |
@@ -70,6 +70,12 @@ Each entry creates the 66 sensors below, plus the room climate entity. See [Serv
 | `trv_offset_k` | TRV offset | K | Disabled by default |
 | `room_fit` | Two-device room fit | none | Disabled by default |
 | `forecast_days` | Forecast day counts | none | Disabled by default |
+| `outdoor_forecast_used` | Outdoor forecast used | none | Diagnostic. True when a fresh hourly forecast feeds the time-to-setpoint forecast, the MPC plans, pre-cool and preheat. |
+| `outdoor_source` | Outdoor source | none | Diagnostic. `sensor`, or `forecast` while the outdoor sensor is stale or unavailable and the hourly forecast is under 2 hours old. |
+| `outdoor_forecast_next_c` | Outdoor forecast ahead | none | Disabled by default. Series values 1, 3 and 6 hours ahead in °C, including the learned bias. |
+| `outdoor_bias_now_k` | Outdoor forecast bias | K | Disabled by default. Learned outdoor sensor minus forecast for the current hour of day. |
+| `outdoor_bias_pairs` | Outdoor bias pairs | none | Disabled by default. Sensor and forecast pairs the bias has learned from. `reset_learning` clears them. |
+| `solar_factor` | Solar cloud factor | none | Disabled by default. Share of clear-sky solar gain from the forecast condition: sunny 1.0, partlycloudy 0.7, cloudy 0.4, rainy or pouring 0.2. Empty when an irradiance sensor is set. |
 | `dispatch` | Room dispatch | none | Diagnostic |
 | `minutes_low` | Minutes to setpoint, low | min | Primary |
 | `minutes_high` | Minutes to setpoint, high | min | Primary |

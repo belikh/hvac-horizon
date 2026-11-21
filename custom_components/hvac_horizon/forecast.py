@@ -4,13 +4,14 @@ Assumptions, stated so the output can be checked:
 - The AC runs at a constant power, `running_power_kw`, for the whole forecast.
   Real units cycle, so the forecast is an upper bound on energy when the
   thermostat cycles and a lower bound on time when it modulates.
-- Outdoor temperature stays at its current value.
+- Outdoor temperature stays at its current value, unless an outdoor series is given. The series then sets it per minute.
 - The price is the value of the slot that contains each minute.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from .model import Fit
@@ -65,6 +66,11 @@ def _step_temperature(fit: Fit, temp_c: float, outdoor_c: float, running_power_k
     return temp_c + rate * phi
 
 
+def _lowest_outdoor(series: Callable[[float], float], horizon_min: float, every_min: float = 30.0) -> float:
+    """The lowest series value over the first `horizon_min` minutes, sampled every `every_min`."""
+    return min(series(i * every_min) for i in range(int(horizon_min // every_min) + 1))
+
+
 def price_at(slots: list[PriceSlot], minute: float) -> float | None:
     for slot in slots:
         if slot.start_min <= minute < slot.start_min + slot.duration_min:
@@ -80,8 +86,14 @@ def forecast(
     running_power_kw: float,
     prices: list[PriceSlot],
     horizon_min: float = HORIZON_MIN,
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> Forecast:
-    """Return the time, energy and cost to cool from `temp_c` down to `target_c`."""
+    """Return the time, energy and cost to cool from `temp_c` down to `target_c`.
+
+    `outdoor_series` maps minutes from now to the outdoor temperature. Each step uses the value at its midpoint.
+    Without it, `outdoor_c` holds for the whole run. With it, the run is unreachable only when the room cannot
+    reach the setpoint at the lowest outdoor value of the horizon.
+    """
     if running_power_kw <= 0 or fit.c <= 0:
         return Forecast(False, None, None, None, math.nan, "no cooling effect learned")
 
@@ -89,7 +101,8 @@ def forecast(
         return Forecast(True, 0.0, 0.0, 0.0, math.nan, "already at or below setpoint")
 
     t_eq = _equilibrium_c(fit, outdoor_c, running_power_kw)
-    if t_eq >= target_c:
+    best_eq = t_eq if outdoor_series is None else _equilibrium_c(fit, _lowest_outdoor(outdoor_series, horizon_min), running_power_kw)
+    if best_eq >= target_c:
         return Forecast(
             False, None, None, None, t_eq,
             f"unreachable: room settles at {t_eq:.1f} C under this power",
@@ -108,7 +121,8 @@ def forecast(
         if cost is not None:
             price = price_at(prices, minute)
             cost = None if price is None else cost + step_energy * price
-        temp = max(_step_temperature(fit, temp, outdoor_c, running_power_kw, dt_h), target_c - 1e-9)
+        outdoor_step = outdoor_c if outdoor_series is None else outdoor_series(minute + STEP_MIN / 2.0)
+        temp = max(_step_temperature(fit, temp, outdoor_step, running_power_kw, dt_h), target_c - 1e-9)
         minute += STEP_MIN
 
     return Forecast(True, minute, energy, cost, t_eq, "reachable")
@@ -122,6 +136,7 @@ def forecast_range(
     running_power_kw: float,
     prices: list[PriceSlot],
     horizon_min: float = HORIZON_MIN,
+    outdoor_series: Callable[[float], float] | None = None,
 ) -> tuple[float | None, float | None]:
     """Minutes to the setpoint with c one standard error above (low) and below (high) the fit.
 
@@ -132,6 +147,6 @@ def forecast_range(
         return None, None
     faster = replace(fit, c=fit.c + fit.c_stderr)
     slower = replace(fit, c=max(fit.c - fit.c_stderr, MIN_RANGE_C))
-    low = forecast(faster, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min).minutes
-    high = forecast(slower, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min).minutes
+    low = forecast(faster, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series).minutes
+    high = forecast(slower, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series).minutes
     return low, high

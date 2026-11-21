@@ -11,6 +11,7 @@ The forecast and the pre-cool estimate use the scaled c. The AC's setpoint and m
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .model import MIN_OUTDOOR_SPREAD_K, Fit, NotEnoughData, Sample, _invert, _least_squares
@@ -94,8 +95,10 @@ def learn_heat_rate(pairs: list[tuple[Sample, float]], k: float, g: float) -> fl
     return min(HEAT_RATE_MAX, max(0.0, sum(x * y for x, y in rows) / den))
 
 
-def heat_up_minutes(room_c: float, target_c: float, outdoor_c: float, k: float, g: float, heat_rate: float, limit_min: float = 360.0) -> float | None:
+def heat_up_minutes(room_c: float, target_c: float, outdoor_c: float, k: float, g: float, heat_rate: float, limit_min: float = 360.0, outdoor_series: Callable[[float], float] | None = None) -> float | None:
     """Minutes for the room to reach `target_c` at full heater output, stepping the room model one minute at a time.
+
+    `outdoor_series` maps minutes from now to the outdoor temperature. Without it `outdoor_c` holds.
 
     Returns 0 when the room is already at the target. Returns None when it does not get there within `limit_min`.
     """
@@ -104,7 +107,8 @@ def heat_up_minutes(room_c: float, target_c: float, outdoor_c: float, k: float, 
     temp = room_c
     minutes = 0.0
     while minutes < limit_min:
-        rate = k * (outdoor_c - temp) + g + heat_rate  # K per hour, heater at full output
+        outdoor = outdoor_c if outdoor_series is None else outdoor_series(minutes + 0.5)
+        rate = k * (outdoor - temp) + g + heat_rate  # K per hour, heater at full output
         if rate <= 0:
             return None
         temp += rate / 60.0

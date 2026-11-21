@@ -203,7 +203,7 @@ class AcMixin:
         )
         precool = self._precool_start(now, rooms)
         result["precool_status"] = self._precool_status
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor = self._outdoor_now()
         # The night plan acts only with its flag on. Its pre-cool target and hold use the comfort setpoint.
         night = result.get("night_plan") if self.entry.data.get(CONF_NIGHT_PLAN_ACT, False) else None
         comfort_c = self.comfort_c
@@ -284,7 +284,7 @@ class AcMixin:
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
         heat_ok = result.get("heating_allowed", True)
         await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off, track=True)
-        outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        outdoor_now = self._outdoor_now()
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
             bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
