@@ -61,7 +61,7 @@ The Status sensor carries the fit quality in its attributes.
 
 A new room reads `low` because it has few readings with the AC on. The confidence rises as the AC runs.
 
-The Forecast error sensor comes from a backtest. For each past cool-down, the backtest fits a model on the readings before it and compares the predicted minutes with the measured minutes. The `accuracy_pairs` attribute lists the last 20 runs. A run needs 60 readings, 5 hours, before its cool-down.
+The Forecast error sensor comes from a backtest. For each past cool-down, the backtest fits a model on the readings before it and compares the predicted minutes with the measured minutes. The `accuracy_pairs` attribute lists the last 20 runs. The `range_coverage_pct` attribute is the percentage of `range_runs` runs whose measured minutes fell inside the forecast range of that run. A range of one standard error holds about 68 % of runs when the model fits the room. A lower value means the range is too narrow for this room. A run needs 60 readings, 5 hours, before its cool-down.
 
 ## What the weather entity adds
 

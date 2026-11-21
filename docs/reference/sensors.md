@@ -101,7 +101,7 @@ These 36 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `forecast_days` | Forecast day counts | none | Count of forecast days by day type. |
 | `outdoor_forecast_next_c` | Outdoor forecast ahead | none | Outdoor series 1, 3 and 6 hours ahead in °C, with the learned bias. |
 | `solar_factor` | Solar cloud factor | none | Share of clear-sky solar gain from the forecast condition: sunny 1.0, partlycloudy 0.7, cloudy 0.4, rainy 0.2. |
-| `outdoor_bias_now_k` | Outdoor forecast bias | K | Learned outdoor sensor minus forecast for this hour of day. |
+| `outdoor_bias_now_k` | Outdoor forecast bias | K | Learned outdoor sensor minus forecast for this hour of day. 0 until 6 pairs exist. |
 | `outdoor_bias_pairs` | Outdoor bias pairs | none | Pairs the bias has learned from. `reset_learning` clears them. |
 
 A list or dict value shows as JSON text cut to 255 characters in the state. The full value is in the `value` attribute. A key the coordinator did not publish this tick reads `unknown`.
@@ -129,6 +129,8 @@ These attributes sit on the entity named in the Entity column. They are read fro
 | `room_rate_coefficients` | Status | k, g from AC-off intervals and c from AC-on intervals. None until fitted. |
 | `auto_tpi_gains` | Status | Online cool gain on c, clamped from 0.5 to 1.5. 1.0 until it moves. |
 | `accuracy_pairs` | Forecast error | The last 20 backtest runs, each with predicted, measured and error minutes. |
+| `range_coverage_pct` | Forecast error | Percentage of the backtest runs whose measured minutes fell between the low and high forecast of that run. |
+| `range_runs` | Forecast error | Count of backtest runs behind `range_coverage_pct`. |
 
 **See also**
 

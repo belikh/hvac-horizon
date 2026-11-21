@@ -43,6 +43,8 @@ class HorizonAccuracyView(HomeAssistantView):
                 "entry_id": entry_id,
                 "median_abs_error_min": data.get("forecast_error_min"),
                 "accuracy_pairs": data.get("accuracy_pairs") or [],
+                "range_coverage_pct": data.get("range_coverage_pct"),
+                "range_runs": data.get("range_runs") or 0,
             }
         )
 

@@ -27,7 +27,7 @@ Then find the text in the table below.
 | `cool: waiting for restart delay` | A start waits for `min_off_min` after the last stop. The same text exists for `heat` and `dry`. | Wait. The `pending` attribute of the thermostat shows the minutes. |
 | `cool: waiting for compressor group` | Another entry in the same `compressor_group` started its AC less than 5 minutes ago. | Wait. |
 | `off: window open N min` | The window sensor has been open for `window_delay_min` or longer. | Close the window. |
-| `off: free cooling: window open or whole-house fan` | The entry holds the window actuator open, or the whole-house fan runs. | Nothing. The AC cools when the room is still 2 K above the cool threshold after 30 minutes. |
+| `off: free cooling: window open or whole-house fan` | The entry holds the window actuator open, or the whole-house fan runs. | Nothing. The AC cools when the room is still 2 K above the cool threshold after 30 minutes, or fell by less than 0.3 K in 30 minutes. |
 | `off: auto: the heater ran in the last 60 min` | The mode is `auto` and the heater runs, or stopped less than 60 minutes ago. | Nothing. A room 2 K above the cool threshold cools at once. Choose `cool` to cool now. |
 | `off: outdoor N C below cooling limit` | The mode is `auto`, the entry has a window actuator or a whole-house fan, and outdoors is below 16 °C. | Nothing. The window or the fan cools the room. Choose `cool` to run the AC. |
 | `off: away, room within setback` | The room is unoccupied and below `eco_c` or `away_c`. | Nothing. |

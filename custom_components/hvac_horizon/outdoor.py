@@ -18,6 +18,7 @@ MAX_SERIES_H = 96  # a series covers at most this many hours
 
 BIAS_BINS = 24  # one bias per hour of day
 BIAS_MIN_PAIRS = 3  # a bin with fewer pairs uses the overall bias
+BIAS_MIN_TOTAL = 6  # with fewer pairs in total the bias is 0
 BIAS_ALPHA = 0.2  # weight of a new pair once a bin holds a few; the first pairs weigh 1 / (count + 1)
 BIAS_STEP_MAX_K = 0.5  # one pair moves a bin by at most this much
 BIAS_LIMIT_K = 8.0  # the bias stays within plus or minus this
@@ -156,7 +157,12 @@ class OutdoorBias:
     total: int = 0
 
     def for_hour(self, hour: int) -> float:
-        """The bias for an hour of day: its own bin with at least BIAS_MIN_PAIRS pairs, else the overall bias."""
+        """The bias for an hour of day: its own bin with at least BIAS_MIN_PAIRS pairs, else the overall bias.
+
+        It is 0 until BIAS_MIN_TOTAL pairs exist, so one or two readings do not shift the forecast.
+        """
+        if self.total < BIAS_MIN_TOTAL:
+            return 0.0
         bin_ = hour % BIAS_BINS
         return self.means[bin_] if self.counts[bin_] >= BIAS_MIN_PAIRS else self.overall
 

@@ -2,6 +2,18 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.5.5 (unreleased)
+
+- Free cooling is given up when it cools too little. With the window open or the whole-house fan on, a room above the
+  cool threshold that fell by less than 0.3 K in 30 minutes gets the AC. Before, a room held up to 2 K above the
+  threshold by an open window stayed there.
+- The outdoor forecast bias is 0 until 6 sensor and forecast pairs exist. Before, the first pair shifted the forecast
+  by up to 0.5 K.
+- The Forecast error sensor has two new attributes. `range_coverage_pct` is the percentage of backtest runs whose
+  measured minutes fell inside the forecast range of that run, and `range_runs` is the count of those runs. The
+  accuracy panel shows both.
+- `tests/ha/test_basics.py` runs 12 seeded random days with noisy room sensors, a restart and a target change.
+
 ## 0.5.4 (2026-11-22)
 
 - `heat` mode heats on a warm day. The 22 °C outdoor heating limit applies in `auto` and `dry` only. Before, `heat` with

@@ -35,7 +35,7 @@ dT/dt = k (T_out - T) - c P + g
 ## What this means for a reading
 
 - The forecast is most reliable on a day like the days in the stored samples. A heatwave or a cold snap lies outside the fitted range.
-- The range between `minutes_low` and `minutes_high` comes from the standard error of `c`. It does not include the errors listed above.
+- The range between `minutes_low` and `minutes_high` comes from the standard error of `c`. It does not include the errors listed above. The `range_coverage_pct` attribute of the Forecast error sensor shows how often past cool-downs fell inside it.
 - The fit needs at least 3 hours of AC on and off time over 3 runs. Until then the status reads `learning`.
 
 ## Known limits of control

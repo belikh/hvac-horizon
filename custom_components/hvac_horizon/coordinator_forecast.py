@@ -42,7 +42,7 @@ from custom_components.hvac_horizon.features import (
     sun_heat_gain,
 )
 from custom_components.hvac_horizon.tpi import TpiFit, heat_up_minutes
-from custom_components.hvac_horizon.backfill import accuracy_pairs
+from custom_components.hvac_horizon.backfill import accuracy_pairs, range_coverage
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, condition_factor, solar_elevation_azimuth, window_irradiance
 from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
 from custom_components.hvac_horizon.forecast import forecast, forecast_range
@@ -400,6 +400,8 @@ class ForecastMixin:
             "forecast_error_min": self._forecast_error_min,
             "backtest_runs": len([r for r in self._backtest_runs if r.predicted_min is not None]),
             "accuracy_pairs": accuracy_pairs(self._backtest_runs),
+            "range_coverage_pct": range_coverage(self._backtest_runs)[0],
+            "range_runs": range_coverage(self._backtest_runs)[1],
             "room_fit": self._room_fit,
             "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
             "samples_heat": self._mode_counts.get("heat", 0),

@@ -24,7 +24,7 @@ from custom_components.hvac_horizon.features import (
     valve_exercise_due,
     window_actuator_command,
 )
-from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, FREE_COOLING_GIVE_UP_MIN, _float
+from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, FREE_COOLING_GIVE_UP_MIN, FREE_COOLING_MIN_DROP_K, _float
 
 
 class AuxMixin:
@@ -32,6 +32,7 @@ class AuxMixin:
     _actuator_opened_by_us: bool
     _free_cooling_gave_up: bool
     _free_cooling_since: float | None
+    _free_cooling_mark: tuple[float, float] | None
     _cool_above_c: float
     _heat_on_below_c: float
     _inhibit_until_min: float | None
@@ -155,7 +156,8 @@ class AuxMixin:
 
         A window this entry opened, or a running whole-house fan, gets FREE_COOLING_GIVE_UP_MIN to work. If the room is
         still more than FREE_COOLING_GIVE_UP_K above the cool threshold after that, free cooling is given up: the
-        window closes, the fan stops and the AC cools.
+        window closes, the fan stops and the AC cools. It is also given up when the room is above the threshold and
+        fell by less than FREE_COOLING_MIN_DROP_K over a period of that length.
         """
         if room_c is None:
             return
@@ -165,11 +167,19 @@ class AuxMixin:
         free_cooling = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
         if not free_cooling:
             self._free_cooling_since = None
+            self._free_cooling_mark = None
         elif self._free_cooling_since is None:
             self._free_cooling_since = now
+            self._free_cooling_mark = (now, room_c)
         if room_c <= self._cool_above_c:
             self._free_cooling_gave_up = False
-        elif (
+            return
+        if self._free_cooling_mark is not None and now - self._free_cooling_mark[0] >= FREE_COOLING_GIVE_UP_MIN * 60.0:
+            if self._free_cooling_mark[1] - room_c < FREE_COOLING_MIN_DROP_K:
+                self._free_cooling_gave_up = True
+                return
+            self._free_cooling_mark = (now, room_c)
+        if (
             self._free_cooling_since is not None
             and now - self._free_cooling_since >= FREE_COOLING_GIVE_UP_MIN * 60.0
             and room_c > self._cool_above_c + FREE_COOLING_GIVE_UP_K

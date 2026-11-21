@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .forecast import forecast
+from .forecast import forecast, forecast_range
 from .model import NotEnoughData, Sample, fit
 
 
@@ -69,6 +69,8 @@ class BacktestRun:
     actual_min: float
     predicted_min: float | None
     error_min: float | None
+    low_min: float | None = None  # the forecast range for this run, from the same earlier fit
+    high_min: float | None = None
 
 
 def backtest(samples: list[Sample], target_c: float, min_train: int = 60, margin_c: float = 1.0) -> list[BacktestRun]:
@@ -87,16 +89,11 @@ def backtest(samples: list[Sample], target_c: float, min_train: int = 60, margin
         except NotEnoughData:
             out.append(BacktestRun(cd.start, cd.actual_min, None, None))
             continue
-        result = forecast(
-            f_fit,
-            temp_c=cd.start_c,
-            target_c=cd.target_c,
-            outdoor_c=cd.mean_outdoor_c,
-            running_power_kw=cd.mean_power_kw,
-            prices=[],
-        )
+        inputs = dict(temp_c=cd.start_c, target_c=cd.target_c, outdoor_c=cd.mean_outdoor_c, running_power_kw=cd.mean_power_kw, prices=[])
+        result = forecast(f_fit, **inputs)
         if result.reachable and result.minutes is not None:
-            out.append(BacktestRun(cd.start, cd.actual_min, result.minutes, result.minutes - cd.actual_min))
+            low, high = forecast_range(f_fit, **inputs)
+            out.append(BacktestRun(cd.start, cd.actual_min, result.minutes, result.minutes - cd.actual_min, low, high))
         else:
             out.append(BacktestRun(cd.start, cd.actual_min, None, None))
     return out
@@ -109,6 +106,19 @@ def median_abs_error(runs: list[BacktestRun]) -> float | None:
         return None
     mid = len(errors) // 2
     return errors[mid] if len(errors) % 2 else (errors[mid - 1] + errors[mid]) / 2
+
+
+def range_coverage(runs: list[BacktestRun]) -> tuple[float | None, int]:
+    """The percentage of runs whose measured minutes fell inside the forecast range, and the count of runs checked.
+
+    A run counts when it has a low value. A run without a high value has no upper limit. The percentage is None
+    with no such run.
+    """
+    checked = [r for r in runs if r.predicted_min is not None and r.low_min is not None]
+    if not checked:
+        return None, 0
+    inside = sum(1 for r in checked if r.low_min <= r.actual_min and (r.high_min is None or r.actual_min <= r.high_min))
+    return round(100.0 * inside / len(checked), 1), len(checked)
 
 
 ACCURACY_PAIRS_LIMIT = 20  # runs listed in the accuracy_pairs attribute

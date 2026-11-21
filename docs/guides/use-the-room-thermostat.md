@@ -56,7 +56,7 @@ The device starts by itself when the delay ends. Set the delay with `min_off_min
 
 ## Outdoor limits
 
-An entry with a window actuator or a whole-house fan cools with outdoor air first. In `auto` its AC stays off while outdoors is below 16 °C, unless the open window or the fan has left the room 2 K above the cool threshold for 30 minutes. An entry with neither has no outdoor cooling limit. `cool` has no outdoor limit: the AC cools whenever the room is above the cool threshold.
+An entry with a window actuator or a whole-house fan cools with outdoor air first. In `auto` its AC stays off while outdoors is below 16 °C. The limit ends when the open window or the fan has left the room 2 K above the cool threshold for 30 minutes, or cooled it by less than 0.3 K in 30 minutes. An entry with neither has no outdoor cooling limit. `cool` has no outdoor limit: the AC cools whenever the room is above the cool threshold.
 
 In `auto` the AC does not cool while the heater runs or within 60 minutes of its last run. A room 2 K above the cool threshold cools at once. This stops the heater and the AC from taking turns.
 

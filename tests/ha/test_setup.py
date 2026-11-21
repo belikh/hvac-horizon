@@ -7060,11 +7060,11 @@ async def test_hourly_forecast_gives_an_outdoor_series_anchored_to_the_sensor(ha
     await refresh(hass, entry)
     data = entry.runtime_data.data
     assert data["outdoor_forecast_used"] is True
-    # The sensor reads 1 K above the forecast, so the anchor adds 1 K that fades over 3 hours. The first pair also teaches a bias of 0.5 K.
+    # The sensor reads 1 K above the forecast, so the anchor adds 1 K that fades over 3 hours. One pair gives no bias yet.
     one, three, six = data["outdoor_forecast_next_c"]
-    assert one == pytest.approx(28.0 + 0.5 + (1.0 - 0.5) * (1 - 60 / 180), abs=0.1)
-    assert three == pytest.approx(24.0 + 0.5, abs=0.1)
-    assert six == pytest.approx(18.0 + 0.5, abs=0.1)
+    assert one == pytest.approx(28.0 + 1.0 * (1 - 60 / 180), abs=0.1)
+    assert three == pytest.approx(24.0, abs=0.1)
+    assert six == pytest.approx(18.0, abs=0.1)
     assert data["outdoor_source"] == "sensor"
 
 

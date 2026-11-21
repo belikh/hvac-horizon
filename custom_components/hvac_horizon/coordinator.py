@@ -207,6 +207,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
         self._free_cooling_since: float | None = None  # when the window this entry opened, or the fan, started
+        self._free_cooling_mark: tuple[float, float] | None = None  # time and room temperature at the start of the current check period
         self._free_cooling_gave_up = False  # free cooling failed to hold the room; the window stays shut until the room is at the threshold
         self._actuator_opened_by_us = False  # set when this integration opens the window actuator; only then does it close it
         self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read

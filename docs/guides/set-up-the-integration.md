@@ -77,7 +77,7 @@ Motion in the room counts as occupied whatever the presence sources say.
 | Window actuator | `window_actuator` | Opens the window when outdoors is at least 2 K cooler than the room and at or below 24 °C |
 | Whole-house fan | `whole_house_fan` | Runs when the room is above the cool threshold and outdoors is at least 2 K cooler |
 
-The AC does not cool while the entry holds the window open or runs the whole-house fan. When the room is still 2 K above the cool threshold after 30 minutes, the window closes, the fan stops and the AC cools.
+The AC does not cool while the entry holds the window open or runs the whole-house fan. When the room is still 2 K above the cool threshold after 30 minutes, the window closes, the fan stops and the AC cools. The same happens when the room is above the cool threshold and fell by less than 0.3 K in 30 minutes.
 
 With an outdoor humidity sensor in `humidity`, the window and the economizer stay shut when the outdoor dew point is 1 K or more above the room's.
 

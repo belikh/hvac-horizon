@@ -180,7 +180,9 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             return None
         if self._key == "forecast_error_min":
             # The last 20 backtest runs. The state is the median absolute error over every run.
-            return {"accuracy_pairs": self.coordinator.data.get("accuracy_pairs")}
+            # range_coverage_pct is the share of range_runs whose measured time fell inside the forecast range.
+            d = self.coordinator.data
+            return {"accuracy_pairs": d.get("accuracy_pairs"), "range_coverage_pct": d.get("range_coverage_pct"), "range_runs": d.get("range_runs")}
         if self._key != "status":
             return None
         d = self.coordinator.data

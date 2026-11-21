@@ -79,6 +79,32 @@ class BacktestTests(unittest.TestCase):
         self.assertIsNone(median_abs_error([]))
 
 
+class RangeCoverageTests(unittest.TestCase):
+    def test_coverage_counts_the_runs_inside_the_range(self):
+        from custom_components.hvac_horizon.backfill import BacktestRun, range_coverage
+
+        runs = [
+            BacktestRun(0, 30.0, 32.0, 2.0, 25.0, 40.0),  # inside
+            BacktestRun(1, 50.0, 32.0, -18.0, 25.0, 40.0),  # above the range
+            BacktestRun(2, 90.0, 60.0, -30.0, 45.0, None),  # no upper limit
+            BacktestRun(3, 20.0, 32.0, 12.0, 25.0, 40.0),  # below the range
+            BacktestRun(4, 30.0, 32.0, 2.0),  # no range
+            BacktestRun(5, 30.0, None, None),  # no prediction
+        ]
+        self.assertEqual(range_coverage(runs), (50.0, 4))
+        self.assertEqual(range_coverage([]), (None, 0))
+
+    def test_backtest_runs_carry_the_range_of_their_own_fit(self):
+        from custom_components.hvac_horizon.backfill import backtest
+
+        runs = [r for r in backtest(build_samples(600), target_c=26.8, min_train=60, margin_c=0.2) if r.predicted_min is not None]
+        self.assertTrue(runs)
+        for run in runs:
+            self.assertLessEqual(run.low_min, run.predicted_min)
+            if run.high_min is not None:
+                self.assertGreaterEqual(run.high_min, run.predicted_min)
+
+
 class AccuracyPairsTests(unittest.TestCase):
     def test_pairs_hold_the_predicted_runs_with_their_errors(self):
         from custom_components.hvac_horizon.backfill import BacktestRun, accuracy_pairs, median_abs_error

@@ -400,7 +400,9 @@ class House:
         env(price=0.28, room=27.0, window="on")
         await tick(entries, minutes=3.0, count=6)
         env(window="off", room=25.5, outdoor=18.0)
-        await tick(entries, count=9)
+        await tick(entries, count=4)
+        env(room=25.0)  # free cooling works: the room falls, so it is not given up
+        await tick(entries, count=5)
         env(room=25.5, outdoor=21.0, out_rh=98.0, rh=45.0)
         await tick(entries, count=3)
         env(out_rh=55.0, rh=50.0)

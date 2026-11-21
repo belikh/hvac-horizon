@@ -95,6 +95,10 @@ class HvacHorizonAccuracy extends HTMLElement {
       line.appendChild(element("strong", median === null || median === undefined ? "-" : Number(median).toFixed(1)));
       line.appendChild(document.createTextNode(" min"));
       this.shadowRoot.appendChild(line);
+      if (body.range_runs) {
+        const share = Number(body.range_coverage_pct).toFixed(0);
+        this.shadowRoot.appendChild(element("p", "Measured time inside the forecast range: " + share + " % of " + body.range_runs + " runs."));
+      }
       const table = element("table");
       const thead = element("thead");
       const head = element("tr");

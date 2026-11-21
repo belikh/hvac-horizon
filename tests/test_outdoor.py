@@ -216,6 +216,11 @@ class BiasTests(unittest.TestCase):
         self.assertAlmostEqual(bias.for_hour(15), 3.0, delta=0.1)
         self.assertAlmostEqual(bias.for_hour(2), 0.0, delta=0.05)
 
+    def test_fewer_than_six_pairs_give_no_bias(self):
+        bias = self.learn(OutdoorBias(), [(25.0, 20.0, h) for h in range(5)])
+        self.assertEqual(bias.for_hour(2), 0.0)
+        self.assertNotEqual(bias.record(25.0, 20.0, 5).for_hour(2), 0.0)
+
     def test_bin_with_fewer_than_three_pairs_uses_the_overall_bias(self):
         bias = self.learn(OutdoorBias(), [(22.0, 20.0, h % 12) for h in range(30)])
         self.assertEqual(bias.counts[20], 0)

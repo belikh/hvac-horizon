@@ -41,7 +41,7 @@ Readings where the AC heats, dries or runs its fan only are left out. A reading 
 `forecast()` in `forecast.py` steps the model forward one minute at a time with the exact exponential solution of the equation. It returns minutes, energy and cost, or `unreachable` when the room does not reach the target in 12 hours.
 
 - The AC runs at its learned running power for the whole forecast.
-- The outdoor temperature follows the hourly weather forecast when a weather entity is set. `outdoor.py` builds the series: it starts at the sensor reading, and the offset to the forecast fades over 3 hours. A learned bias for each hour of the day is added.
+- The outdoor temperature follows the hourly weather forecast when a weather entity is set. `outdoor.py` builds the series: it starts at the sensor reading, and the offset to the forecast fades over 3 hours. A learned bias for each hour of the day is added once 6 sensor and forecast pairs exist.
 - The cost uses the price slots of the price sensor. A minute with no slot has no cost.
 
 ## Targets

@@ -9,6 +9,7 @@ A failure here means the integration breaks a rule every thermostat user expects
 
 from __future__ import annotations
 
+import random
 from datetime import timedelta
 
 import pytest
@@ -47,6 +48,9 @@ class House:
         self.outdoor_c = outdoor_c
         self.thermal = thermal  # False holds the room at room_c, True lets the devices and outdoors move it
         self.sensors_alive = True
+        self.gain_k_per_h = 0.0  # heat from the sun and from people
+        self.noise_k = 0.0  # standard deviation of the error each room sensor adds to its reading
+        self.rng = random.Random(0)
         self.window_opened = False  # True once the window actuator has been open
         self.thermostat = ""
         self.entry: MockConfigEntry | None = None
@@ -69,9 +73,9 @@ class House:
         return self.hass.states.get(self.thermostat)
 
     def _publish(self) -> None:
-        room = f"{self.room_c:.2f}" if self.sensors_alive else "unavailable"
-        self.hass.states.async_set(ROOM_1, room, TEMP)
-        self.hass.states.async_set(ROOM_2, room, TEMP)
+        for sensor in (ROOM_1, ROOM_2):
+            room = f"{self.room_c + self.rng.gauss(0.0, self.noise_k):.2f}" if self.sensors_alive else "unavailable"
+            self.hass.states.async_set(sensor, room, TEMP)
         self.hass.states.async_set(OUTDOOR, f"{self.outdoor_c:.2f}", TEMP)
         watts = "1000" if self.ac_mode in ("cool", "dry", "heat") else "0"
         self.hass.states.async_set(AC_POWER, watts, {"unit_of_measurement": "W", "device_class": "power"})
@@ -137,7 +141,7 @@ class House:
         for _ in range(minutes):
             if self.thermal:
                 rate = (self.outdoor_c - self.room_c) * (WINDOW_LOSS_PER_H if self.window_open else LOSS_PER_H)
-                rate += HEATER_K_PER_H if self.heater_on else 0.0
+                rate += self.gain_k_per_h + (HEATER_K_PER_H if self.heater_on else 0.0)
                 rate -= AC_K_PER_H if self.ac_mode == "cool" else 0.0
                 self.room_c += rate / 60.0
             self.freezer.tick(timedelta(minutes=1))
@@ -226,6 +230,16 @@ async def test_auto_runs_the_ac_when_the_open_window_does_not_cool_the_room(hous
     assert home.window_opened
     assert home.ac_mode == "cool"
     assert not home.window_open
+
+
+async def test_auto_runs_the_ac_when_the_open_window_cools_the_room_too_little(house):
+    """A sunny room, 20 C outdoors. The open window holds the room 0.8 K above the target and no lower, so the AC takes over."""
+    home = await house(room_c=23.5, outdoor_c=20.0, mode="auto", thermal=True, window_actuator=WINDOW_ACTUATOR)
+    home.gain_k_per_h = 2.8
+    await home.run(240)
+    assert home.window_opened
+    assert home.cooled(240)
+    assert max(home.rooms(60)) <= TARGET_C + 1.0
 
 
 @pytest.mark.parametrize(
@@ -367,3 +381,44 @@ async def test_dead_room_sensors_turn_the_devices_off(house, mode, room_c, outdo
     assert not home.heater_on
     assert home.ac_mode == "off"
 
+
+
+def _starts(flags: list[bool]) -> int:
+    return sum(1 for before, after in zip(flags, flags[1:]) if after and not before)
+
+
+@pytest.mark.parametrize("seed", range(12))
+async def test_a_random_day_with_noisy_sensors_a_restart_and_a_new_target(house, seed):
+    """Six hours from a random start: noisy sensors, one restart and one target change at random minutes.
+
+    The rules hold for every seed: heat does not cool, cool does not heat, off runs nothing, the devices do not
+    short-cycle, and the room ends within 1.5 K of the target on the side the mode controls.
+    """
+    rng = random.Random(seed)
+    mode = rng.choice(["heat", "cool", "auto", "off"])
+    start_c, outdoor_c = rng.uniform(16.0, 29.0), rng.uniform(0.0, 38.0)
+    targets = [float(rng.randint(19, 25)), float(rng.randint(19, 25))]
+    home = await house(room_c=start_c, outdoor_c=outdoor_c, mode=mode, target_c=targets[0], thermal=True)
+    home.noise_k, home.rng = 0.15, rng
+    restart_at, retarget_at = sorted(rng.sample(range(10, 240), 2))
+    await home.run(restart_at)
+    await home.restart()
+    await home.run(retarget_at - restart_at)
+    await home.set_target(targets[1])
+    await home.run(360 - retarget_at)
+    case = f"seed {seed}: {mode}, room {start_c:.1f}, outdoors {outdoor_c:.1f}, targets {targets}, restart at {restart_at}, target at {retarget_at}"
+    assert home.state.state == mode, case
+    if mode in ("cool", "off"):
+        assert not home.heated(360), case
+    if mode in ("heat", "off"):
+        assert not home.cooled(360), case
+    heater, cooling = [h for _, h, _ in home.log], [c for _, _, c in home.log]
+    assert _starts(heater) <= 36, f"{case}: the heater started {_starts(heater)} times in 6 hours"
+    assert _starts(cooling) <= 18, f"{case}: the AC started {_starts(cooling)} times in 6 hours"
+    last_hour = home.rooms(60)
+    if mode in ("heat", "auto"):
+        heats = mode == "heat" or outdoor_c <= 22.0
+        if heats:
+            assert min(last_hour) >= targets[1] - 1.5, case
+    if mode in ("cool", "auto"):
+        assert max(last_hour) <= targets[1] + 1.5, case

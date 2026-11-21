@@ -79,6 +79,7 @@ Three tests exist to stop work that looks done and does nothing.
 - The heater and the AC do not run against each other at any minute, and `auto` does not take turns between them over a day.
 - With a window actuator, `auto` cools with the window on a cold day and runs the AC when the window does not help.
 - The mode and the target survive a restart. Dead room sensors turn the devices off.
+- Twelve seeded random days hold the same rules: a random mode, start and outdoor temperature, sensors with 0.15 K of noise, one restart and one target change at random minutes. The heater starts at most 36 times and the AC at most 18 times in 6 hours.
 
 Add a case here for every fault a user reports about basic behaviour, before the fix.
 
