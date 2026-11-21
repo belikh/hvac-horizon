@@ -1210,11 +1210,11 @@ async def test_night_precool_plan_starts_the_ac_when_away(hass, enable_custom_in
 
 @pytest.mark.parametrize("flag", [False, True], ids=["flag_off", "flag_on"])
 async def test_night_hold_stops_a_cool_start_at_comfort(hass, enable_custom_integrations, config_data, freezer, flag):
-    # Eco is set to 23 C, below comfort 24 C, so eco cools a 23.5 C room. The room is at or below comfort, so the plan says hold.
+    # Eco is set to 23 C, below comfort 24 C, so eco cools a 23.6 C room (above eco plus the 0.5 K band). The room is at or below comfort, so the plan says hold.
     # With the flag on, the hold stops the AC from starting. With the flag off, eco starts it.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     extra = {"comfort_c": 24.0, "eco_c": 23.0, "night_plan_act": flag}
-    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="23.5", extra=extra, temperature_handler=_climate_follows_setpoint(hass))
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="23.6", extra=extra, temperature_handler=_climate_follows_setpoint(hass))
     writes = _record_climate_writes(hass)
     await hass.services.async_call("hvac_horizon", "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60}, blocking=True)
     await refresh(hass, entry)
@@ -4545,3 +4545,40 @@ async def test_dispatch_publishes_the_devices_chosen_for_a_hot_room(hass, enable
     dispatch = entry.runtime_data.data["dispatch"]
     assert dispatch["cool"][0] == "ac_big"
     assert dispatch["power_kw"] > 0
+
+
+def _set_room(hass, value):
+    for sensor_id in (ROOM_A, ROOM_B):
+        hass.states.async_set(sensor_id, str(value), {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+
+async def test_off_ac_does_not_start_while_the_room_alternates_at_the_target(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="24.0", outdoor="30.0", climate="off", temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    for i in range(12):
+        freezer.tick(timedelta(minutes=5))
+        _set_room(hass, 24.1 if i % 2 == 0 else 24.0)
+        await refresh(hass, entry)
+    assert ("mode", "cool") not in writes
+
+
+async def test_cooling_ac_stays_on_for_a_small_dip_below_target(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="26.0", outdoor="30.0", climate="cool", temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    freezer.tick(timedelta(minutes=10))
+    _set_room(hass, 23.9)
+    await refresh(hass, entry)
+    assert ("mode", "off") not in writes
+
+
+async def test_cooling_ac_stops_when_the_room_is_below_the_band(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="26.0", outdoor="30.0", climate="cool", temperature_handler=_climate_follows_setpoint(hass))
+    writes = _record_climate_writes(hass)
+    freezer.tick(timedelta(minutes=10))
+    _set_room(hass, 23.4)
+    await refresh(hass, entry)
+    assert ("mode", "off") in writes

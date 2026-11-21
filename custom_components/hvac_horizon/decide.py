@@ -15,6 +15,7 @@ from enum import Enum
 
 COOL_MIN_OUTDOOR_C = 16.0  # below this outdoors, cooling is blocked
 MPC_DEADBAND_C = 0.5  # the MPC plan starts or idles a cool only when the room is this far past the cool threshold
+COOL_DEADBAND_C = 0.5  # the AC starts above target plus this and stops below target minus this; between them it keeps its state
 
 
 class Mode(str, Enum):
@@ -84,7 +85,14 @@ def _cool_gate(window_open_min: float, window_delay_min: float, outdoor_c: float
     return None
 
 
-def decide(state: RoomState, settings: Settings) -> Action:
+def _cool_wanted(room_c: float, target_c: float, ac_cooling: bool) -> bool:
+    """Hysteresis around the target. A running AC keeps cooling until the room falls below target minus the band."""
+    if ac_cooling:
+        return room_c >= target_c - COOL_DEADBAND_C
+    return room_c > target_c + COOL_DEADBAND_C
+
+
+def decide(state: RoomState, settings: Settings, ac_cooling: bool = False) -> Action:
     gate = _cool_gate(state.window_open_min, settings.window_delay_min, state.outdoor_c)
     if gate is not None:
         return Action(Mode.OFF, None, gate)
@@ -93,13 +101,13 @@ def decide(state: RoomState, settings: Settings) -> Action:
     if not state.someone_home:
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
         away_target = cool_above_c(settings, False)
-        if state.room_c > away_target:
+        if _cool_wanted(state.room_c, away_target, ac_cooling):
             reason = "eco when unoccupied" if settings.eco_c is not None else "away setback"
             return Action(Mode.COOL, away_target, reason)
         return Action(Mode.OFF, None, "away, room within setback")
     if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
     target = cool_above_c(settings, True)
-    if state.room_c > target:
+    if _cool_wanted(state.room_c, target, ac_cooling):
         return Action(Mode.COOL, target, f"above {settings.preset.value} target")
     return Action(Mode.OFF, None, f"at or below {settings.preset.value} target")

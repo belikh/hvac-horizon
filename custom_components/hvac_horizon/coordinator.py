@@ -1723,7 +1723,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 outdoor_c=outdoor,
                 night_precool_c=comfort_c if night == "pre-cool" else None,
             )
-            action = decide(state, self._settings)
+            cooling_now = self.hass.states.get(climate_id)
+            action = decide(state, self._settings, cooling_now is not None and cooling_now.state == "cool")
             if night == "hold" and action.mode is Mode.COOL:
                 # The night hold keeps a start off at comfort. A running AC keeps its setpoint at comfort.
                 running_now = self.hass.states.get(climate_id)

@@ -86,7 +86,7 @@ class PresetTests(unittest.TestCase):
 
         s = Settings(comfort_c=24.0, away_c=27.0, eco_c=25.5, preset=Preset.ECO)
         self.assertEqual(_preset_setpoint(s), 25.5)
-        self.assertEqual(decide(state(room_c=26.0), s).setpoint_c, 25.5)
+        self.assertEqual(decide(state(room_c=26.2), s).setpoint_c, 25.5)
 
     def test_boost_targets_boost_setpoint(self):
         from custom_components.hvac_horizon.decide import Preset, Settings, _preset_setpoint
@@ -114,3 +114,24 @@ class OutdoorLimitTests(unittest.TestCase):
     def test_unknown_outdoor_does_not_block(self):
         a = decide(state(room_c=26.0, outdoor_c=None), S)
         self.assertEqual(a.mode, Mode.COOL)
+
+
+class DeadbandTests(unittest.TestCase):
+    def test_off_ac_starts_only_above_target_plus_band(self):
+        self.assertEqual(decide(state(room_c=24.5), S, ac_cooling=False).mode, Mode.OFF)
+        self.assertEqual(decide(state(room_c=24.6), S, ac_cooling=False).mode, Mode.COOL)
+
+    def test_cooling_ac_stops_only_below_target_minus_band(self):
+        self.assertEqual(decide(state(room_c=23.5), S, ac_cooling=True).mode, Mode.COOL)
+        self.assertEqual(decide(state(room_c=23.4), S, ac_cooling=True).mode, Mode.OFF)
+
+    def test_state_inside_the_band_is_kept(self):
+        for room in (23.6, 24.0, 24.5):
+            self.assertEqual(decide(state(room_c=room), S, ac_cooling=True).mode, Mode.COOL)
+            self.assertEqual(decide(state(room_c=room), S, ac_cooling=False).mode, Mode.OFF)
+
+    def test_away_setback_uses_the_same_band(self):
+        away = state(someone_home=False)
+        self.assertEqual(decide(RoomState(**{**away.__dict__, "room_c": 27.4}), S).mode, Mode.OFF)
+        self.assertEqual(decide(RoomState(**{**away.__dict__, "room_c": 27.6}), S).mode, Mode.COOL)
+        self.assertEqual(decide(RoomState(**{**away.__dict__, "room_c": 26.6}), S, ac_cooling=True).mode, Mode.COOL)
