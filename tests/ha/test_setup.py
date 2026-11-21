@@ -13,6 +13,7 @@ from homeassistant import config_entries
 from homeassistant.components import sensor
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 
@@ -4582,3 +4583,124 @@ async def test_cooling_ac_stops_when_the_room_is_below_the_band(hass, enable_cus
     _set_room(hass, 23.4)
     await refresh(hass, entry)
     assert ("mode", "off") in writes
+
+
+# Climate entity
+
+ROOM_CLIMATE_UNIQUE = "{}_room"
+
+
+def _record_ac_writes_only(hass):
+    """Record the integration's writes to the AC. Calls to the room entity go to the real climate services."""
+    writes = []
+    services = hass.services.async_services_internal()["climate"]
+    real = {name: services[name] for name in ("set_hvac_mode", "set_temperature")}
+
+    def wrap(name, key, kind):
+        async def handler(call):
+            target = call.data["entity_id"]
+            if CLIMATE in (target if isinstance(target, list) else [target]):
+                writes.append((kind, call.data[key]))
+                return None
+            return await hass.async_run_hass_job(real[name].job, call)
+
+        hass.services.async_register("climate", name, handler, schema=real[name].schema)
+
+    wrap("set_hvac_mode", "hvac_mode", "mode")
+    wrap("set_temperature", "temperature", "setpoint")
+    return writes
+
+
+async def _setup_room_climate(hass, config_data, ac_state="off", **extra):
+    set_inputs(hass)
+    writes = _record_ac_writes_only(hass)
+    hass.states.async_set(CLIMATE, ac_state, {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, **extra), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    return entry, entity_id, writes
+
+
+async def test_climate_entity_reports_room_temperature_and_target(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data)
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
+    assert state.attributes["current_temperature"] == pytest.approx(26.1)
+    assert state.attributes["temperature"] == 24.0
+    assert state.attributes["target_temp_step"] == 0.5
+    assert state.attributes["hvac_modes"] == ["off", "cool"]
+    assert state.attributes["preset_modes"] == ["comfort", "eco", "boost", "away"]
+    assert state.state == "off"  # control is off
+
+
+async def test_climate_lists_heat_with_a_heater_switch(hass, enable_custom_integrations, config_data):
+    _, entity_id, _ = await _setup_room_climate(hass, config_data, **{CONF_HEATER_SWITCH: "switch.heater"})
+    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat"]
+
+
+async def test_climate_set_temperature_sets_the_comfort_target(hass, enable_custom_integrations, config_data, freezer):
+    entry, entity_id, writes = await _setup_room_climate(hass, config_data, control=True)
+    freezer.tick(timedelta(minutes=10))  # past the minimum off time of the start at setup
+    writes.clear()
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "temperature": 22}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["temperature"] == 22
+    # The room is 26.1 C and the AC setpoint is 24, so the tick writes the new target.
+    assert ("setpoint", 22.0) in writes
+
+
+async def test_climate_hvac_mode_off_turns_the_ac_off(hass, enable_custom_integrations, config_data):
+    entry, entity_id, writes = await _setup_room_climate(hass, config_data, ac_state="cool", control=True)
+    writes.clear()
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)
+    await hass.async_block_till_done()
+    assert ("mode", "off") in writes
+    assert hass.states.get(entity_id).state == "off"
+    # The hold stays: with the AC off and the room hot, later ticks do not start it.
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    writes.clear()
+    await refresh(hass, entry)
+    assert ("mode", "cool") not in writes
+
+
+async def test_climate_hvac_mode_cool_with_control_off_sends_nothing(hass, enable_custom_integrations, config_data):
+    entry, entity_id, writes = await _setup_room_climate(hass, config_data)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "cool"}, blocking=True)
+    await hass.async_block_till_done()
+    assert writes == []
+
+
+async def test_climate_preset_changes_the_preset_until_the_schedule_moves(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True)
+    assert hass.states.get(entity_id).attributes["preset_mode"] == "comfort"
+    await hass.services.async_call("climate", "set_preset_mode", {"entity_id": entity_id, "preset_mode": "eco"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["preset_mode"] == "eco"
+    assert entry.runtime_data.data["preset"] == "eco"
+
+
+async def test_locked_entry_rejects_climate_changes(hass, enable_custom_integrations, config_data):
+    entry, entity_id, writes = await _setup_room_climate(hass, config_data, control=True, lock_pin="1234")
+    assert entry.runtime_data.set_lock(True, None) is True
+    for service, data in (
+        ("set_temperature", {"temperature": 22}),
+        ("set_hvac_mode", {"hvac_mode": "off"}),
+        ("set_preset_mode", {"preset_mode": "eco"}),
+    ):
+        with pytest.raises(HomeAssistantError, match="locked"):
+            await hass.services.async_call("climate", service, {"entity_id": entity_id, **data}, blocking=True)
+    assert entry.runtime_data.comfort_c == 24.0
+
+
+async def test_climate_target_survives_a_reload(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data)
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "temperature": 22.5}, blocking=True)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.comfort_c == 22.5
+    assert hass.states.get(entity_id).attributes["temperature"] == 22.5

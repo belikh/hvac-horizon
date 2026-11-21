@@ -11,6 +11,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
@@ -284,6 +285,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Time of the last cycle with a valid room reading. Starts at the first cycle, so a setup with no room data counts from then.
         self._last_room_data_s: float | None = None
         self._locked = False
+        self._target_override_c: float | None = None  # the target the user set on the climate entity; stored
+        self._user_off = False  # the user turned the room off on the climate entity; stored
+        self._manual_preset: str | None = None  # a preset the user chose on the climate entity
+        self._manual_scheduled: str | None = None  # the scheduled preset when the manual one started; a change of schedule ends it
         self._heater_pid: Pid | None = None
         self._heater_gains: dict[str, float] | None = None  # kp, ki, kd from the last relay test; stored, used for each gain field left at its default
         self._was_cooling: bool = False
@@ -442,6 +447,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # The last on-demand report and its time survive a restart. Keys missing from the store stay None.
             self._report = {key: stored.get(key) for key in self._report}
         self._heater_gains = data.get("heater_gains")
+        override = data.get("target_override_c")
+        self._target_override_c = float(override) if override is not None else None
+        self._user_off = bool(data.get("user_off", False))
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
         self._refit()
@@ -467,8 +475,53 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._timed_duration_min = minutes
 
     def _effective_preset(self, now_min: float, normal: str) -> str:
+        if self._manual_preset is not None:
+            if self._manual_scheduled is None:
+                self._manual_scheduled = normal
+            elif normal != self._manual_scheduled:
+                self._manual_preset = None  # the schedule moved to another block
+                self._manual_scheduled = None
         active = timed_preset_active(self._timed_started_min, now_min, self._timed_duration_min)
-        return timed_preset_name(active, self._timed_preset, normal)
+        return timed_preset_name(active, self._timed_preset, self._manual_preset or normal)
+
+    @property
+    def comfort_c(self) -> float:
+        """The comfort target: the user's target from the climate entity, else the configured comfort setpoint."""
+        if self._target_override_c is not None:
+            return self._target_override_c
+        return float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+
+    @property
+    def preset_now(self) -> str | None:
+        return self._preset_now
+
+    @property
+    def user_off(self) -> bool:
+        return self._user_off
+
+    def _require_unlocked(self) -> None:
+        if not lock_allows_control(self._locked):
+            raise HomeAssistantError("HVAC Horizon entry is locked")
+
+    def set_user_target(self, target_c: float) -> None:
+        """Store the user's target. Control uses it as the comfort target from the next tick."""
+        self._require_unlocked()
+        self._target_override_c = float(target_c)
+        self._store.async_delay_save(self._save_payload, 0)
+
+    def set_user_off(self, off: bool) -> None:
+        """Hold the room off (AC and heater) or return it to automatic control. The next tick sends the change through the usual gates."""
+        self._require_unlocked()
+        self._user_off = off
+        self._store.async_delay_save(self._save_payload, 0)
+
+    def set_manual_preset(self, preset: str) -> None:
+        """Use `preset` until the schedule changes block. A timed preset still wins while it runs. Not stored across a restart."""
+        self._require_unlocked()
+        if preset not in {p.value for p in Preset}:
+            raise HomeAssistantError(f"unknown preset {preset}")
+        self._manual_preset = preset
+        self._manual_scheduled = None
 
     def set_lock(self, locked: bool, pin: str | None) -> bool:
         """Lock or unlock control. Unlocking needs the configured PIN. Returns True when the lock changed."""
@@ -542,6 +595,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "heater_gains": self._heater_gains,
             "auto_tpi_gains": {"cool": self._auto_tpi_gain, "heat": self._auto_heat_gain},
             "investigation_report": self._report,
+            "target_override_c": self._target_override_c,
+            "user_off": self._user_off,
         }
 
     async def async_shutdown_store(self) -> None:
@@ -629,7 +684,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fit = None
             self._fit_reason = str(err)
             return
-        target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        target = self.comfort_c
         self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)
 
@@ -674,6 +729,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             or not result.get("heating_allowed", True)
             or bool(result.get("house_cooling"))
             or not lock_allows_control(self._locked)
+            or self._user_off
             or self._stall_blocks(result)
         )
 
@@ -911,7 +967,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if not rooms or outdoor is None:
             return None
-        comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        comfort = self.comfort_c
         return night_plan(outdoor, statistics.median(rooms), comfort)
 
     def _window_advice(self) -> str | None:
@@ -1140,7 +1196,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             phase = economizer_phase(
                 outdoor_now,
                 statistics.median(rooms_econ),
-                float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+                self.comfort_c,
                 self._minutes_in_open,
             )
             if phase == "off":
@@ -1150,7 +1206,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_economizer_t = now
             result["economizer"] = phase
             source = heat_source(outdoor_now, BOILER_BELOW_C)
-            low_edge = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)) - 1.0
+            low_edge = self.comfort_c - 1.0
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
             result["heating_allowed"] = outdoor_allows("heat", outdoor_now)
@@ -1166,14 +1222,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_motion_at = now
         motion_delay_min = max(1.0, float(self.entry.data.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)))
         result["motion_preset"] = motion_preset(motion_on, (now - self._last_motion_at) / 60.0, away_delay_min=motion_delay_min)
-        low, high = comfort_band(float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)))
+        low, high = comfort_band(self.comfort_c)
         rooms_now = self._rooms()
         result["band_action"] = band_action(statistics.median(rooms_now), low, high) if rooms_now else None
         result["mould_risk"] = self._mould_risk()
         result["compliance_pct"] = self._compliance(now, band_action_value=result["band_action"])
         result["heatwave"] = self._heatwave()
         rooms_fan = self._rooms()
-        target_fan = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        target_fan = self.comfort_c
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
         room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
         result["drying_needed"] = drying_needed(_float(self._optional(CONF_ROOM_HUMIDITY)), cool_gap_c=room_gap)
@@ -1294,7 +1350,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         valve_rooms = self._rooms()
         valve_opening = None
         if valve_rooms:
-            comfort_target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            comfort_target = self.comfort_c
             room_for_valve = statistics.median(valve_rooms)
             trv_c = _float(self._optional(CONF_TRV_TEMPERATURE))
             if self.entry.data.get(CONF_VALVE) and trv_c is not None:
@@ -1495,7 +1551,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         house_mode = house_mode_from_store(self.hass.data.get(DOMAIN, {}))
         house_away = not effective_home(True, house_mode)
         someone_home = effective_home(someone_home, house_mode)
-        comfort = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        comfort = self.comfort_c
         comfort_raw = comfort
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.
         energy_weight = float(self.entry.data.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
@@ -1544,7 +1600,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             heat_target_c = heat_setpoint(
                 preset_name,
-                float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+                self.comfort_c,
                 _optional_float(self.entry.data.get(CONF_HEAT_ECO_C)),
                 _optional_float(self.entry.data.get(CONF_HEAT_BOOST_C)),
                 motion_idle,
@@ -1708,7 +1764,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         # The night plan acts only with its flag on. Its pre-cool target and hold use the comfort setpoint.
         night = result.get("night_plan") if self.entry.data.get(CONF_NIGHT_PLAN_ACT, False) else None
-        comfort_c = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        comfort_c = self.comfort_c
         if stalled:
             # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
             # No valid room reading for SENSOR_STALL_S stops the AC the same way.
@@ -1732,6 +1788,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     action = Action(Mode.OFF, None, "night hold: AC does not start")
                 else:
                     action = Action(Mode.COOL, comfort_c, "night hold: setpoint holds comfort")
+        if self._user_off:
+            action = Action(Mode.OFF, None, "user turned the room off")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
         # Without a plan (no fit or no price slots) the decision stands.
@@ -1746,7 +1804,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(climate_id)
         result["daily_briefing"] = daily_briefing(
             result.get("day_type") or "unknown",
-            float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C)),
+            self.comfort_c,
             result.get("action"),
             None,
         )
@@ -1961,6 +2019,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         plan_heat = bool(self.entry.data.get(CONF_MPC_HEAT_PLAN, False) and plan and plan[0])
         return (
             action.mode is Mode.OFF
+            and not self._user_off
             and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
@@ -2196,7 +2255,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
-        setpoint = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        setpoint = self.comfort_c
         if climate is None or outdoor is None or not rooms:
             return None
         power_kw = running_power_kw(self._entries, now) or 0.0
@@ -2230,7 +2289,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _forecast(self, now: float) -> dict[str, Any]:
         # Observe-only values: the control path overwrites target_c and preset with the full decision.
-        comfort_default = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        comfort_default = self.comfort_c
         result: dict[str, Any] = {
             "target_c": round(comfort_default, 2),
             "preset": "comfort",
@@ -2261,10 +2320,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Observe-only uses the climate entity's own setpoint, as the original request asked.
         # Control mode uses the comfort setting, because the integration writes that setpoint.
         if self.entry.data.get(CONF_CONTROL):
-            target = float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            target = self.comfort_c
         else:
             setpoint = climate.attributes.get("temperature") if climate else None
-            target = float(setpoint) if setpoint is not None else float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+            target = float(setpoint) if setpoint is not None else self.comfort_c
         if not rooms or outdoor is None or climate is None:
             result.update(status="no input")
             return result

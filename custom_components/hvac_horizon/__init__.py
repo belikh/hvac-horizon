@@ -15,7 +15,7 @@ from .model import Fit, NotEnoughData, Sample, fit
 
 __all__ = ["Fit", "Forecast", "NotEnoughData", "PriceSlot", "Sample", "fit", "forecast"]
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.CLIMATE]
 
 
 SERVICE_RESET = "reset_learning"
