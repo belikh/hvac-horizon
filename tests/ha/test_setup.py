@@ -5203,3 +5203,52 @@ async def test_fitted_rate_is_stored_and_used_after_a_reload(hass, enable_custom
     again = entry.runtime_data.data["dispatch"]["devices"]
     assert again["small"]["rate_source"] == "fitted"
     assert abs(again["small"]["rate_k_per_h_per_kw"] - 3.0) < 0.1
+
+
+def _target_sensor_state(hass, entry):
+    eid = er.async_get(hass).async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_target_c")
+    return float(hass.states.get(eid).state)
+
+
+async def _mid_price(hass):
+    # A price midway between the cheap and expensive limits leaves the comfort target unshifted.
+    hass.states.async_set(PRICE, "0.275", hass.states.get(PRICE).attributes)
+
+
+@pytest.mark.parametrize("preset,expected", [("comfort", 24.0), ("eco", 26.0), ("boost", 27.0)])
+async def test_target_sensor_shows_the_cool_threshold_of_the_preset(hass, enable_custom_integrations, config_data, preset, expected):
+    # Documented effective target: the temperature the AC cools above (cool_on_above_c). Boost is 27 here, above the
+    # heat target of 25, so boost_c stands.
+    entry, _ = await setup_heater(hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0, CONF_BOOST_C: 27.0, "comfort_c": 24.0})
+    await _mid_price(hass)
+    if preset != "comfort":
+        await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": preset, "minutes": 60})
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["target_c"] == pytest.approx(expected)
+    assert data["target_c"] == data["cool_on_above_c"]
+    assert _target_sensor_state(hass, entry) == pytest.approx(expected)
+    assert data["heat_on_below_c"] < data["target_c"]
+
+
+async def test_target_sensor_matches_what_decide_cools_to(hass, enable_custom_integrations, config_data):
+    # Eco with a 26 C room threshold: a 26.4 C room is inside the cooling deadband, so decide() holds off.
+    from custom_components.hvac_horizon.decide import Preset, RoomState, Settings, cool_above_c
+
+    entry, _ = await setup_heater(hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0})
+    await _mid_price(hass)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60})
+    await refresh(hass, entry)
+    coordinator = entry.runtime_data
+    assert coordinator.data["target_c"] == cool_above_c(coordinator._settings, True) == 26.0
+    assert coordinator._settings.preset is Preset.ECO
+
+
+async def test_target_sensor_shows_the_user_target_from_the_room_climate(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True)
+    await _mid_price(hass)
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "temperature": 22.5}, blocking=True)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.data["target_c"] == pytest.approx(22.5)
+    assert _target_sensor_state(hass, entry) == pytest.approx(22.5)
+    assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(22.5)

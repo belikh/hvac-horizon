@@ -86,7 +86,7 @@ The AI calls are limited by `ai_budget_per_day`. Absent or 0 means no model call
 
 | Sensor | Meaning |
 | :-- | :-- |
-| Target temperature (`target_c`) | With control on, the planned target for this tick. With control off, the comfort setpoint. |
+| Target temperature (`target_c`) | With control on, the temperature the AC cools above this tick (equal to Cool above): the preset setpoint, the user's target, the price shift and the mould bump. With control off, the comfort setpoint. |
 | Preset (`preset`) | With control on, the preset in use: `comfort`, `eco`, `boost` or `away`. With control off, `comfort`. See [[guides/services-and-presets]]. |
 | Cool above (`cool_on_above_c`) | The AC cools when the room is above this value. Updated on every tick. |
 | Heat below (`heat_on_below_c`) | The heater heats when the room is below this value. It is 0.5 K under the heat target. Updated on every tick. |

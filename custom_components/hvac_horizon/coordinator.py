@@ -1752,8 +1752,6 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 expensive_per_kwh=float(self.entry.data.get(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)),
             ),
         )
-        if self.entry.data.get(CONF_CONTROL):
-            result["target_c"] = round(target_c, 2)
         target_c = mould_target(target_c, bool(result.get("mould_risk")))
         blocks = [
             ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
@@ -1807,6 +1805,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heat_target_c = heat_target_c
         self._heat_on_below_c = heat_on_below(heat_target_c, DEFAULT_HEATER_DEADBAND_C)
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
+        # The Target temperature sensor shows the temperature the AC cools above, so it follows the preset, the user's
+        # target, the price shift, the mould bump and occupancy exactly as decide() does.
+        if self.entry.data.get(CONF_CONTROL):
+            result["target_c"] = result["cool_on_above_c"]
         result["dispatch"] = self._dispatch()
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 
