@@ -206,6 +206,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
+        self._free_cooling_gave_up = False  # free cooling failed to hold the room; the window stays shut until the room is at the threshold
         self._actuator_opened_by_us = False  # set when this integration opens the window actuator; only then does it close it
         self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
@@ -364,6 +365,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                 cool_above_c=self._cool_above_c,
                 is_open=self._economizer_open,
             )
+            if self._humid_air_blocks(statistics.median(rooms_econ), outdoor_now):
+                phase = "off"  # outdoor air is more humid than the room, so it stays outside
             self._economizer_open = phase != "off"
             if phase == "off":
                 self._minutes_in_open = 0.0
@@ -599,11 +602,13 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         """
         now_min = now / 60.0
         # Home when any presence source is home. Away only after every source has been away for the away delay.
-        someone_home = self._occupancy_mode(now) == "home"
+        presence_home = self._occupancy_mode(now) == "home"
+        someone_home = presence_home
         # Motion idle past its delay is away for cooling and gets the eco heat setpoint. Presence away and house away get the frost floor.
         motion_idle = result.get("motion_preset") == "away"
         if result.get("motion_preset") is not None:
-            # With a motion sensor, motion decides: on or recent is home, idle past the delay is away.
+            # With a motion sensor, motion decides whether the room is in use: on or recent is home, even when
+            # presence says away. Presence still matters once motion is idle: an empty house heats to the frost floor.
             someone_home = result["motion_preset"] == "home"
         house_mode = house_mode_from_store(self.hass.data.get(DOMAIN, {}))
         house_away = not effective_home(True, house_mode)
@@ -650,7 +655,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._someone_home = someone_home
         # One heat target per tick. Vacation, house away, presence away and the away preset heat only to the frost floor.
         # Otherwise the heat setpoint follows the preset (heat_setpoint). It never uses the eco or away cooling setpoint.
-        if vacation_on or house_away or preset_name == Preset.AWAY.value or (not someone_home and not motion_idle):
+        if vacation_on or house_away or preset_name == Preset.AWAY.value or (not presence_home and not someone_home):
             heat_target_c = FROST_FLOOR_C
         else:
             heat_target_c = heat_setpoint(

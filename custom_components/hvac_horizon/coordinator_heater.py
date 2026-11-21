@@ -16,7 +16,11 @@ from homeassistant.helpers import issue_registry as ir
 from .const import (
     AUTOTUNE_TIME_LIMIT_MIN,
     CONF_CONTROL,
+    CONF_HEATER_ALGORITHM,
     CONF_HEATER_INVERTED,
+    CONF_TPI_THRESHOLD_HIGH,
+    CONF_TPI_THRESHOLD_LOW,
+    HEATER_ALGORITHM_TPI,
     CONF_OUTPUT_MAX,
     CONF_OUTPUT_MAX_ENTITY,
     CONF_OUTPUT_MIN,
@@ -42,7 +46,7 @@ from custom_components.hvac_horizon.features import (
     room_devices,
     safety_output,
 )
-from custom_components.hvac_horizon.coordinator_common import _float, SAFETY_FALLBACK_PCT
+from custom_components.hvac_horizon.coordinator_common import _float, _optional_float, SAFETY_FALLBACK_PCT
 
 
 class HeaterMixin:
@@ -119,6 +123,21 @@ class HeaterMixin:
             or self._stall_blocks(result)
         )
 
+    def _heater_off_at_c(self) -> float:
+        """Room temperature at which the heater output is forced to 0.
+
+        The PID stops one deadband below the heat target (`_heat_on_below_c`). TPI is proportional to the gap and
+        reaches 0 at the target by itself, so it runs up to the target. With both activation thresholds set it runs
+        up to the larger one above the target, and tpi_threshold_forced_off decides inside that range. The limit
+        stays at or below the cool threshold.
+        """
+        if self.entry.data.get(CONF_HEATER_ALGORITHM) != HEATER_ALGORITHM_TPI:
+            return self._heat_on_below_c
+        high = _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0
+        low = _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_LOW)) or 0.0
+        above = max(high, low) if high > 0 and low > 0 else 0.0
+        return min(self._heat_target_c + above, self._cool_above_c)
+
     def _cancel_pwm_timers(self) -> None:
         while self._pwm_cancel:
             self._pwm_cancel.pop()()
@@ -194,7 +213,7 @@ class HeaterMixin:
             # Radiators keep giving heat after the heater stops. The residual correction reads the room warmer by that heat.
             gate_c = residual_correction(room_c, DEFAULT_RESIDUAL_PEAK_K, now / 60.0 - self._heater_stopped_min, RESIDUAL_TAU_MIN)
         pct = self._pwm_output_pct
-        if driving and (self._heater_gated or self._ac_cooling_tick or gate_c is None or gate_c >= self._heat_on_below_c):
+        if driving and (self._heater_gated or self._ac_cooling_tick or gate_c is None or gate_c >= self._heater_off_at_c()):
             pct = 0.0
         if driving:
             # A stalled sensor sets the fallback output, whatever the gates say (features.safety_output).

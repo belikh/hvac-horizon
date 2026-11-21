@@ -31,6 +31,8 @@ from .const import (
 from custom_components.hvac_horizon.collector import Entry
 from custom_components.hvac_horizon.outdoor import night_low
 from custom_components.hvac_horizon.features import (
+    dew_point_c,
+    humid_air_blocks_opening,
     SENSOR_STALL_S,
     classify_day,
     mode_disagrees,
@@ -109,7 +111,17 @@ class InputsMixin:
         outdoor = self._outdoor_now()
         if not rooms or outdoor is None:
             return None
+        if self._humid_air_blocks(statistics.median(rooms), outdoor):
+            return "close"  # outdoor air is more humid than the room
         return natural_ventilation_window(outdoor, statistics.median(rooms), cool_above_c=self._cool_above_c, is_open=self._window_advice_open)
+
+    def _humid_air_blocks(self, room_c: float, outdoor_c: float) -> bool:
+        """True when the outdoor humidity sensor shows outdoor air would add moisture to the room."""
+        outdoor_rh = _float(self._optional(CONF_HUMIDITY))
+        room_rh = _float(self._optional(CONF_ROOM_HUMIDITY))
+        outdoor_dew = None if outdoor_rh is None else dew_point_c(outdoor_c, outdoor_rh)
+        room_dew = None if room_rh is None else dew_point_c(room_c, room_rh)
+        return humid_air_blocks_opening(outdoor_dew, room_dew)
 
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""

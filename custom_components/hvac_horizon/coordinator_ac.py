@@ -231,10 +231,34 @@ class AcMixin:
                     action = Action(Mode.OFF, None, "night hold: AC does not start")
                 else:
                     action = Action(Mode.COOL, comfort_c, "night hold: setpoint holds comfort")
+        # Free cooling comes before the AC. The whole-house fan runs when the room is above the cool threshold and
+        # outdoors is cooler. While it runs, or while this entry holds the window open, the AC does not cool.
+        free_rooms = self._rooms()
+        free_room_c = statistics.median(free_rooms) if free_rooms else None
+        self._update_free_cooling(free_room_c)
+        fan_id = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
+        fan_ok = bool(
+            fan_id
+            and free_room_c is not None
+            and self.cooling_permitted
+            and not self._user_off
+            and not stalled
+            and not self._free_cooling_gave_up
+            and whole_house_fan_allowed(
+                bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
+                False,
+                self._outdoor_now(),
+                free_room_c,
+                fan_on=self._switch_on(fan_id),
+                cool_above_c=self._cool_above_c,
+            )
+        )
         if self._user_off:
             action = Action(Mode.OFF, None, "user turned the room off")
         elif action.mode is Mode.COOL and not self.cooling_permitted:
             action = Action(Mode.OFF, None, f"mode is {self.user_mode}: no cooling")
+        elif action.mode is Mode.COOL and (fan_ok or self._free_cooling_open()):
+            action = Action(Mode.OFF, None, "free cooling: window open or whole-house fan")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan can idle a cool decision only when the room is within the deadband of the threshold (or below it)
         # and the next plan steps are all idle. A room more than the deadband above the threshold keeps cooling.
@@ -308,17 +332,8 @@ class AcMixin:
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started and not self._user_off, track=True)
         heat_ok = result.get("heating_allowed", True)
         await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
-        outdoor_now = self._outdoor_now()
-        rooms_wh = self._rooms()
-        fan_ok = whole_house_fan_allowed(
-            bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
-            climate is not None and climate.state == "cool",
-            outdoor_now,
-            statistics.median(rooms_wh) if rooms_wh else 0.0,
-            fan_on=self._switch_on(self.entry.data.get(CONF_WHOLE_HOUSE_FAN)),
-        )
         result["whole_house_fan"] = fan_ok
-        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started and self.cooling_permitted, track=True)
+        await self._drive_switch(fan_id, fan_ok and started, track=True)
         if self._user_off:
             return  # _user_off_stop already sent the off commands to the ACs, the heater switch and the fleet
         # The first AC's block below returns early on several paths, so the second AC is driven before it.

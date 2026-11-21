@@ -1159,3 +1159,25 @@ class DeadbandTests(unittest.TestCase):
         self.assertIsNone(window_actuator_command(True, 21.9, 20.0, True, True))
         self.assertEqual(window_actuator_command(True, 21.9, 20.0, False, False), None)
         self.assertEqual(window_actuator_command(True, 21.4, 20.0, True, True), "close")
+
+
+def test_dew_point_and_humid_air_rule():
+    from custom_components.hvac_horizon.features import dew_point_c, humid_air_blocks_opening
+
+    assert abs(dew_point_c(25.0, 50.0) - 13.9) < 0.2
+    assert abs(dew_point_c(21.0, 98.0) - 20.7) < 0.2
+    assert dew_point_c(20.0, 0.0) is None
+    assert humid_air_blocks_opening(None, 12.0) is False  # no outdoor humidity: nothing is blocked
+    assert humid_air_blocks_opening(20.7, 13.2) is True  # muggy outdoors, dry room
+    assert humid_air_blocks_opening(13.5, 13.0) is False  # within the 1 K margin
+    assert humid_air_blocks_opening(21.0, None) is True  # no room reading: the 20 C dew point cap applies
+    assert humid_air_blocks_opening(15.0, None) is False
+
+
+def test_whole_house_fan_needs_a_room_above_the_cool_threshold():
+    from custom_components.hvac_horizon.features import whole_house_fan_allowed
+
+    assert whole_house_fan_allowed(False, False, 6.0, 19.0, cool_above_c=24.0) is False
+    assert whole_house_fan_allowed(False, False, 20.0, 25.0, cool_above_c=24.0) is True
+    assert whole_house_fan_allowed(False, False, 20.0, 23.8, fan_on=True, cool_above_c=24.0) is True  # holds for the deadband
+    assert whole_house_fan_allowed(False, False, 20.0, 23.4, fan_on=True, cool_above_c=24.0) is False

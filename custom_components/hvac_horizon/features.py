@@ -389,6 +389,31 @@ def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: f
     return "hold"
 
 
+HUMID_AIR_DEW_POINT_C = 20.0  # with no room humidity reading, outdoor air at or above this dew point stays outside
+HUMID_AIR_MARGIN_K = 1.0  # outdoor dew point this far above the room's blocks opening
+
+
+def dew_point_c(temp_c: float, humidity_pct: float) -> float | None:
+    """Dew point from temperature and relative humidity (Magnus formula). None for a humidity outside 1 to 100 %."""
+    if not 1.0 <= humidity_pct <= 100.0:
+        return None
+    gamma = math.log(humidity_pct / 100.0) + 17.62 * temp_c / (243.12 + temp_c)
+    return 243.12 * gamma / (17.62 - gamma)
+
+
+def humid_air_blocks_opening(outdoor_dew_c: float | None, room_dew_c: float | None) -> bool:
+    """True when outdoor air would bring moisture in, so windows and the economizer stay shut.
+
+    With both dew points, outdoor air is blocked when its dew point is HUMID_AIR_MARGIN_K or more above the room's.
+    With only the outdoor dew point, it is blocked at HUMID_AIR_DEW_POINT_C or above. No outdoor humidity blocks nothing.
+    """
+    if outdoor_dew_c is None:
+        return False
+    if room_dew_c is None:
+        return outdoor_dew_c >= HUMID_AIR_DEW_POINT_C
+    return outdoor_dew_c >= room_dew_c + HUMID_AIR_MARGIN_K
+
+
 def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0, cool_above_c: float | None = None, is_open: bool = False) -> str:
     """Two-phase window cooling advice: 'off', 'open_windows' or 'fan_assist'.
 
@@ -680,14 +705,21 @@ def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
 
 
 
-def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0, fan_on: bool = False) -> bool:
+def whole_house_fan_allowed(
+    house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0, fan_on: bool = False,
+    cool_above_c: float | None = None,
+) -> bool:
     """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
     the house must not be sealed, and the AC must not be running. While `fan_on`, the fan keeps running until the gap
     falls TEMP_ADVICE_DEADBAND_K below `min_delta_c`.
 
+    With `cool_above_c` given, the room must be above it to start the fan, and a running fan stops once the room is
+    TEMP_ADVICE_DEADBAND_K below it. A room that needs no cooling gets no fan.
     Ported from ClimateAdvisor's whole-house fan safety rules.
     """
     if outdoor_c is None or house_sealed or hvac_running:
+        return False
+    if cool_above_c is not None and indoor_c <= cool_above_c - (TEMP_ADVICE_DEADBAND_K if fan_on else 0.0):
         return False
     return indoor_c - outdoor_c >= (min_delta_c - TEMP_ADVICE_DEADBAND_K if fan_on else min_delta_c)
 

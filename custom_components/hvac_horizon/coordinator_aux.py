@@ -11,7 +11,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from homeassistant.components import persistent_notification
 
-from .const import CONF_CONTROL, CONF_COVER, CONF_OUTDOOR, CONF_WINDOW_ACTUATOR, DOMAIN
+from .const import CONF_CONTROL, CONF_COVER, CONF_OUTDOOR, CONF_WHOLE_HOUSE_FAN, CONF_WINDOW_ACTUATOR, DOMAIN
 from custom_components.hvac_horizon.features import (
     TEMP_ADVICE_DEADBAND_K,
     effective_home,
@@ -24,12 +24,13 @@ from custom_components.hvac_horizon.features import (
     valve_exercise_due,
     window_actuator_command,
 )
-from custom_components.hvac_horizon.coordinator_common import _float
+from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, _float
 
 
 class AuxMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _actuator_opened_by_us: bool
+    _free_cooling_gave_up: bool
     _cool_above_c: float
     _heat_on_below_c: float
     _inhibit_until_min: float | None
@@ -148,6 +149,28 @@ class AuxMixin:
         self._shed_context.pop(entity_id, None)
         self._store.async_delay_save(self._save_payload, 0)
 
+    def _update_free_cooling(self, room_c: float | None) -> None:
+        """Give up on free cooling when it cannot hold the room, and allow it again once the room is at the threshold.
+
+        A window this entry opened, or a running whole-house fan, that leaves the room more than FREE_COOLING_GIVE_UP_K
+        above the cool threshold is given up: the window closes, the fan stops and the AC cools.
+        """
+        if room_c is None:
+            return
+        fan = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
+        fan_state = self.hass.states.get(fan) if fan else None
+        free_cooling = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
+        if room_c <= self._cool_above_c:
+            self._free_cooling_gave_up = False
+        elif free_cooling and room_c > self._cool_above_c + FREE_COOLING_GIVE_UP_K:
+            self._free_cooling_gave_up = True
+
+    def _free_cooling_open(self) -> bool:
+        """True while the window actuator is open and this entry opened it."""
+        actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
+        state = self.hass.states.get(actuator) if actuator else None
+        return self._actuator_opened_by_us and state is not None and state.state in ("open", "on")
+
     async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
         """Open or close the window actuator on the natural ventilation or economizer advice.
 
@@ -177,6 +200,8 @@ class AuxMixin:
         # An open actuator keeps its open advice until the room is TEMP_ADVICE_DEADBAND_K below the cooling threshold.
         cool_floor = self._cool_above_c - (TEMP_ADVICE_DEADBAND_K if is_open else 0.0)
         if room_c <= cool_floor or room_c < self._heat_on_below_c or heater_on:
+            open_advice = False
+        if self._free_cooling_gave_up:
             open_advice = False
         command = window_actuator_command(
             open_advice, statistics.median(rooms), outdoor, is_open, self._actuator_opened_by_us

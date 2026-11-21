@@ -2,6 +2,16 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+Faults found by an audit of all 86 settings (`tests/ha/test_settings_effect.py` runs each setting at two values over a scripted day and compares device commands and published data).
+
+- The whole-house fan ran whenever outdoors was 2 K cooler, including a 19 °C room with the heater on. It now runs only while the room is above the cool threshold. It cools ahead of the AC, and the AC takes over when the room climbs 2 K above the threshold.
+- The AC kept cooling after this entry opened the window actuator. The AC now stays off while the entry holds the window open, with the same 2 K give-up rule.
+- `humidity` (outdoor humidity) was stored with each sample and read by nothing. Window advice, the economizer and the window actuator now stay shut when outdoor air has a dew point 1 K or more above the room's (or at 20 °C and above with no room humidity sensor).
+- `presence` did nothing in an entry that also had `motion`. An empty house now heats to the frost floor once motion is idle. Motion in the room still counts as occupied.
+- `tpi_threshold_high` and `tpi_threshold_low` could not act, because every heater stopped 0.5 K below the heat target. With `heater_algorithm` `tpi` the heater now runs up to the target, and up to the larger threshold above it when both are set. PID is unchanged.
+
 ## 0.5.1 (2026-11-21)
 
 - A dry start waits for the restart delay `min_off_min`. Dry mode pauses the AC 1 K below the heat threshold and resumes at the threshold.

@@ -6309,9 +6309,9 @@ async def test_ac_dry_mode_does_not_flap_across_the_high_edge(hass, enable_custo
 
 
 async def test_whole_house_fan_does_not_flap_across_its_gap(hass, enable_custom_integrations, config_data, freezer):
-    # Indoors 24 C, just under the cool threshold so the AC stays off. The fan starts at a 2 K gap and holds until 1.5 K.
+    # Indoors 24.5 C, above the cool threshold. The fan starts at a 2 K gap and holds until 1.5 K.
     outputs = await _flap_run(
-        hass, config_data, freezer, extra={"whole_house_fan": FLAP_SWITCH}, readings=["21.9", "22.1"] * 3, sensor="outdoor", room="24.0"
+        hass, config_data, freezer, extra={"whole_house_fan": FLAP_SWITCH}, readings=["22.4", "22.6"] * 3, sensor="outdoor", room="24.5"
     )
     assert outputs == [("switch", "turn_on", FLAP_SWITCH, None)]
 
@@ -7702,3 +7702,119 @@ async def test_dry_mode_is_not_offered_when_the_ac_has_no_dry_mode(hass, enable_
     assert hass.states.get(entity_id).state == "auto"
     assert ("set_hvac_mode", CLIMATE, "dry") not in calls
     assert ("set_hvac_mode", CLIMATE, "cool") in calls
+
+
+# ---- faults found by the settings audit ---------------------------------------------------------------------
+
+HOUSE_FAN = "switch.test_house_fan"
+
+
+async def test_whole_house_fan_stays_off_in_a_room_that_needs_no_cooling(hass, enable_custom_integrations, config_data, freezer):
+    """Before the audit the fan ran at 19 C indoors with 6 C outdoors and the heater on: only the 2 K gap was checked."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="19.0", outdoor="6.0", states={HOUSE_FAN: ("off", {}), HEATER: ("off", {})},
+        extra={"whole_house_fan": HOUSE_FAN, CONF_HEATER_SWITCH: HEATER},
+    )
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "19.0")
+        hass.states.async_set(OUTDOOR, "6.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert ("turn_on", HOUSE_FAN, None) not in calls
+    assert ("turn_on", HEATER, None) in calls
+
+
+async def test_whole_house_fan_cools_first_and_the_ac_takes_over_when_it_cannot_cope(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="25.0", outdoor="20.0", states={HOUSE_FAN: ("off", {})}, extra={"whole_house_fan": HOUSE_FAN, "min_off_min": 0},
+    )
+
+    async def tick(room):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, room)
+        hass.states.async_set(OUTDOOR, "20.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+
+    # Room 25 C, outdoors 20 C: the fan runs and the AC stays off.
+    assert ("turn_on", HOUSE_FAN, None) in calls
+    assert ("set_hvac_mode", CLIMATE, "cool") not in calls
+    assert entry.runtime_data.data["action"] == "off: free cooling: window open or whole-house fan"
+    await tick("25.5")
+    assert hass.states.get(CLIMATE).state == "off"
+    # The room climbs more than 2 K above the cool threshold: the fan stops and the AC cools.
+    await tick("26.5")
+    assert hass.states.get(HOUSE_FAN).state == "off"
+    assert hass.states.get(CLIMATE).state == "cool"
+    await tick("25.0")
+    assert hass.states.get(HOUSE_FAN).state == "off"  # no second try until the room is back at the threshold
+    assert hass.states.get(CLIMATE).state == "cool"
+
+
+async def test_the_ac_stops_while_this_entry_holds_the_window_open(hass, enable_custom_integrations, config_data, freezer):
+    """Before the audit the actuator opened the window and the AC kept cooling."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="26.0", climate="cool", extra={"window_actuator": "cover.test_window"})
+    assert calls == [("open", "cover.test_window")]
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["action"] == "off: free cooling: window open or whole-house fan"
+
+
+async def test_humid_outdoor_air_keeps_the_window_shut(hass, enable_custom_integrations, config_data, freezer):
+    """The outdoor humidity sensor was stored with each sample and read by nothing. It now blocks opening to muggy air."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    hass.states.async_set("sensor.test_out_rh", "98", {"unit_of_measurement": "%"})
+    hass.states.async_set("sensor.test_room_rh", "45", {"unit_of_measurement": "%"})
+    extra = {"window_actuator": "cover.test_window", "humidity": "sensor.test_out_rh", "room_humidity": "sensor.test_room_rh"}
+    entry, _ = await setup_heater(hass, config_data, outdoor="21.0", room="26.0", extra=extra)
+    assert entry.runtime_data.data["window_advice"] == "close"
+    assert entry.runtime_data.data["economizer"] == "off"
+    assert calls == []
+    # Dry outdoor air: the window opens.
+    hass.states.async_set("sensor.test_out_rh", "40", {"unit_of_measurement": "%"})
+    await refresh(hass, entry)
+    assert calls == [("open", "cover.test_window")]
+
+
+async def test_tpi_heats_up_to_the_target_and_the_thresholds_extend_it(hass, enable_custom_integrations, config_data, freezer):
+    """Before the audit every heater stopped 0.5 K below the target, so TPI never reached it and its thresholds did nothing."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, outdoor="5.0", room="23.8", extra={"heater_algorithm": "tpi"})
+    assert entry.runtime_data._heat_target_c == 24.0
+    assert entry.runtime_data.data["heater_pwm_on"] is True  # 0.2 K below the target: TPI still heats
+    set_room(hass, "24.2")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["heater_pwm_on"] is False  # above the target with no thresholds
+
+
+async def test_an_empty_house_heats_to_the_frost_floor_even_with_a_motion_sensor(hass, enable_custom_integrations, config_data, freezer):
+    """Before the audit a motion sensor made the presence sources do nothing."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass.states.async_set("binary_sensor.test_motion", "off")
+    hass.states.async_set("person.test", "not_home")
+    extra = {"motion": "binary_sensor.test_motion", "presence": ["person.test"], "motion_away_min": 5.0, "away_delay_min": 5.0}
+    entry, calls = await setup_heater(hass, config_data, outdoor="5.0", room="19.0", extra=extra)
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=4))
+        set_room(hass, "19.0")
+        hass.states.async_set(OUTDOOR, "5.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert entry.runtime_data._heat_target_c == 16.0  # frost floor: nobody is in the house
+    # Someone is home but not in the room: the room heats to the eco heat setpoint.
+    hass.states.async_set("person.test", "home")
+    freezer.tick(timedelta(minutes=4))
+    set_room(hass, "19.0")
+    hass.states.async_set(OUTDOOR, "5.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert entry.runtime_data._heat_target_c == 23.0
+    # Motion in the room: occupied, whatever presence says.
+    hass.states.async_set("person.test", "not_home")
+    hass.states.async_set("binary_sensor.test_motion", "on")
+    freezer.tick(timedelta(minutes=4))
+    set_room(hass, "19.0")
+    hass.states.async_set(OUTDOOR, "5.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert entry.runtime_data._heat_target_c == 24.0
