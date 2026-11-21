@@ -4,6 +4,8 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
+- New `dry` mode on the room entity. The AC runs in dry mode and never cools, and the heater may run at the same time to hold the heat target. The action reads `drying`.
+- The dehumidifier switch stays off while the room is held off.
 - Fix: the room entity's mode now decides which devices run. In 0.5.0 the mode was only stored, so the AC cooled a warm room in `heat` mode. `cool` runs cooling devices only, `heat` runs heating devices only.
 - New `auto` mode runs both, and is the default. A mode stored by 0.5.0 or earlier loads as `auto`, which is how those versions behaved. Store version 4.
 - The mode also gates the boiler, the valve, the whole-house fan, the economizer fan and the window actuator. Ventilation for CO2 and PM2.5 runs in every mode.

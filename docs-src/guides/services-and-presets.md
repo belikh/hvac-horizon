@@ -61,8 +61,8 @@ Each entry has one `climate` entity, named after its device (`HVAC Horizon <clim
 | Current temperature | The median of the room temperature sensors. |
 | Target temperature | 16 to 32 °C in 0.5 K steps. Setting it stores your target. HVAC Horizon uses it as `comfort_c` from the next tick, and keeps it across restarts. Before you set one, it shows `comfort_c` from the form. |
 | Preset | `comfort`, `eco`, `boost` or `away`. It shows the preset in use. Setting one holds it until the schedule moves to another block. A timed preset still wins while it runs. The hold is not kept across a restart. |
-| Mode | `off`, `cool`, `auto`, and `heat` when the entry has `heater_switch`, `ac_heat` or a heating fleet device. It shows the mode you chose, `auto` by default. It shows `off` when control is off or when you turned the room off. |
-| Action | `cooling` or `heating` while a device draws power, `idle` while nothing runs, `off` while the room is held off. It follows the devices as they change. |
+| Mode | `off`, `cool`, `auto`, `heat` when the entry has `heater_switch`, `ac_heat`, `mpc_heat_plan` or a heating fleet device, and `dry` when the AC lists a dry mode or the entry has `dehumidifier`. It shows the mode you chose, `auto` by default. It shows `off` when control is off or when you turned the room off. |
+| Action | `cooling`, `heating` or `drying` while a device draws power, `idle` while nothing runs, `off` while the room is held off. It follows the devices as they change. |
 
 The mode decides which devices may run. A device starts only when the room needs it.
 
@@ -71,9 +71,12 @@ The mode decides which devices may run. A device starts only when the room needs
 | `cool` | Run above the cool threshold | Stay off |
 | `heat` | Stay off | Run below the heat threshold |
 | `auto` | Run above the cool threshold | Run below the heat threshold |
+| `dry` | Stay off | Run below the heat threshold |
 | `off` | Stay off | Stay off |
 
 Cooling devices are the AC, the second AC, the AC's dry mode for humidity and cooling fleet devices. Heating devices are the heater switch, the AC in heat mode and heating fleet devices. Changing to `heat` while the AC cools sends off to the AC at once.
+
+In `dry` the AC runs in its dry mode and never cools. With `room_humidity` set, it dries while the room is above 60 % and goes off at 55 %. With no humidity sensor it dries until you change the mode. An entry with `dehumidifier` runs that switch and leaves the AC off. Dry mode cools the room, so the heater switch may run at the same time to hold the heat target. An AC that is drying cannot heat, so `ac_heat` is left out in `dry`. A room run by fleet climates offers `dry` only with `dehumidifier`.
 
 Setting `off` holds the room off: every device goes off and nothing starts. The `climate.turn_on` service ends the hold and returns to the mode chosen before it. The mode is kept across restarts.
 

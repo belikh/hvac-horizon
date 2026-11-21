@@ -233,7 +233,7 @@ class AcMixin:
         if self._user_off:
             action = Action(Mode.OFF, None, "user turned the room off")
         elif action.mode is Mode.COOL and not self.cooling_permitted:
-            action = Action(Mode.OFF, None, "mode is heat: no cooling")
+            action = Action(Mode.OFF, None, f"mode is {self.user_mode}: no cooling")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan can idle a cool decision only when the room is within the deadband of the threshold (or below it)
         # and the next plan steps are all idle. A room more than the deadband above the threshold keeps cooling.
@@ -269,6 +269,10 @@ class AcMixin:
         )
         result["ventilation"] = ventilation.reason
         result["humidity"] = humidity.reason
+        # Dry mode with no room humidity sensor dries until the user changes the mode, as the AC's own dry mode does.
+        dry_wanted = humidity.action == "dehumidify" or (self.dry_mode and room_humidity is None)
+        # The AC dries in dry mode, and in cool or auto when the dry_for_humidity option is on.
+        ac_dry_allowed = self.dry_mode or (bool(self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted)
         # A CO2 rate between 0 and 1 runs the fan for that share of each PWM window. PM2.5 still forces it on.
         # At 0 or 1 the fan follows the on-off rule above.
         co2_rate = ventilation_rate_from_co2(_float(self._optional(CONF_CO2)))
@@ -285,7 +289,7 @@ class AcMixin:
             fan_on = True
         started = self._inputs_seen  # no switch starts before the first valid room and outdoor readings
         await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on and started, track=True)
-        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify" and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), dry_wanted and started and not self._user_off, track=True)
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
         heat_ok = result.get("heating_allowed", True)
         await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
@@ -348,9 +352,8 @@ class AcMixin:
             # An AC already in dry mode stays there while the humidity decision (with its deadband) still says dehumidify.
             if (
                 not stalled
-                and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
-                and self.cooling_permitted
-                and humidity.action == "dehumidify"
+                and ac_dry_allowed
+                and dry_wanted
                 and not self.entry.data.get(CONF_DEHUMIDIFIER)
                 and climate.state == "dry"
                 and self._last_written_mode == "dry"
@@ -359,9 +362,8 @@ class AcMixin:
                 return
             if (
                 not stalled
-                and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
-                and self.cooling_permitted
-                and humidity.action == "dehumidify"
+                and ac_dry_allowed
+                and dry_wanted
                 and not self.entry.data.get(CONF_DEHUMIDIFIER)
                 and climate.state != "dry"
                 and self._group_start_ok(now)
@@ -501,6 +503,7 @@ class AcMixin:
             action.mode is Mode.OFF
             and not self._user_off
             and self.heating_permitted
+            and not self.dry_mode  # the AC dries in dry mode, so it cannot heat at the same time
             and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None

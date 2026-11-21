@@ -5239,14 +5239,14 @@ async def test_climate_entity_reports_room_temperature_and_target(hass, enable_c
     assert state.attributes["current_temperature"] == pytest.approx(26.1)
     assert state.attributes["temperature"] == 24.0
     assert state.attributes["target_temp_step"] == 0.5
-    assert state.attributes["hvac_modes"] == ["off", "cool", "auto"]
+    assert state.attributes["hvac_modes"] == ["off", "cool", "auto", "dry"]
     assert state.attributes["preset_modes"] == ["comfort", "eco", "boost", "away"]
     assert state.state == "off"  # control is off
 
 
 async def test_climate_lists_heat_with_a_heater_switch(hass, enable_custom_integrations, config_data):
     _, entity_id, _ = await _setup_room_climate(hass, config_data, **{CONF_HEATER_SWITCH: "switch.heater"})
-    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "auto"]
+    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "auto", "dry"]
 
 
 async def test_climate_set_temperature_sets_the_comfort_target(hass, enable_custom_integrations, config_data, freezer):
@@ -7572,3 +7572,89 @@ async def test_heat_mode_keeps_the_window_actuator_shut(hass, enable_custom_inte
     assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
     await refresh(hass, entry)
     assert calls[-1] == ("close", "cover.test_window") and len(calls) == 2
+
+
+ROOM_RH = "sensor.test_room_humidity"
+
+
+def _set_rh(hass, value):
+    hass.states.async_set(ROOM_RH, value, {"unit_of_measurement": "%", "device_class": "humidity"}, force_update=True)
+
+
+async def _dry_tick(hass, entry, freezer, room, outdoor, rh=None):
+    freezer.tick(timedelta(minutes=5))
+    set_room(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    if rh is not None:
+        _set_rh(hass, rh)
+    await refresh(hass, entry)
+
+
+async def test_dry_mode_dries_a_humid_room_and_never_cools(hass, enable_custom_integrations, config_data, freezer):
+    """Dry mode: the AC goes to dry above 60 %, stays there to 55 %, then goes off. A hot room is not cooled."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    assert "dry" in hass.states.get(entity_id).attributes["hvac_modes"]
+    assert calls == []  # auto without dry_for_humidity leaves the AC off
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(entity_id).state == "dry"
+    assert ("set_hvac_mode", CLIMATE, "dry") in calls
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "drying"
+    calls.clear()
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="58")  # hot room, inside the deadband: still dry, no cool
+    assert hass.states.get(CLIMATE).state == "dry"
+    assert ("set_hvac_mode", CLIMATE, "cool") not in calls
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="50")
+    assert hass.states.get(CLIMATE).state == "off"
+    assert ("set_hvac_mode", CLIMATE, "cool") not in calls
+
+
+async def test_dry_mode_runs_the_heater_while_the_ac_dries(hass, enable_custom_integrations, config_data, freezer):
+    """The room falls below the heat threshold while the AC dries. The heater holds the temperature and the AC stays in dry."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "75")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="23.8", outdoor="20.0", states={HEATER: ("off", {})},
+        extra={"room_humidity": ROOM_RH, CONF_HEATER_SWITCH: HEATER, "min_off_min": 0},
+    )
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(CLIMATE).state == "dry"
+    for _ in range(3):
+        await _dry_tick(hass, entry, freezer, "19.0", "12.0", rh="75")
+    assert hass.states.get(CLIMATE).state == "dry", calls
+    assert ("turn_on", HEATER, None) in calls
+
+
+async def test_dry_mode_without_a_humidity_sensor_dries_until_the_mode_changes(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(CLIMATE).state == "dry"
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0")
+    assert hass.states.get(CLIMATE).state == "dry"
+    await _room_off(hass, entity_id)
+    assert hass.states.get(CLIMATE).state == "off"
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0")
+    assert hass.states.get(CLIMATE).state == "off"
+
+
+async def test_dry_mode_is_not_offered_when_the_ac_has_no_dry_mode(hass, enable_custom_integrations, config_data, freezer, hass_storage):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass_storage[f"hvac_horizon.{OFF_ENTRY_ID}"] = {
+        "version": 4, "minor_version": 1, "key": f"hvac_horizon.{OFF_ENTRY_ID}", "data": {"entries": [], "user_mode": "dry"},
+    }
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0, "hvac_modes": ["off", "cool"]})
+    set_room(hass, "27.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    assert "dry" not in hass.states.get(entity_id).attributes["hvac_modes"]
+    assert hass.states.get(entity_id).state == "auto"
+    assert ("set_hvac_mode", CLIMATE, "dry") not in calls
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls

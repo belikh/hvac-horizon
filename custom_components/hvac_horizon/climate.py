@@ -64,7 +64,17 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         # Heat is offered when the entry can heat: a heater switch, the AC or a heating fleet device.
         self._has_heat = coordinator.has_heat
         # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else []) + [HVACMode.AUTO]
+
+    @property
+    def hvac_modes(self) -> list[HVACMode]:
+        """Off, cool, auto, heat when the entry can heat, and dry when it can dehumidify."""
+        modes = [HVACMode.OFF, HVACMode.COOL]
+        if self._has_heat:
+            modes.append(HVACMode.HEAT)
+        modes.append(HVACMode.AUTO)
+        if self.coordinator.can_dry:
+            modes.append(HVACMode.DRY)
+        return modes
 
     def _device_entity_ids(self) -> list[str]:
         """The entities whose state decides hvac_action: the AC, its power sensor, the heater switch and the fleet devices."""
@@ -117,6 +127,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         return {
             "cooling": HVACAction.COOLING,
             "heating": HVACAction.HEATING,
+            "drying": HVACAction.DRYING,
             "idle": HVACAction.IDLE,
         }.get(self.coordinator.device_action(), HVACAction.OFF)
 

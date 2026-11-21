@@ -18,6 +18,7 @@ from .const import (
     CONF_CLIMATE,
     CONF_COMFORT_C,
     CONF_HEATER_SWITCH,
+    CONF_DEHUMIDIFIER,
     CONF_AC_HEAT,
     CONF_MPC_HEAT_PLAN,
     CONF_LOCK_PIN,
@@ -111,7 +112,7 @@ class UserMixin:
         return self._heat_target_c if heating else self._cool_above_c
 
     def device_action(self) -> str:
-        """What the room's devices do now, from their own states: "cooling", "heating", "idle" or "off".
+        """What the room's devices do now, from their own states: "cooling", "heating", "drying", "idle" or "off".
 
         Reads the first AC, the heater switch and the fleet devices. A climate in cool or heat counts as running only when
         its power sensor reads at least RUNNING_MIN_KW (below that it runs the fan only, which is "idle"). A device with no
@@ -121,11 +122,14 @@ class UserMixin:
         data = self.entry.data
         climate = self.hass.states.get(data[CONF_CLIMATE])
         fan_only = False
-        if climate is not None and climate.state in ("cool", "heat"):
+        if climate is not None and climate.state in ("cool", "heat", "dry"):
             power = _float(self.hass.states.get(data[CONF_POWER]))
             if power is None or power / 1000.0 >= RUNNING_MIN_KW:
-                return "cooling" if climate.state == "cool" else "heating"
+                return {"cool": "cooling", "heat": "heating", "dry": "drying"}[climate.state]
             fan_only = True
+        dehumidifier = self.hass.states.get(data[CONF_DEHUMIDIFIER]) if data.get(CONF_DEHUMIDIFIER) else None
+        if dehumidifier is not None and dehumidifier.state == "on" and self.dry_mode:
+            return "drying"
         heater = self.hass.states.get(data[CONF_HEATER_SWITCH]) if data.get(CONF_HEATER_SWITCH) else None
         if heater is not None and heater.state == "on":
             return "heating"
@@ -160,14 +164,35 @@ class UserMixin:
         )
 
     @property
-    def user_mode(self) -> str:
-        """The mode in force: "cool", "heat" or "auto". The climate entity shows it and control obeys it.
+    def can_dry(self) -> bool:
+        """True when the entry can dehumidify: a dehumidifier switch, or a first AC that lists a dry mode.
 
-        A stored "heat" on an entry that can no longer heat reads "auto", so the entity and control agree.
+        An AC whose mode list is not known yet counts as able. A room run by fleet climates has no dry path for the AC.
         """
-        if self._user_mode == "heat" and not self.has_heat:
+        data = self.entry.data
+        if data.get(CONF_DEHUMIDIFIER):
+            return True
+        if any(device.entity_id for device in self._fleet()):
+            return False
+        climate = self.hass.states.get(data[CONF_CLIMATE])
+        modes = None if climate is None else climate.attributes.get("hvac_modes")
+        return modes is None or "dry" in modes
+
+    @property
+    def user_mode(self) -> str:
+        """The mode in force: "cool", "heat", "auto" or "dry". The climate entity shows it and control obeys it.
+
+        A stored "heat" on an entry that can no longer heat reads "auto", and so does a stored "dry" on an entry
+        that cannot dehumidify, so the entity and control agree.
+        """
+        if (self._user_mode == "heat" and not self.has_heat) or (self._user_mode == "dry" and not self.can_dry):
             return "auto"
         return self._user_mode
+
+    @property
+    def dry_mode(self) -> bool:
+        """True while the user chose dry and the room is not held off. The AC then dries and never cools."""
+        return self.user_mode == "dry" and not self._user_off
 
     @property
     def cooling_permitted(self) -> bool:
@@ -176,8 +201,11 @@ class UserMixin:
 
     @property
     def heating_permitted(self) -> bool:
-        """True when the mode lets the room heat: heat or auto. In cool mode nothing heats."""
-        return self.user_mode in ("heat", "auto")
+        """True when the mode lets the room heat: heat, auto or dry. In cool mode nothing heats.
+
+        Dry mode cools the room as it removes water, so the heating devices may hold the heat target while the AC dries.
+        """
+        return self.user_mode in ("heat", "auto", "dry")
 
     def _require_unlocked(self) -> None:
         if not lock_allows_control(self._locked):
