@@ -4,97 +4,85 @@
 
 ## Forecast sensors
 
-Each entry has six forecast sensors. The first three hold the forecast. Each published status key also has its own sensor, 69 in all. See [Sensors](../reference/sensors.md). The forecast covers cooling only. A room below the cooling target shows `at setpoint`, with no heat forecast.
+The forecast covers cooling. It answers one question: with the AC running at its usual power, when does the room reach the cool threshold?
 
-| Sensor | Key | Unit | Meaning |
-| :--- | :--- | :--- | :--- |
-| Minutes to setpoint | `minutes_to_setpoint` | min | Time for the room to reach the target at the current power. |
-| Energy to setpoint | `energy_kwh` | kWh | AC energy used until the target is reached. |
-| Cost to setpoint | `cost` | none | Energy priced slot by slot, from the price forecast. |
-| Status | `status` | none | State of the forecast. See the table below. |
-| Samples collected | `samples` | none | Stored readings. The store keeps up to 8640 readings, 30 days at 5 minutes. |
-| Forecast error | `forecast_error_min` | min | Median error of the backtest runs. |
+| Sensor | Unit | Meaning |
+| :--- | :--- | :--- |
+| Minutes to setpoint | min | Time for the room to reach the threshold |
+| Minutes to setpoint, low and high | min | The range around that time, from the uncertainty of the cooling rate |
+| Energy to setpoint | kWh | AC energy for that time |
+| Cost to setpoint | price unit | That energy priced slot by slot. Needs a price sensor with a `forecast` attribute. |
+| Status | text | The state of the forecast. See the next table. |
+| Forecast error | min | Median error of the forecasts replayed against past cool-downs |
 
-The Status sensor holds more values in its attributes. Its `reason` attribute explains the state of the fit or the forecast. It does not show the control decision. The action text is in the `investigation` attribute and the Daily briefing sensor.
-
-## What the weather entity supplies
-
-With a weather entity set, the integration calls the standard `weather.get_forecasts` service for the daily and the hourly forecast, at most every 30 minutes, and keeps the last good result when a call fails. The daily highs set the day type and the heatwave streak, and the daily `templow` sets the night plan. The hourly forecast gives an outdoor temperature series: linear between hours, starting at the measured outdoor reading and fading to the forecast over 3 hours. The time-to-setpoint forecast, the MPC plans, pre-cool and preheat use that series instead of a constant outdoor temperature. The integration also learns the steady difference between the outdoor sensor and the forecast, per hour of day, and adds it to the forecast. Without an irradiance sensor and with a window area set, the hourly condition scales the clear-sky solar estimate. When the outdoor sensor is stale or unavailable and the hourly forecast is under 2 hours old, the forecast temperature replaces the reading, and the repair issue for the stalled sensor stays.
+With control off, the forecast aims at the AC's own setpoint. With control on, it aims at the cool threshold of the preset in use.
 
 ## Status values
 
-| `status` | Meaning |
-| :--- | :--- |
-| `learning` | No model yet. `reason` says what is missing. |
-| `no input` | A room sensor, the outdoor sensor or the climate entity is missing. |
-| `no running power yet` | The AC power reads below 0.2 kW, and the stored readings hold no running power. |
-| `at setpoint` | The room is at or below the target. Minutes, energy and cost are 0. |
-| `reachable` | The forecast gives minutes, energy and cost. |
-| `unreachable` | The model does not reach the target within 12 hours at the current power. |
+| Status | Meaning | What to do |
+| :--- | :--- | :--- |
+| `learning` | No room model yet. The `reason` attribute names the rule that is not met. | Let the AC run through on and off periods. |
+| `no input` | A room sensor, the outdoor sensor or the AC entity has no reading. | Check the entity in **Developer tools > States**. |
+| `no running power yet` | The AC draws under 0.2 kW and no stored reading holds a running power. | Run the AC once. |
+| `at setpoint` | The room is at or below the threshold. Minutes, energy and cost are 0. | Nothing. |
+| `reachable` | The forecast has minutes, energy and cost. | Nothing. |
+| `unreachable` | The room does not reach the threshold within 12 hours at the current power. | The AC is too small for the conditions, or the model is still coarse. |
 
-Observe mode compares the room with the climate entity's setpoint. Control mode compares it with `comfort_c`.
+## How long learning takes
 
-## Learning
+HVAC Horizon takes a reading every 5 minutes. The first room model needs all of these:
 
-The model learns from each 5-minute reading. A reading holds the room temperature, the outdoor temperature, the AC power, the AC mode, the setpoint, and the price when set. Intervals where the AC ran in heat, dry or fan-only mode stay out of the cooling fit. The `samples_heat` and `samples_dry` sensors count the heat and dry intervals.
+1. 36 readings with the AC on and 36 with it off: 3 hours of each.
+2. 3 separate AC runs.
+3. An outdoor minus room difference that varies by at least 1 K.
+4. AC power that varies by at least 0.05 kW.
 
-The first model needs the following. Each rule is a code limit.
+The model refits every 12 readings, about once an hour. The store keeps 8640 readings, 30 days. At setup the integration also reads up to 10 days of recorder history, so a room with history can have a model on the first day.
 
-1. At least 36 readings with the AC on and 36 with it off. That is 3 hours of each state.
-2. At least 3 separate AC runs.
-3. Outdoor minus room temperature varies by at least 1 K.
-4. AC power varies by at least 0.05 kW.
+Readings taken while the AC heats, dries or runs its fan only stay out of the cooling model. Readings taken while the outdoor sensor is stalled are not stored.
 
-Until these hold, `status` stays `learning`. The `reason` attribute shows the rule that fails. The model refits every 12 readings, about one hour. At setup, the integration reads up to 10 days of recorder history.
+## How good the model is
 
-The room rates behind `room_rate_coefficients` need 12 readings with the AC off, and 12 with it on. They also need the outdoor spread of 1 K.
-
-Learning time depends on how often the AC runs. Run the AC through both states to reach the first fit sooner.
-
-## Accuracy
-
-The backtest replays past cool-downs. It fits only on readings before each cool-down, then compares the prediction with the measured time.
-
-- `forecast_error_min` is the median absolute error, in minutes, over all backtest runs.
-- The `accuracy_pairs` attribute lists the last 20 runs. Each entry holds `predicted_min`, `measured_min` and `error_min`. The error is predicted minus measured.
-
-A run needs 60 readings, 5 hours, before its cool-down starts.
-
-## Status attributes
-
-These attributes sit on the Status sensor.
+The Status sensor carries the fit quality in its attributes.
 
 | Attribute | Meaning |
 | :--- | :--- |
-| `reason` | Why the forecast or the fit is in its current state. |
-| `k_per_h`, `g_k_per_h`, `c_k_per_kw` | Coefficients of the fitted model. `k_per_h` is the heat-gain rate toward outdoors, in 1/h. `g_k_per_h` is the constant internal gain, in K per hour. `c_k_per_kw` is the cooling per kW of AC power, in K per hour. |
-| `investigation` | Rule-based answer to why the AC runs or does not, with recent actions. |
-| `investigation_ai` | Answer from the conversation agent. Set when the AI conversation field is set. |
-| `investigation_ai_mode` | The AC mode that the AI answer explains. |
-| `ai_calls_today` | Model calls made today. |
-| `investigation_report` | The 24-hour report from `generate_investigation_report`. None until the service runs. |
-| `investigation_report_source` | `model` when the agent wrote the report, `rule` otherwise. |
-| `investigation_report_at` | Time the report was stored, ISO format. |
-| `room_rate_coefficients` | Rates fitted from the AC-off and AC-on readings. Holds `k_per_h`, `g_k_per_h`, `c_k_per_h_per_kw`, `samples_off` and `samples_on`. None until fitted. |
-| `auto_tpi_gains` | Online gains for cooling (`cool`) and heating (`heat`). Each starts at 1.0. The cool gain stays between 0.5 and 1.5 and moves at most 0.02 per interval. |
-| `autotune` | PID gains `kp`, `ki` and `kd` after a relay test. None before. |
-| `autotune_status` | State of the last relay test: `running`, `done`, `timed_out`, `cancelled` or `reached_cutoff`. None before any test. |
+| `fit_confidence` | `low`, `medium` or `high`, from the standard errors of the fit |
+| `k_per_h` | Heat gain toward outdoors, per hour |
+| `c_k_per_kw` | Cooling per kW of AC power, in K per hour |
+| `g_k_per_h` | Constant gain from people and appliances, in K per hour |
+| `c_stderr` | Standard error of the cooling rate. It sets the low and high minutes. |
+| `fit_residual_k_per_h` | Typical error of the model on its own readings, in K per hour |
 
-The AI calls are limited by `ai_budget_per_day`. Absent or 0 means no model calls.
+A new room reads `low` because it has few readings with the AC on. The confidence rises as the AC runs.
 
-## Published status keys
+The Forecast error sensor comes from a backtest. For each past cool-down, the backtest fits a model on the readings before it and compares the predicted minutes with the measured minutes. The `accuracy_pairs` attribute lists the last 20 runs. A run needs 60 readings, 5 hours, before its cool-down.
 
-| Sensor | Meaning |
-| :--- | :--- |
-| Target temperature (`target_c`) | With control on, the temperature the AC cools above this tick (equal to Cool above): the preset setpoint, the user's target, the price shift and the mould bump. With control off, the comfort setpoint. |
-| Preset (`preset`) | With control on, the preset in use: `comfort`, `eco`, `boost` or `away`. With control off, `comfort`. See [Services and presets](services-and-presets.md). |
-| Cool above (`cool_on_above_c`) | The AC cools when the room is above this value. Updated on every tick. |
-| Heat below (`heat_on_below_c`) | The heater heats when the room is below this value. It is 0.5 K under the heat target. Updated on every tick. |
-| Pre-cool status (`precool_status`) | Why a pre-cool start exists or not, for example `start in 25 min` or `no schedule entity`. |
-| MPC plan effect (`mpc_status`) | Whether the cooling plan changed the decision this tick. |
-| Room dispatch (`dispatch`) | The devices from `fleet` that run for the current gap. |
+## What the weather entity adds
+
+Set `weather` in the **Occupancy and windows** section to give the forecast an outdoor temperature that changes over time.
+
+- The integration calls `weather.get_forecasts` for the daily and hourly forecast, at most every 30 minutes. It keeps the last good result when a call fails.
+- The hourly forecast becomes a temperature series that starts at the outdoor sensor's reading. The offset between the sensor and the forecast fades out over 3 hours.
+- The integration learns the difference between your outdoor sensor and the forecast for each hour of the day, and applies it to the series.
+- When the outdoor sensor stalls and the hourly forecast is under 2 hours old, the forecast temperature stands in. The Outdoor source sensor then reads `forecast`.
+
+Without a weather entity, the forecast holds the outdoor temperature at its current value.
+
+## Why the AC runs or not
+
+The Daily briefing sensor shows the next action in one line:
+
+**Daily briefing**
+
+```text
+Day: warm. Comfort 24.0 C. Next: cool: above comfort target.
+```
+
+The Status sensor's `investigation` attribute explains the current action and lists the recent ones. [Action texts](troubleshoot.md#action-texts) lists every text.
 
 **See also**
 
-- [Troubleshoot](troubleshoot.md): what to check when the forecast stays in one state.
-- [Services and presets](services-and-presets.md): the `what_if` and `reset_learning` services.
+- [Troubleshoot](troubleshoot.md): what to check when the status does not change.
+- [Limits of the model](../concepts/limits.md): what the model leaves out.
+- [Sensors](../reference/sensors.md): every sensor and attribute.

@@ -2,87 +2,99 @@
 
 # Troubleshoot
 
+## Find the reason
+
+HVAC Horizon writes one action text on each tick. Read it in two places:
+
+- The Daily briefing sensor, after `Next:`.
+- The `investigation` attribute of the Status sensor, with the recent actions.
+
+Then find the text in the table below.
+
+## Action texts
+
+| Text | Cause | What to do |
+| :--- | :--- | :--- |
+| `cool: above comfort target` | The room is above the cool threshold. The preset name replaces `comfort` under another preset. | Nothing. |
+| `off: at or below comfort target` | The room needs no cooling. | Nothing. |
+| `off: user turned the room off` | The room thermostat is `off`. | Choose a mode. |
+| `off: mode is heat: no cooling` | The room is above the cool threshold and the thermostat is in `heat` or `dry`. | Choose `cool` or `auto`. |
+| `cool: waiting for restart delay` | A start waits for `min_off_min` after the last stop. The same text exists for `heat` and `dry`. | Wait. The `pending` attribute of the thermostat shows the minutes. |
+| `cool: waiting for compressor group` | Another entry in the same `compressor_group` started its AC less than 5 minutes ago. | Wait. |
+| `off: window open N min` | The window sensor has been open for `window_delay_min` or longer. | Close the window. |
+| `off: free cooling: window open or whole-house fan` | The entry holds the window actuator open, or the whole-house fan runs. | Nothing. The AC cools when the room is 2 K above the cool threshold. |
+| `off: outdoor N C below cooling limit` | Outdoors is below 16 °C. | Nothing. |
+| `off: away, room within setback` | The room is unoccupied and below `eco_c` or `away_c`. | Nothing. |
+| `cool: pre-cool starts now` | A schedule event is near and the room needs the time to cool. | Nothing. |
+| `off: dry paused, room below heat threshold` | Dry mode cooled the room to 1 K below the heat threshold. | Nothing. Drying resumes at the threshold. |
+| `off: night hold: AC does not start` | `night_plan_act` is on and the night plan is `hold`. | Turn `night_plan_act` off to cool. |
+| `off: sensor stalled` | A sensor stall blocks the AC. | See [Sensor stalled](#sensor-stalled). |
+| `off: no room reading` | No room sensor has had a valid reading for the stall window. | Check the room sensors. |
+| `inhibited after a manual change` | Someone changed the AC setpoint by hand in the last 30 minutes. | See [Manual changes](#manual-changes). |
+| `locked` | The lock is on. | Unlock with `hvac_horizon.set_lock`. |
+| `locked: off, sensor stalled` | The lock is on and a safety stop turned the AC off. The reason can also be `window open` or `house away`. | Clear the cause, or unlock. |
+
+## The AC does not start
+
+Check these in order.
+
+1. **Control.** The thermostat reads `off` and its `control` attribute reads `observe only` while control is off. See [Turn on control](../start/install.md#turn-on-control).
+2. **Mode.** The AC cools in `auto` and `cool` only.
+3. **Threshold.** The AC cools when the room is above the Cool above sensor. A room 0.5 K or less above it does not start the AC.
+4. **Restart delay.** The `pending` attribute reads `start in N min: restart delay`.
+5. **The AC's own sensor.** An AC whose built-in sensor reads cooler than the room may not run its compressor at the room's target. `setpoint_regulation` sends a lower setpoint to make up the gap. The sensors Setpoint sent and Sensor offset show the values.
+
+## The heater does not start
+
+1. **Mode.** The heater runs in `auto`, `heat` and `dry` only.
+2. **Outdoor limit.** The Heating allowed sensor reads `False` when outdoors is above 22 °C.
+3. **Threshold.** The heater runs when the room is below the Heat below sensor.
+4. **AC cooling.** The heater stays off on a tick where the AC cools, and while another entry of the same house cools.
+5. **Window and house.** An open window, an away house, vacation and the lock each hold the heater at 0.
+
 ## Sensor stalled
 
-A sensor counts as stalled when its `last_reported` time is older than the stall window. The default window is 900 seconds. Set it with `stall_window_s`. The form accepts 300 to 3600 seconds. `unavailable` and `unknown` do not count as stalled. They count as no reading.
+A sensor is stalled when its last report is older than the stall window, 900 seconds by default. Set the window with `stall_window_s`, 300 to 3600 seconds. A sensor that repeats the same value still reports, so a steady reading is not a stall. `unavailable` and `unknown` count as no reading.
 
-The check reads `last_reported`, not `last_updated`. Home Assistant keeps `last_updated` when a sensor repeats its value. A steady reading would look stalled.
-
-What the stall stops:
-
-| Condition | AC and fleet devices | Heater output |
+| Condition | AC and room devices | Heater |
 | :--- | :--- | :--- |
-| The outdoor sensor is stalled, and no hourly forecast under 2 hours old exists | Off | 0 % |
-| The outdoor sensor is stalled, and a fresh hourly forecast exists | Runs on the forecast temperature | Runs on the forecast temperature |
+| The outdoor sensor is stalled and no hourly forecast under 2 hours old exists | Off | 0 % |
+| The outdoor sensor is stalled and a fresh hourly forecast exists | Run on the forecast temperature | Runs on the forecast temperature |
 | Every room sensor is stalled | Off | 0 % |
-| One room sensor is stalled and another is fresh | Runs on the fresh median | Unchanged |
-| No room has a valid reading for the stall window | Off | 0 % |
+| One room sensor is stalled and another is fresh | Run on the fresh sensors | Unchanged |
 
-A stall stops the AC even inside the inhibit window. It also stops the window actuator from opening. It does not stop the valve, the boiler or the cover: they keep following the last readings.
+A stall also keeps the window actuator and the whole-house fan from starting. HVAC Horizon raises the repair issue `HVAC Horizon sensors not updating` with the list of sensors. The issue clears when they report again.
 
-When sensors stall, HVAC Horizon raises the repair issue `HVAC Horizon sensors not updating`. It also creates a persistent notification. The issue lists the stalled sensors. It clears when they report again.
+## Manual changes
 
-Check each listed sensor in **Developer tools > States**. Fix the sensor or its integration.
+When the AC setpoint differs from the value HVAC Horizon last wrote by more than 0.05 K, HVAC Horizon treats it as your change. It sends no commands for 30 minutes. Each new change starts a new 30 minutes.
 
-## Inhibited after a manual change
+Four commands still go out in that time: a stall stop, every heater turn-off, a window close, and off from the room thermostat.
 
-The action reads `inhibited after a manual change` when a manual change is active. A manual change is a device setpoint that differs from the last value HVAC Horizon wrote, by more than 0.05 K.
+To change the room without the 30 minute pause, use the room thermostat.
 
-After a manual change, HVAC Horizon sends no commands for 30 minutes. Keep-alive writes pause too. Each new manual value starts a new 30-minute window. The window ends on its own.
+## Off and restarts
 
-Three commands still go out during the window: a stall stop for the AC, every heater turn-off, and a window close.
-
-## Minimum on and off times
-
-The AC mode does not change until the current state has lasted long enough.
-
-- A stop is never held. Turning the room off from the room entity sends off to every device at once.
-- A start after a stop waits for the restart delay `min_off_min` (default 3 minutes, 0 disables it), counted from the last change. The room entity shows the wait in the attribute `pending`, and the integration re-checks when the delay ends.
-- `min_on_min` stays in the options for compatibility and is ignored.
-- Devices in `fleet` use the same two times. A stall stop and the safety stops ignore them.
-
-Change them in the **Devices and power limits** section of reconfigure. Each accepts 0 to 120 minutes.
-
-## Lock with a PIN
-
-1. Open reconfigure and select **Advanced**. Enter a value in **Lock PIN**. The field is a password box. Select **Save and close** afterwards.
-2. Call `hvac_horizon.set_lock` with `locked: true`. Locking needs no PIN in the call, but fails when no PIN is configured.
-3. Call `hvac_horizon.set_lock` with `locked: false` and `pin` set to the PIN. Unlocking needs the same PIN.
-
-The lock is stored, so it stays on after a restart. While locked, the AC action reads `locked` and the room climate entity refuses new targets, presets and modes. A stalled sensor, a window open longer than `window_delay_min` or an away house still turns the AC off. The action then reads `locked: off, sensor stalled`, `locked: off, window open` or `locked: off, house away`.
-
-See [Services and presets](services-and-presets.md) for the error text on a wrong PIN.
-
-## Reasons for the AC action
-
-The control step writes one action text per tick. The `investigation` attribute of the Status sensor lists the recent actions. The Daily briefing sensor shows the action in its `Next` part. Ticks that return early from the control step do not set the Daily briefing. This covers `locked` and `inhibited after a manual change`.
-
-| Text | Cause |
-| :--- | :--- |
-| `off: window open N min` | The window has been open for at least `window_delay_min`. |
-| `off: outdoor N C below cooling limit` | Outdoor temperature is below 16 °C. |
-| `cool: waiting for restart delay` or `heat: waiting for restart delay` | The start is held by the restart delay `min_off_min`. The attribute `pending` on the room entity says how long. |
-| `cool: waiting for compressor group` | Another entry in the same `compressor_group` started the AC less than 5 minutes ago. |
-| `off: sensor stalled` | A stall is blocking the AC. |
-| `off: no room reading` | No room has a valid reading for the stall window. |
-| `locked` | Control is locked. |
-| `locked: off, <reason>` | Control is locked and a stall, an open window or an away house turned the AC off. |
-| `off: user turned the room off` | You set the room climate entity to `off`. |
-| `off: mode is heat: no cooling` or `off: mode is dry: no cooling` | The room is above the cool threshold and the mode on the room entity does not cool. Choose `cool` or `auto`. |
-| `dry: waiting for restart delay` | A dry start is held by the restart delay `min_off_min`. |
-| `off: dry paused, room below heat threshold` | Dry mode cooled the room to 1 K below the heat threshold. Drying resumes when the room is back at the threshold. |
-| `off: night hold: AC does not start` | `night_plan_act` is on and the night plan is `hold`. |
+- Off from the room thermostat goes to every device in the same call.
+- A room that is `off` when Home Assistant starts sends no start command on any tick.
+- No device starts before the first valid room and outdoor readings arrive.
+- When an entry is removed or control is turned off, HVAC Horizon turns off the outputs it commanded.
 
 ## Repair issues
 
-HVAC Horizon raises three repair issues. None has a fix flow. Each clears when its cause ends.
+Each issue clears when its cause ends. None has a fix flow.
 
-| Issue | Key | Raised when | Check |
-| :--- | :--- | :--- | :--- |
-| `HVAC Horizon sensors not updating` | `sensors_stalled` | A room or outdoor sensor is stalled. | The sensors listed in the issue. |
-| `HVAC Horizon heater is not warming the room` | `heating_failure` | The heater has been on for 60 minutes, and the room rose less than 0.5 °C. | The heater, its plug and its switch. |
-| `HVAC Horizon mode does not match` | `mode_mismatch` | The AC mode differs from the last mode written, and the setpoint did not change. | The AC unit and any other automation that changes its mode. |
+| Issue | Raised when | Check |
+| :--- | :--- | :--- |
+| `HVAC Horizon sensors not updating` | A room or outdoor sensor is stalled. | The sensors listed in the issue. |
+| `HVAC Horizon heater is not warming the room` | The heater ran 60 minutes and the room rose less than 0.5 K. | The heater, its plug and its switch. |
+| `HVAC Horizon mode does not match` | The AC mode differs from the last mode written and the setpoint did not change. | The AC unit, and any other automation that sets its mode. |
+
+## Send a bug report
+
+Open the entry, select the three-dot menu and **Download diagnostics**. The file holds the settings, the room model and the last result, with entity IDs redacted. Attach it to an issue at [github.com/belikh/hvac-horizon](https://github.com/belikh/hvac-horizon/issues).
 
 **See also**
 
-- [Read the forecast](read-the-forecast.md): what the Status sensor shows while the model learns.
+- [Read the forecast](read-the-forecast.md): the forecast status and the room model.
+- [Use the room thermostat](use-the-room-thermostat.md): modes and the restart delay.

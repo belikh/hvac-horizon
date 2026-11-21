@@ -2,108 +2,109 @@
 
 # Sensors
 
-## Sensors
+## Entities per entry
 
-Each entry creates the 66 sensors below, plus the room climate entity. See [Services and presets](../guides/services-and-presets.md) for the climate entity. The entity ID is `sensor.<name>` for the entry's name. The key is the suffix that the integration uses in the unique ID, and the attribute key where a value is read from the `status` sensor.
+Each entry creates one device named `HVAC Horizon <AC name>`. The device holds one `climate` entity for the room and 75 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
 
-| Key | Name | Unit | Group |
+A sensor's entity ID is `sensor.hvac_horizon_<ac name>_<name>`. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
+
+## Primary sensors
+
+These 11 sensors have no entity category. Home Assistant shows them on the device page and in dashboards.
+
+| Key | Name | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
-| `minutes_to_setpoint` | Minutes to setpoint | min | Primary |
-| `energy_kwh` | Energy to setpoint | kWh | Primary |
-| `cost` | Cost to setpoint | none | Primary |
-| `status` | Status | none | Primary |
-| `samples` | Samples collected | none | Diagnostic |
-| `forecast_error_min` | Forecast error | min | Primary |
-| `day_type` | Day type | none | Diagnostic |
-| `night_plan` | Night plan | none | Diagnostic |
-| `precool_status` | Pre-cool status | none | Diagnostic |
-| `daily_briefing` | Daily briefing | none | Diagnostic |
-| `window_advice` | Window advice | none | Diagnostic |
-| `ventilation` | Ventilation | none | Diagnostic |
-| `ventilation_rate` | Ventilation rate | none | Disabled by default |
-| `humidity` | Humidity action | none | Diagnostic |
-| `drying_needed` | Drying needed | none | Diagnostic |
-| `mould_risk` | Mould risk | none | Diagnostic |
-| `compliance_pct` | Comfort compliance | % | Diagnostic |
-| `heatwave` | Heatwave | none | Diagnostic. On when the `heatwave_warning` sensor is on or the daily highs reach 30 °C three days running. |
-| `fan_speed` | Fan speed | none | Disabled by default |
-| `price_used_per_kwh` | Price used per kWh | none | Disabled by default |
-| `occupancy` | Occupancy | none | Diagnostic |
-| `solar_gain_kw` | Solar gain | kW | Disabled by default |
-| `band_action` | Band action | none | Disabled by default |
-| `target_c` | Target temperature | °C | Primary |
-| `preset` | Preset | none | Primary |
-| `heating_allowed` | Heating allowed | none | Diagnostic |
-| `samples_heat` | AC heat intervals | none | Disabled by default |
-| `samples_dry` | AC dry intervals | none | Disabled by default |
-| `heater_feedback` | Heater feedback | none | Disabled by default |
-| `heater_pwm_on` | Heater PWM on | none | Disabled by default |
-| `valve_opening_pct` | Valve opening | % | Disabled by default |
-| `cover_action` | Cover action | none | Disabled by default |
-| `second_ac` | Second AC | none | Disabled by default |
-| `learning_suggestion` | Learning suggestion | none | Diagnostic |
-| `external_change` | External change | none | Diagnostic |
-| `sensors_stalled` | Stalled sensors | none | Diagnostic |
-| `safety_output_pct` | Safety output | % | Disabled by default |
-| `economizer` | Economizer | none | Disabled by default |
-| `motion_preset` | Motion preset | none | Disabled by default |
-| `shed` | Loads shed | none | Disabled by default |
-| `restored` | Load switched back on | none | Disabled by default |
-| `mpc_plan` | MPC plan steps | none | Disabled by default |
-| `mpc_status` | MPC plan effect | none | Diagnostic |
-| `mpc_heat_steps` | MPC heat plan steps | none | Disabled by default |
-| `solar_scale` | Solar scale | none | Disabled by default |
-| `vacation` | Vacation mode | none | Diagnostic |
-| `heat_source` | Heat source | none | Diagnostic |
-| `boiler_demand` | Boiler demand | none | Disabled by default |
-| `whole_house_fan` | Whole-house fan | none | Diagnostic |
-| `heating_failure` | Heating failure | none | Diagnostic |
-| `house_cooling` | House cooling | none | Disabled by default |
-| `heater_pid_output` | Heater PID output | % | Disabled by default |
-| `heater_output_pct` | Heater output | % | Disabled by default |
-| `tpi_output_pct` | TPI output | % | Disabled by default |
-| `preheat` | Preheat | none | Disabled by default |
-| `heat_up_min` | Heat-up time | min | Disabled by default |
-| `cool_on_above_c` | Cool above | °C | Primary |
-| `heat_on_below_c` | Heat below | °C | Primary |
-| `backtest_runs` | Backtest runs | none | Disabled by default |
-| `trv_offset_k` | TRV offset | K | Disabled by default |
-| `room_fit` | Two-device room fit | none | Disabled by default |
-| `forecast_days` | Forecast day counts | none | Disabled by default |
-| `outdoor_forecast_used` | Outdoor forecast used | none | Diagnostic. True when a fresh hourly forecast feeds the time-to-setpoint forecast, the MPC plans, pre-cool and preheat. |
-| `outdoor_source` | Outdoor source | none | Diagnostic. `sensor`, or `forecast` while the outdoor sensor is stale or unavailable and the hourly forecast is under 2 hours old. |
-| `outdoor_forecast_next_c` | Outdoor forecast ahead | none | Disabled by default. Series values 1, 3 and 6 hours ahead in °C, including the learned bias. |
-| `outdoor_bias_now_k` | Outdoor forecast bias | K | Disabled by default. Learned outdoor sensor minus forecast for the current hour of day. |
-| `outdoor_bias_pairs` | Outdoor bias pairs | none | Disabled by default. Sensor and forecast pairs the bias has learned from. `reset_learning` clears them. |
-| `solar_factor` | Solar cloud factor | none | Disabled by default. Share of clear-sky solar gain from the forecast condition: sunny 1.0, partlycloudy 0.7, cloudy 0.4, rainy or pouring 0.2. Empty when an irradiance sensor is set. |
-| `dispatch` | Room dispatch | none | Diagnostic |
-| `minutes_low` | Minutes to setpoint, low | min | Primary |
-| `minutes_high` | Minutes to setpoint, high | min | Primary |
-| `rooms_max_age_s` | Room reading age | s | Disabled by default |
+| `minutes_to_setpoint` | Minutes to setpoint | min | Forecast minutes for the room to reach the cool threshold at the current running power. |
+| `energy_kwh` | Energy to setpoint | kWh | AC energy for that time. An upper bound for a unit that cycles. |
+| `cost` | Cost to setpoint | none | That energy priced slot by slot from the price forecast. Empty with no price sensor. |
+| `status` | Status | none | State of the forecast: `learning`, `no input`, `no running power yet`, `at setpoint`, `reachable` or `unreachable`. Carries the attributes below. |
+| `forecast_error_min` | Forecast error | min | Median absolute error of the backtest runs, in minutes. |
+| `target_c` | Target temperature | °C | With control on, the temperature the AC cools above this tick. With control off, the comfort setpoint. |
+| `preset` | Preset | none | The preset in use: `comfort`, `eco`, `boost` or `away`. |
+| `cool_on_above_c` | Cool above | °C | The AC cools when the room is above this value. |
+| `heat_on_below_c` | Heat below | °C | The heater heats when the room is below this value: the heat target minus 0.5 K. |
+| `minutes_low` | Minutes to setpoint, low | min | Low end of the forecast range, from the standard error of the cooling rate. |
+| `minutes_high` | Minutes to setpoint, high | min | High end of the forecast range. |
 
-Every row after `forecast_error_min` is one entry of `STATUS_KEYS` in `sensor.py`. A list or dict value shows as JSON text cut to 255 characters in the state, and the full value is in the `value` attribute. A key the coordinator did not publish this tick reads as `unknown`.
+## Diagnostic sensors
 
-## Groups
+These 28 sensors have the entity category `diagnostic` and are enabled. They show under **Diagnostic** on the device page.
 
-The Group column shows where Home Assistant lists the sensor.
+| Key | Name | Unit | Meaning |
+| :--- | :--- | :--- | :--- |
+| `samples` | Samples collected | none | Stored readings. The store keeps 8640, 30 days at 5 minutes. |
+| `day_type` | Day type | none | Day class from the forecast high, or the outdoor reading with no weather entity. |
+| `night_plan` | Night plan | none | `pre-cool`, `hold` or none, from the room and the coming night's low. |
+| `precool_status` | Pre-cool status | none | Why a pre-cool start exists or not, for example `start in 25 min`, `late: starts now, 30 min to the event` or `no schedule entity`. |
+| `daily_briefing` | Daily briefing | none | One line: the day type, the comfort target and the next action. |
+| `window_advice` | Window advice | none | `open`, `close` or `hold` for windows, from the room, the outdoor temperature and the outdoor humidity. |
+| `ventilation` | Ventilation | none | Why the room fan runs or not, from CO2 and PM2.5. |
+| `humidity` | Humidity action | none | `dehumidify`, `humidify` or `within band`, from room humidity. |
+| `drying_needed` | Drying needed | none | True when room humidity is above 60 % and the room needs no cooling. |
+| `mould_risk` | Mould risk | none | True when the estimated surface humidity is 80 % or more. Raises every cool threshold by 1 K. |
+| `compliance_pct` | Comfort compliance | % | Share of stored readings inside the comfort band. |
+| `heatwave` | Heatwave | none | On when `heatwave_warning` is on or the daily highs reach 30 °C three days running. It changes no device command. |
+| `occupancy` | Occupancy | none | `home` or `away`, from the presence sources and `away_delay_min`. |
+| `heating_allowed` | Heating allowed | none | False when outdoors is above 22 °C. The heater, the boiler and AC heat then stay off. |
+| `learning_suggestion` | Learning suggestion | none | Set when the fitted heat-gain rate drifts from the stored baseline. Answer with `respond_suggestion`. |
+| `external_change` | External change | none | Set when the AC setpoint or mode changed outside HVAC Horizon. |
+| `sensors_stalled` | Stalled sensors | none | The sensors with no report inside the stall window. |
+| `mpc_status` | MPC plan effect | none | Whether the cooling plan changed the decision this tick. |
+| `vacation` | Vacation mode | none | True while the vacation switch is on. |
+| `heat_source` | Heat source | none | `boiler` at 5 °C outdoors or below, otherwise `ac`. |
+| `whole_house_fan` | Whole-house fan | none | True while the whole-house fan may run. |
+| `heating_failure` | Heating failure | none | True when the heater ran 60 minutes and the room rose less than 0.5 K. |
+| `dispatch` | Room dispatch | none | The fleet devices chosen for the current gap, with each device's rate and power. |
+| `pending` | Pending action | none | A start held by the restart delay, for example `start in 2 min: restart delay`. |
+| `ac_setpoint_sent_c` | Setpoint sent | °C | The setpoint last sent to the AC, after setpoint regulation. |
+| `ac_sensor_offset_k` | Sensor offset | K | Room median minus the AC's own temperature reading. |
+| `outdoor_forecast_used` | Outdoor forecast used | none | True when a fresh hourly forecast feeds the forecast, the plans, pre-cool and preheat. |
+| `outdoor_source` | Outdoor source | none | `sensor`, or `forecast` while the outdoor sensor is stale and the hourly forecast is under 2 hours old. |
 
-- Primary: 11 sensors with no entity category, all enabled. They show on the device page and in dashboards by default.
-- Diagnostic: 23 sensors with the entity category `diagnostic`, all enabled. They show under **Diagnostic** on the device page. Home Assistant leaves them out of the default dashboard and out of area and voice exposure. Several are the ones to read when something is wrong: `sensors_stalled`, `heating_failure`, `window_advice`, `mould_risk`, `dispatch`, `precool_status` and `mpc_status`.
-- Disabled by default: 32 sensors with the entity category `diagnostic`, created disabled. They hold internal detail such as PWM state, PID and TPI outputs, plan steps and fit internals. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The entry reloads, and the sensor then reads like any other.
+## Sensors disabled by default
 
-The coordinator publishes every key whether or not its sensor is enabled. The attributes in the Attributes table below sit on the Status and Forecast error sensors, which are primary.
+These 36 sensors hold internal detail. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
 
-## Control status keys
+| Key | Name | Unit | Meaning |
+| :--- | :--- | :--- | :--- |
+| `ventilation_rate` | Ventilation rate | none | Fan duty from CO2, 0 to 1. |
+| `fan_speed` | Fan speed | none | AC fan mode chosen by `auto_fan`. |
+| `price_used_per_kwh` | Price used per kWh | none | The price used this tick. The last good price stands in for 60 minutes when the sensor drops. |
+| `solar_gain_kw` | Solar gain | kW | Solar gain through the window, measured or modelled. |
+| `band_action` | Band action | none | `heat`, `cool` or `idle` against the comfort band. |
+| `samples_heat` | AC heat intervals | none | Stored intervals with the AC in heat mode. The cooling fit leaves them out. |
+| `samples_dry` | AC dry intervals | none | Stored intervals with the AC in dry mode. The cooling fit leaves them out. |
+| `heater_feedback` | Heater feedback | none | Whether the heater switch state matches the command. |
+| `heater_pwm_on` | Heater PWM on | none | Heater on or off inside the current 10 minute window. |
+| `valve_opening_pct` | Valve opening | % | Valve opening sent to the TRV. |
+| `cover_action` | Cover action | none | `close`, `open` or none for the cover, from solar gain. |
+| `second_ac` | Second AC | none | State of the second AC drive. |
+| `rooms_max_age_s` | Room reading age | s | Age of the oldest room reading in use. |
+| `safety_output_pct` | Safety output | % | Heater output forced by a stalled sensor. |
+| `economizer` | Economizer | none | `off`, `open_windows` or `fan_assist`. |
+| `motion_preset` | Motion preset | none | `home` or `away` from the motion sensor. |
+| `shed` | Loads shed | none | Loads switched off by the power limit this tick. |
+| `restored` | Load switched back on | none | Load switched back on this tick. |
+| `mpc_plan` | MPC plan steps | none | Cooling plan steps, 15 minutes each for 4 hours. |
+| `mpc_heat_steps` | MPC heat plan steps | none | Heat plan steps. |
+| `solar_scale` | Solar scale | none | Learned ratio of measured to modelled solar gain. |
+| `boiler_demand` | Boiler demand | none | True when the boiler should run. |
+| `house_cooling` | House cooling | none | True when another entry in the house group cools. |
+| `heater_pid_output` | Heater PID output | % | PID output before limits. |
+| `heater_output_pct` | Heater output | % | Heater output after limits and gates. |
+| `tpi_output_pct` | TPI output | % | TPI output. |
+| `preheat` | Preheat | none | `off`, `waiting`, `active` or `cannot reach comfort` before a comfort block. |
+| `heat_up_min` | Heat-up time | min | Learned minutes to heat to comfort. |
+| `backtest_runs` | Backtest runs | none | Count of backtest runs. |
+| `trv_offset_k` | TRV offset | K | TRV reading minus room reading. |
+| `room_fit` | Two-device room fit | none | The two-device room fit. |
+| `forecast_days` | Forecast day counts | none | Count of forecast days by day type. |
+| `outdoor_forecast_next_c` | Outdoor forecast ahead | none | Outdoor series 1, 3 and 6 hours ahead in °C, with the learned bias. |
+| `solar_factor` | Solar cloud factor | none | Share of clear-sky solar gain from the forecast condition: sunny 1.0, partlycloudy 0.7, cloudy 0.4, rainy 0.2. |
+| `outdoor_bias_now_k` | Outdoor forecast bias | K | Learned outdoor sensor minus forecast for this hour of day. |
+| `outdoor_bias_pairs` | Outdoor bias pairs | none | Pairs the bias has learned from. `reset_learning` clears them. |
 
-| Key | Content |
-| :--- | :--- |
-| `cool_on_above_c` | The room temperature above which the AC cools, in °C. Updated every tick. |
-| `heat_on_below_c` | The room temperature below which the heater heats, in °C. It is the heat target minus 0.5 K. Updated every tick. |
-| `dispatch` | The devices chosen from `fleet`. A dict with `cool` and `heat` (lists of `device_id`), `power_kw`, `devices` (per device: `rate_k_per_h_per_kw`, `rate_source` as `fitted`, `entered` or `missing`, `power_source` as `sensor` or `rated`, `power_kw`) and, with control on, `waiting` (devices held by a minimum time or the compressor group). Empty lists when no fleet is set. |
-| `precool_status` | Text that says why a pre-cool plan exists or not, for example `start in 25 min`, `no schedule entity`, `no room model yet`, `no running power learned yet` or `no deadline: next_event is in the past`. |
-| `mpc_status` | Text for the cooling plan: `no plan: normal decision`, or `plan step 0 run` or `plan step 0 idle` followed by `decision unchanged` or `changed the decision to idle`. Set only on a tick where control runs. |
-| `samples_heat` | Count of stored 5-minute intervals where the AC was in heat mode. The cooling fit leaves them out. |
-| `samples_dry` | Count of stored 5-minute intervals where the AC was in dry mode. The cooling fit leaves them out. |
+A list or dict value shows as JSON text cut to 255 characters in the state. The full value is in the `value` attribute. A key the coordinator did not publish this tick reads `unknown`.
 
 ## Attributes
 
@@ -128,3 +129,8 @@ These attributes sit on the entity named in the Entity column. They are read fro
 | `room_rate_coefficients` | Status | k, g from AC-off intervals and c from AC-on intervals. None until fitted. |
 | `auto_tpi_gains` | Status | Online cool gain on c, clamped from 0.5 to 1.5. 1.0 until it moves. |
 | `accuracy_pairs` | Forecast error | The last 20 backtest runs, each with predicted, measured and error minutes. |
+
+**See also**
+
+- [Read the forecast](../guides/read-the-forecast.md): how to read the forecast sensors and the status.
+- [Settings](settings.md): the settings that feed each sensor.

@@ -1,6 +1,6 @@
 ---
 title: Test and release
-summary: How to set up the test environment, what each test file checks, how the feature matrix is kept, and how to release a version.
+summary: Set up the test environment, run the suite, read the guard tests, and cut a release that HACS offers to users.
 section: develop
 order: 20
 audience: developers
@@ -9,88 +9,104 @@ status: draft
 
 ## Set up the test environment
 
-The package imports Home Assistant. Run the tests in a virtual environment.
+The tests run on Python 3.14 against Home Assistant 2026.11.2.
 
-1. Create the environment in the repository root.
+```sh title="Create the environment"
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-test.txt
+```
 
-   ```sh title="Create the environment"
-   python3 -m venv .venv
-   ```
-
-2. Install the pinned test requirements.
-
-   ```sh title="Install the requirements"
-   .venv/bin/pip install -r requirements-test.txt
-   ```
-
-   The pins are `pytest-homeassistant` 2026.11.2, `pytest` 9.0.3 and `pytest-asyncio` 1.4.0. `pytest-homeassistant` is Home Assistant's own test package, and its release number is the Home Assistant version it tests.
+`requirements-test.txt` pins `pytest-homeassistant` 2026.11.2, `pytest` 9.0.3 and `pytest-asyncio` 1.4.0. `pytest-homeassistant` is Home Assistant's own test package. Its release number is the Home Assistant version it tests.
 
 ## Run the tests
 
-Run the full suite with `scripts/check.sh`. It uses the interpreter in `PYTHON`, and `python3` when `PYTHON` is unset.
-
-```sh title="Run the suite"
+```sh title="Run the full suite"
 PYTHON=.venv/bin/python scripts/check.sh
 ```
 
-The script runs `python -m pytest -q`. It exits non-zero on any failure. It then removes `__pycache__` and `.pytest_cache`.
+The script runs `python -m pytest -q` and exits non-zero on any failure. The full suite takes about 8 minutes: the settings audit takes 5 of them.
 
-To run one file, call pytest directly.
+```sh title="Run everything except the settings audit"
+.venv/bin/python -m pytest -q --ignore=tests/ha/test_settings_effect.py
+```
 
 ```sh title="Run one file"
 .venv/bin/python -m pytest tests/test_model.py -q
 ```
 
-`pytest.ini` sets `asyncio_mode = auto`, `pythonpath = .` and `testpaths = tests`.
+A passing run ends with a line like this:
+
+```text title="Output"
+1322 passed, 2 xfailed, 5 warnings
+```
+
+The 2 expected failures are simulation profiles. See [[concepts/limits#known-limits-of-control|Known limits of control]].
+
+Read the warnings as well as the failures. Fix a deprecation warning in the same change that shows it.
 
 ## Test layout
 
-| Path | Runs | Checks |
-| :-- | :-- | :-- |
-| `tests/test_*.py` | Unit tests, with no Home Assistant fixtures | The pure modules, such as `decide.py`, `features.py`, `model.py` and `tpi.py`. |
-| `tests/ha/test_config_flow.py` | Home Assistant | The setup and reconfigure forms. |
-| `tests/ha/test_setup.py` | Home Assistant | Setup, one refresh, control, services and unload. |
-| `tests/test_no_dead_code.py` | Unit | Every public module-level function is used. |
-| `tests/test_published_keys.py` | Unit | Every key the coordinator publishes is shown or read back. |
-
-Importing any package module runs `__init__.py`, which imports Home Assistant. The unit tests therefore also need the venv.
-
-`tests/ha/` has no `__init__.py`. The standard `unittest` run does not collect it. Use pytest for those tests.
-
-### What the guard tests enforce
-
-`test_no_dead_code.py` fails when a public function in the package has no caller. A caller is another module of the package, or a test file other than the module's own `tests/test_<module>.py`. Private functions and the Home Assistant hooks are exempt.
-
-`test_published_keys.py` fails when a key the coordinator writes to its result is neither on a sensor nor read by the coordinator. A sensor shows a key through `STATUS_KEYS` or `extra_state_attributes`. An internal key goes in `ALLOWED` in that file, with a reason.
-
-## Feature matrix
-
-`docs/feature-matrix.md` compares this integration with four others. It is hand-written. It is not generated.
-
-Each row has a status. The five values are:
-
-| Status | Meaning |
+| Path | Checks |
 | :-- | :-- |
-| `drives` | A call writes a device or setpoint, or a value that the control path reads changes that write. |
-| `published` | A sensor or attribute shows the value. No control path reads it. |
-| `control` | A gate, service, repair issue, notification, event, view or user action. It writes no setpoint or device. |
-| `pure` | Must be zero. |
-| `missing` | Not built. The cell gives the reason in one line. |
+| `tests/test_*.py` | The pure modules, such as `decide.py`, `features.py`, `model.py` and `fleet.py`. |
+| `tests/ha/test_config_flow.py` | The setup and reconfigure forms. |
+| `tests/ha/test_setup.py` | Setup, control, the room thermostat, services, restarts and unload, against fake devices. |
+| `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |
+| `tests/sim/` | The integration in a closed loop with a simulated room, 24 simulated hours for each of 9 profiles. Marker `sim`. |
+| `tests/test_no_dead_code.py` | Every public function has a caller. |
+| `tests/test_published_keys.py` | Every key the coordinator publishes is on a sensor or read back. |
 
-Each cell cites the file and line numbers of the code. It names the test that shows the behaviour. A `drives` cell with no test that asserts the write says so.
+`pytest.ini` sets `asyncio_mode = auto` and `addopts = -p no:respx`. Home Assistant installs its own httpx alias before `respx` may load.
 
-Review the matrix one row at a time. Check each cited line and test against the code before you change the row. Update the row when its code changes. The header of the file says which commit it was checked against.
+## Guard tests
+
+Three tests exist to stop work that looks done and does nothing.
+
+**The thermostat contract.** `test_room_mode_decides_which_devices_may_run` in `tests/ha/test_setup.py` runs each mode against a hot room and a cold room. It asserts which devices receive a start command. It was added after the AC cooled a room in `heat` mode: the mode was stored and shown, and control never read it.
+
+**The settings audit.** `tests/ha/test_settings_effect.py` runs a scripted day twice for each setting: once with a base entry and once with the setting changed. It compares the device commands and the published data of the two runs.
+
+| Level in `SETTINGS` | The test passes when |
+| :-- | :-- |
+| `control` | The device commands differ. |
+| `published` | The published data differs. The row gives the reason in `why`. |
+| `exempt` | Not run. The row gives the reason in `why`. |
+
+`test_the_scripted_day_is_repeatable` runs the same entry twice and asserts equal output. Without it a difference would prove nothing. When a new setting does not show its level, extend `House.day()` with a phase that exercises it.
+
+**Dead code and unread keys.** `test_no_dead_code.py` fails when a public function has no caller outside its own test file. `test_published_keys.py` fails when a published key is neither on a sensor nor read by the coordinator.
+
+## Build the documentation
+
+The pages are in `docs-src/`. `docs/*.md` is generated from them.
+
+```sh title="Check and build"
+npx jupiter-docs check
+npx jupiter-docs build --md
+```
+
+Commit `docs-src/` and the regenerated `docs/*.md` together. `docs/feature-matrix.md` is written by hand and is not generated.
+
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on each push: the test suite on Python 3.14, `hassfest` and the HACS validation.
 
 ## Release
 
-The repository has no release workflow. Release by hand with these steps.
+1. Set `version` in `custom_components/hvac_horizon/manifest.json` and in `docs.config.json` to the same value.
+2. Rename the `Unreleased` heading in `CHANGELOG.md` to the version and the date.
+3. Check `homeassistant` in `hacs.json`. It is the minimum Home Assistant version, and it equals the `pytest-homeassistant` pin.
+4. Run `scripts/check.sh`, commit and push to `main`.
+5. Wait for CI to pass on the commit.
+6. Tag the commit `v<version>`, push the tag and publish a GitHub release with the changelog section as its notes.
 
-1. Set `version` in `custom_components/hvac_horizon/manifest.json`.
-2. Set `version` in `docs.config.json` to the same value. No test checks that the two match. At this commit both files read `0.2.0`.
-3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports. Set it to the version the tests run on. At this commit `hacs.json` and the `pytest-homeassistant` pin in `requirements-test.txt` both read `2026.11.2`. To claim a newer version, raise the pin, run the suite, then raise `hacs.json`.
-4. Run the suite with `scripts/check.sh`.
-5. Commit the version change, then push it.
-6. Tag the commit as `v<version>` and publish a GitHub release for the tag. HACS offers the newest release to users. A release gives each install a fixed version.
+```sh title="Tag and publish"
+git tag v0.5.1
+git push origin v0.5.1
+gh release create v0.5.1 --title "0.5.1" --notes-file notes.md
+```
+
+HACS offers the newest release to users. A user installs it from HACS and restarts Home Assistant.
 
 :::see-also
 - [[develop/architecture]]: the modules and the tick that the tests cover.

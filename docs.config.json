@@ -1,13 +1,19 @@
 {
   "project": "HVAC Horizon",
   "id": "hvac-horizon",
-  "description": "Forecasts how long an air conditioner takes to reach its setpoint, and what the run costs. Learns from the room's own history.",
+  "description": "Runs the heating and cooling of one room in Home Assistant and forecasts the time, energy and cost to reach its target.",
   "icon": "home",
   "version": "0.5.1",
   "repo": "belikh/hvac-horizon",
   "glossary": {
-    "setpoint": "The temperature the AC is asked to reach.",
-    "forecast": "The estimated time, energy and cost to reach the setpoint from the current room state."
+    "cool threshold": "The room temperature above which the AC cools. It comes from the preset, your target, the price and occupancy.",
+    "heat target": "The room temperature the heater aims at.",
+    "heat threshold": "The heat target minus 0.5 K. A PID heater and AC heat start below it.",
+    "preset": "One of comfort, eco, boost and away. Each has its own cool threshold and heat target.",
+    "tick": "One run of the control loop. It happens every 5 minutes and after each change on the room thermostat.",
+    "restart delay": "The time a device stays off before it may start again, 3 minutes by default.",
+    "room model": "The three learned values k, c and g that describe how the room gains heat and how the AC cools it.",
+    "observe only": "The state of an entry with control off. It learns and forecasts and sends no commands."
   },
   "sections": [
     {
@@ -19,7 +25,7 @@
     {
       "id": "guides",
       "title": "Guides",
-      "summary": "Set up, read and troubleshoot the integration.",
+      "summary": "Use the thermostat, add devices, read the forecast and find faults.",
       "icon": "menu"
     },
     {

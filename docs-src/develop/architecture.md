@@ -1,101 +1,112 @@
 ---
 title: Architecture
-summary: The modules of the HVAC Horizon package, the control tick from input to sensor, and the functions that each step calls.
+summary: The modules of HVAC Horizon, the order of one control tick, and where to add a setting or a published value.
 section: develop
 order: 10
 audience: developers
 status: draft
 ---
 
-## Module map
+## Layout
 
-Every module is in `custom_components/hvac_horizon/`.
+Every module is in `custom_components/hvac_horizon/`. The code has three layers.
+
+| Layer | Modules | Rule |
+| :-- | :-- | :-- |
+| Pure logic | `model.py`, `forecast.py`, `decide.py`, `features.py`, `fleet.py`, `tpi.py`, `pid.py`, `outdoor.py`, `control.py`, `devices.py`, `collector.py`, `backfill.py`, `autotune.py`, `solar_model.py`, `investigator.py` | No Home Assistant state. Functions take values and return values. |
+| Coordinator | `coordinator.py` and the `coordinator_*.py` mixins | Reads states, calls the pure functions and writes to devices. |
+| Home Assistant surface | `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `diagnostics.py`, `accuracy_api.py` | Entities, forms, services and views. |
+
+## Pure modules
 
 | Module | Job |
 | :-- | :-- |
-| `__init__.py` | Registers the services, sets up the coordinator and the sensor platform, and unloads the entry. |
-| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to one step. |
-| `const.py` | Config keys, defaults and limits. |
-| `coordinator.py` | `HorizonCoordinator`. Holds `__init__`, the tick (`_async_update_data`, `_async_update_steps`) and `_plan_control`. It inherits the mixins below. |
-| `coordinator_common.py` | Helpers, constants and the logger shared by the coordinator and its mixins. |
-| `coordinator_store.py` | `StoreMixin`. The store payload, the commanded-state record, recorder backfill and power-interval tracking. |
-| `coordinator_user.py` | `UserMixin`. Target, off, lock, presets, what-if and the relay auto-tune. |
-| `coordinator_learning.py` | `LearningMixin`. Model and fleet refits, online gains and the gain suggestion. |
-| `coordinator_forecast.py` | `ForecastMixin`. Weather, solar and price inputs, the forecast, pre-cool and pre-heat timing. |
-| `coordinator_inputs.py` | `InputsMixin`. Reading room and optional sensors, stall detection and derived context. |
-| `coordinator_heater.py` | `HeaterMixin`. The heating-failure check, PWM windows, the heater switch and output limits. |
-| `coordinator_ac.py` | `AcMixin`. `_async_control`, setpoint and mode writes, AC heat, coil dry, the second AC and compressor groups. |
-| `coordinator_fleet.py` | `FleetMixin`. Fleet choice and driving with minimum on and off times. |
-| `coordinator_aux.py` | `AuxMixin`. Valve, load shedding, window actuator, cover and fan mode. |
-| `coordinator_safety.py` | `SafetyMixin`. The safety stop, the locked stop and the optional-switch driver. |
-| `coordinator_peers.py` | `PeersMixin`. Requests between coordinators of one house. |
-| `coordinator_investigator.py` | `InvestigatorMixin`. The mode-change explanation and the on-demand report. |
-
-The mixins hold methods that use `self` of `HorizonCoordinator`. Each lists the instance attributes it reads as class-level annotations. A test that patches a module-level function patches the module that calls it, for example `coordinator_learning` for `fit` and `backtest`.
 | `collector.py` | `Entry`, one reading. Sample history, running power, the cycle check and CSV export. |
-| `model.py` | `fit()` learns the room coefficients `k`, `c` and `g` from readings. |
-| `tpi.py` | `learn_room_rates()` and the online gains `adjust_cool_gain()` and `adjust_heat_gain()`. `tpi_on_percent()` sets the TPI output. |
-| `devices.py` | Room model with one coefficient per device. `fit_room()` and `forecast_fit()`. |
-| `forecast.py` | `forecast()` gives time, energy and cost to reach a setpoint. `price_at()` reads the price slots. |
-| `control.py` | `precool_start_in_min()` picks the cheapest start that reaches the target by the deadline. |
-| `decide.py` | `decide()` returns one AC action for a tick. `cool_above_c()` gives the cooling threshold. |
-| `features.py` | Pure decision functions: presets, stall rule, inhibit, lock, minimum times, PWM, price shift, valve, shed and PID gains. Importing it loads `__init__.py`. |
+| `model.py` | `fit()` learns `k`, `c` and `g` with standard errors. `fit_confidence()` labels the fit. |
+| `forecast.py` | `forecast()` gives minutes, energy and cost to a target. `price_at()` reads the price slots. |
+| `outdoor.py` | The outdoor temperature series from the hourly forecast, the night low and the sensor-to-forecast bias. |
+| `decide.py` | `decide()` returns one AC action. `cool_above_c()` gives the cool threshold. |
+| `features.py` | Decision functions: presets, stall rule, inhibit, lock, restart delay, PWM, price shift, valve, shed, humidity, free cooling. |
+| `fleet.py` | `choose_devices()` picks the heaters and coolers for a gap. `calibrate_rates()` fits each device's rate. |
+| `tpi.py` | `learn_room_rates()`, the online gains and `tpi_on_percent()`. |
 | `pid.py` | `Pid`, the heater PID controller. |
-| `autotune.py` | `RelayTuner`, the relay test and the Ziegler-Nichols gains. |
-| `backfill.py` | `backtest()` replays cool-downs. `accuracy_pairs()` and `median_abs_error()` summarise the runs. |
+| `control.py` | `precool_start_in_min()` picks the cheapest start that meets a deadline. |
+| `devices.py` | The room model with one coefficient per device, for two ACs. |
+| `backfill.py` | `backtest()` replays past cool-downs. |
+| `autotune.py` | `RelayTuner`, the relay test and its PID gains. |
+| `solar_model.py` | Sun position and irradiance on a vertical window. |
 | `investigator.py` | `investigate()` gives the rule-based answer. `CallBudget` limits model calls per day. |
-| `solar_model.py` | Sun position and irradiance on a vertical window, for solar gain. The forecast condition scales the clear-sky value. |
-| `outdoor.py` | Outdoor temperature series from the hourly forecast, the nightly low, and the learned sensor-to-forecast bias. |
-| `sensor.py` | `STATUS_KEYS` and the sensor entities that show the result. |
-| `accuracy_api.py` | The JSON view and the sidebar panel for the accuracy page. |
-| `diagnostics.py` | The diagnostics download. Entity IDs are redacted. |
-| `frontend/accuracy.html` | The static accuracy page. It reads the JSON view. |
-| `translations/en.json` | Form labels, error texts and repair issue texts. |
-| `services.yaml` | Service definitions for the Home Assistant UI. |
-| `manifest.json` | Domain, version, dependencies (`http`) and requirements (none). |
 
-## The control tick
+## Coordinator
 
-`HorizonCoordinator` is a `DataUpdateCoordinator`. Its update interval is `SAMPLE_INTERVAL_S`, 300 seconds. Each tick runs `_async_update_data()`. The steps run in this order.
+`HorizonCoordinator` in `coordinator.py` is a `DataUpdateCoordinator` with a 300 second interval. It holds `__init__`, the tick and `_plan_control`. It inherits one mixin per area.
 
-1. **Refresh the weather.** `_refresh_weather()` runs every 30 minutes. It reads the daily highs from the weather entity.
-2. **Read and store.** `_read_inputs(now)` builds an `Entry`. `_take_interval_mean()` supplies the mean power of the interval. The entry is appended and capped at `MAX_ENTRIES`. `_learn_cool_gain()` and `_learn_heat_gain()` update the online gains.
-3. **Refit.** Every 12 readings, or when no fit exists, `_refit()` runs `learn_room_rates()`, `fit()` and `backtest()`.
-4. **Forecast.** `_forecast(now)` calls `forecast()` and sets `minutes`, `energy_kwh`, `cost`, `status`, `reason` and the accuracy keys.
-5. **Inputs.** `_stalled_sensors()` and `_report_stalls()` check the sensors. The tick then sets the day type, the night plan, occupancy, solar gain, window advice, the economizer phase, the boiler demand and the motion preset. It also sets the comfort band, mould, compliance, heatwave, fan speed and drying keys. The price fallback comes from `stale_price_fallback()`.
-6. **Window actuator.** `_drive_window_actuator(result)` opens or closes the actuator on the window or economizer advice.
-7. **Plan the target.** `_plan_control(now, result)` sets the preset and the target. It uses occupancy (`_occupancy_mode()`), the vacation switch, the price shift (`price_shifted_target()`), the schedule (`scheduled_preset()`) and the timed preset (`_effective_preset()`). It builds `Settings`, the heat target (`heat_setpoint()`), and the thresholds `_cool_above_c`, `_heat_target_c` and `_heat_on_below_c`.
-8. **Model plans.** `mpc_plan()` and `mpc_heat_plan()` run when a fit and price slots exist. Their steps go to `mpc_plan` and `mpc_heat_steps`.
-9. **Publish cooling and gates.** `_publish_cooling(result)` sets the cooling keys. `_heater_gate_closed(result)` sets `_heater_gated`.
-10. **Heater output.** The tick computes the heater output. It uses TPI (`tpi_on_percent()`) or PID (`Pid`, with `_heater_gain_values()`). The output goes to `_pwm_output_pct` and is published as `heater_output_pct`.
-11. **Valve.** `trv_offset()` and the peer valve request set the opening. `valve_opening_pct()` converts the room gap to percent.
-12. **Cover and load shedding.** Solar gain drives `cover_action()`. `shed_plan()` and `shed_restore()` use the whole-house power.
-13. **AC control.** `_async_control(now, result)` runs only with control on. It checks the lock, the inhibit window, the stall and the keep-alive. Then `decide()` picks the action, and `_precool_start()` supplies the pre-cool start from `control.precool_start_in_min()`. The fan, humidifier, dehumidifier, boiler and whole-house fan switches follow. The second AC follows. Then the heat path runs. `_restart_wait()` and `_group_start_ok()` hold a start. A user hold runs `_user_off_stop()` first. The change goes out through `_write_setpoint()` or `set_hvac_mode`.
-14. **Heater switch.** `_async_heater_step(now, result)` runs in a `finally` block, so it runs even when the AC step raises. It applies the gates, the stall fallback (`safety_output()`) and the PWM window (`_pwm_step()`). It then runs `_heating_check()`, and `_drive_heater_switch()` when control and a heater switch are set.
-15. **Investigation and valve drive.** `_publish_investigation()` sets the investigation keys. `_drive_valve()` sends the valve opening last.
-16. **Publish.** The result dict becomes `coordinator.data`. The sensors in `sensor.py` read it from there.
-
-## Key functions
-
-| Function | File | Role |
+| Module | Mixin | Job |
 | :-- | :-- | :-- |
-| `HorizonCoordinator._async_update_data()` | `coordinator.py` | Runs one tick, steps 1 to 16. |
-| `HorizonCoordinator._plan_control()` | `coordinator.py` | The preset and the single target for the tick. |
-| `AcMixin._async_control()` | `coordinator_ac.py` | The AC action. Runs with control on. |
-| `HeaterMixin._async_heater_step()` | `coordinator_heater.py` | The heater gates, PWM and switch. |
-| `decide()` | `decide.py` | Priority of window, away, pre-cool and comfort. Pure. |
-| `forecast()` | `forecast.py` | Integrates the room temperature to the target. Step is 1 minute. |
-| `learn_room_rates()` | `tpi.py` | Fits `k` and `g` from AC-off readings, then `c` from AC-on readings. |
-| `fit()` | `model.py` | Least squares fit of `k`, `c` and `g`. |
-| `has_enough_cycles()` | `collector.py` | Checks the 3 hour and 3 run rule before a fit. |
-| `backtest()` | `backfill.py` | Replays cool-downs with a fit on earlier readings only. |
-| `STATUS_KEYS` | `sensor.py` | Maps each published key to its sensor name. |
+| `coordinator_inputs.py` | `InputsMixin` | Reads the room and optional sensors. Stall detection, occupancy, window advice. |
+| `coordinator_store.py` | `StoreMixin` | The stored payload, the commanded-state record, recorder backfill. |
+| `coordinator_learning.py` | `LearningMixin` | Model and fleet refits, online gains, the gain suggestion. |
+| `coordinator_forecast.py` | `ForecastMixin` | Weather, solar and price inputs, the forecast, pre-cool and preheat timing. |
+| `coordinator_user.py` | `UserMixin` | The thermostat's mode, target and presets, the lock, what-if and the relay test. |
+| `coordinator_ac.py` | `AcMixin` | `_async_control`: the AC action, setpoint and mode writes, AC heat, dry mode, the second AC. |
+| `coordinator_heater.py` | `HeaterMixin` | Heater gates, PWM windows, the heater switch and output limits. |
+| `coordinator_fleet.py` | `FleetMixin` | Fleet choice and driving. |
+| `coordinator_aux.py` | `AuxMixin` | Valve, load shedding, window actuator, free cooling, cover and fan mode. |
+| `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop and the switch driver. |
+| `coordinator_peers.py` | `PeersMixin` | Requests between entries of one house. |
+| `coordinator_investigator.py` | `InvestigatorMixin` | The mode-change explanation and the on-demand report. |
+| `coordinator_common.py` | none | Helpers, constants, the logger and `_HorizonStore`. |
 
-## Adding a published key
+Each mixin lists the instance attributes it reads as class-level annotations. A test that patches a module-level function patches the module that calls it, for example `coordinator_learning` for `fit`.
 
-Add the key to the result dict in `coordinator.py` or the `coordinator_*.py` mixin that computes it. Add it to `STATUS_KEYS` in `sensor.py`, or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither. See [[develop/test-and-release]].
+## Home Assistant surface
+
+| Module | Job |
+| :-- | :-- |
+| `__init__.py` | Registers the services, sets up the coordinator and the platforms, runs the safety stop on unload. |
+| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. |
+| `const.py` | Setting keys, defaults and limits. |
+| `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |
+| `sensor.py` | `STATUS_KEYS` and the sensor entities. |
+| `diagnostics.py` | The diagnostics download, with entity IDs redacted. |
+| `accuracy_api.py` | The JSON view and the sidebar panel for the accuracy page in `frontend/accuracy.html`. |
+
+## One tick
+
+`_async_update_data()` runs these steps in order.
+
+1. **Weather.** `_refresh_weather()` fetches the daily and hourly forecast, at most every 30 minutes.
+2. **Read and store.** `_read_inputs(now)` builds an `Entry`. The tick appends it and caps the history at `MAX_ENTRIES`.
+3. **Refit.** Every 12 readings, `_refit()` runs `learn_room_rates()`, `fit()` and `backtest()`.
+4. **Forecast.** `_forecast(now)` sets `minutes`, `energy_kwh`, `cost`, `status` and the fit attributes.
+5. **Context.** The tick sets the day type, night plan, occupancy, solar gain, window advice, the economizer phase, the heat source and the motion preset.
+6. **Window actuator.** `_drive_window_actuator(result)` opens or closes the actuator.
+7. **Targets.** `_plan_control(now, result)` sets the preset, the cool threshold, the heat target and the heat threshold.
+8. **Plans.** `mpc_plan()` and `mpc_heat_plan()` run when a fit and price slots exist.
+9. **Heater output.** PID or TPI gives the output. `_heater_gate_closed(result)` sets the gate.
+10. **Cover and load shedding.** `_drive_cover()` and `_drive_shed()`.
+11. **AC control.** `_async_control(now, result)` runs with control on. It handles off from the thermostat, the lock, the manual-change pause, the stall, free cooling and the mode, then calls `decide()` and writes the AC. It also drives the fan, humidifier, dehumidifier, boiler and whole-house fan.
+12. **Heater switch.** `_async_heater_step(now, result)` runs in a `finally` block, so it runs when the AC step raises.
+13. **Investigation and valve.** `_publish_investigation()` and `_drive_valve()`.
+14. **Publish.** The result dict becomes `coordinator.data`. The sensors and the thermostat read it.
+
+The room thermostat calls `async_refresh()` after each change, so a new mode or target takes effect at once.
+
+## Add a setting
+
+1. Add the key and its default to `const.py`.
+2. Add it to `_schema()` and to one section of `SECTIONS` in `config_flow.py`, and its label to `translations/en.json`.
+3. Read it in the coordinator and make it change a device command or a published value.
+4. Add a row to `SETTINGS` in `tests/ha/test_settings_effect.py` with the level you expect: `control` or `published`.
+5. Add it to [[reference/settings]].
+
+`test_every_setting_in_const_has_an_audit_row` fails when step 4 is missing. The row's test fails when the setting changes nothing. See [[develop/test-and-release#guard-tests|Guard tests]].
+
+## Add a published value
+
+Write the key to the result dict in the mixin that computes it. Add it to `STATUS_KEYS` in `sensor.py`, or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither.
 
 :::see-also
-- [[develop/test-and-release]]: how to run the tests and the release checks.
-- [[concepts/design]]: the room model and the assumptions of each forecast.
+- [[develop/test-and-release]]: the tests and the release steps.
+- [[concepts/design]]: the room model and the control decision.
 :::

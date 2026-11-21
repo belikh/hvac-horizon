@@ -4,6 +4,28 @@
 
 ## What it does
 
-HVAC Horizon forecasts how long an air conditioner takes to cool a room to its setpoint. It also forecasts the energy and the cost of that run. It learns from the room's own history, which it records as the AC runs.
+HVAC Horizon controls the climate of one room in Home Assistant. You give it an air conditioner, a power sensor, room temperature sensors and an outdoor temperature sensor. It adds one thermostat for the room and 75 sensors.
 
-Read [Design](concepts/design.md) for the model, the inputs and what each forecast assumes.
+- It learns how fast the room gains heat and how fast the AC cools it, from readings it takes every 5 minutes.
+- It forecasts the minutes, the energy and the cost for the room to reach its target.
+- With control on, it drives the AC, a heater, and any second AC, fan, valve, cover or window actuator you add.
+
+A new entry starts in observe-only mode. It learns and forecasts, and it sends no commands until you turn control on.
+
+## Where to start
+
+| You want to | Read |
+| :--- | :--- |
+| Install it and add a room | [Install](start/install.md) |
+| Choose the mode, the target and the preset | [Use the room thermostat](guides/use-the-room-thermostat.md) |
+| Add a heater, a price sensor or other devices | [Set up the integration](guides/set-up-the-integration.md) |
+| Understand a forecast or a status | [Read the forecast](guides/read-the-forecast.md) |
+| Find out why a device is on or off | [Troubleshoot](guides/troubleshoot.md) |
+| Look up one setting or sensor | [Settings](reference/settings.md), [Sensors](reference/sensors.md) |
+
+## Requirements
+
+- Home Assistant 2026.11.2 or later.
+- A `climate` entity for the AC, with the modes `off` and `cool`.
+- A power sensor in watts that reads the whole AC unit. A wall plug with power metering works.
+- At least one room temperature sensor and one outdoor temperature sensor.

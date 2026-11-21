@@ -1,6 +1,6 @@
 ---
 title: Limits of the model
-summary: What the room model assumes, and what it does not model, so you can judge a forecast.
+summary: What the room model assumes, what it leaves out, and which parts of control are untested on hardware.
 section: concepts
 order: 20
 audience: users
@@ -43,7 +43,17 @@ dT/dt = k (T_out - T) - c P + g
 - The range between `minutes_low` and `minutes_high` comes from the standard error of `c`. It does not include the errors listed above.
 - The fit needs at least 3 hours of AC on and off time over 3 runs. Until then the status reads `learning`.
 
+## Known limits of control
+
+- Setpoint regulation covers the first AC. A second AC and fleet climates get the plain target.
+- A PID heater settles up to 0.5 K below the heat target, because it stops one deadband below it.
+- In `auto` and `dry` the room thermostat shows one temperature, the cool threshold. It has no separate low and high target.
+- Dry mode has fixed humidity limits: on above 60 %, off at 57 %.
+- The Heatwave sensor is information only. It changes no device command.
+- Two profiles of the simulation suite fail by design and are marked as expected failures: an 8 kW AC overshoots a small room, and the small unit's fitted rate collapses in `economy` mode with two ACs.
+- The relay test, the valve and the radiator residual heat have unit and simulation tests only. They have not run on real hardware.
+
 :::see-also
-- [[concepts/design]]: the model, the inputs and the published values.
+- [[concepts/design]]: the model, the forecast and the control decision.
 - [[reference/sensors]]: the fit attributes and the forecast range sensors.
 :::

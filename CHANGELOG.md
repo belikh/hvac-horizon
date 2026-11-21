@@ -4,6 +4,8 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
+Documentation rewritten for the room thermostat and the current control rules. New page `guides/use-the-room-thermostat`. The settings and sensor references are built from the code: 86 settings by form section with their effects, and 75 sensors by group with their meanings.
+
 Faults found by an audit of all 86 settings (`tests/ha/test_settings_effect.py` runs each setting at two values over a scripted day and compares device commands and published data).
 
 - The whole-house fan ran whenever outdoors was 2 K cooler, including a 19 °C room with the heater on. It now runs only while the room is above the cool threshold. It cools ahead of the AC, and the AC takes over when the room climbs 2 K above the threshold.

@@ -1,108 +1,145 @@
 ---
 title: Settings
-summary: Every setting in the HVAC Horizon setup and reconfigure forms, with its stored key, whether it is required, and its default.
+summary: Every setting of an HVAC Horizon entry, by form section, with its default and what it changes.
 section: reference
-order: 1
+order: 10
 audience: users
 status: draft
 ---
 
-## Settings
+## How settings are stored
 
-The setup and reconfigure forms store these keys in the config entry. A key marked `unset` has no default in the form. Where the table says `code uses`, the code applies that value when the key is absent. `ai_budget_per_day` absent or 0 means no model calls. `comfort_energy_weight` absent means 0.
+Each entry has 86 settings. Four are required: `climate`, `power`, `room_sensors` and `outdoor`. The rest are optional, in seven form sections. Change them with **Reconfigure** on the entry. See [[guides/set-up-the-integration]].
 
-Only `climate`, `power`, `room_sensors` and `outdoor` are required. Every other key is optional. The table lists the keys in the order of the form.
+The Key column is the name in the config entry and in the diagnostics download. The label is the text on the form.
 
-A heater gain from a relay test replaces the unset or default value of `heater_kp`, `heater_ki` or `heater_kd`. A gain you set yourself takes precedence over the tuned value.
+`tests/ha/test_settings_effect.py` runs each setting at two values over a scripted day. It fails when a setting stops changing the device commands or the published data.
 
-| Key | Required | Default | Label |
+## Room
+
+| Key | Form label | Default | Effect |
 | :-- | :-- | :-- | :-- |
-| `climate` | required | unset | AC climate entity |
-| `power` | required | unset | AC power sensor (W) |
-| `room_sensors` | required | unset | Room temperature sensors |
-| `outdoor` | required | unset | Outdoor temperature sensor |
-| `climate_2` | optional | unset | Second AC in the same room (optional) |
-| `power_2` | optional | unset | Second AC power sensor, W (optional, enables the two-device fit) |
-| `weather` | optional | unset | Weather entity for the forecast (optional) |
-| `heatwave_warning` | optional | unset | Heatwave warning binary sensor, on means a warning is current (optional) |
-| `price` | optional | unset | Electricity price sensor (optional) |
-| `humidity` | optional | unset | Outdoor humidity sensor (optional) |
-| `room_humidity` | optional | unset | Room humidity sensor, e.g. the bedroom monitor (optional) |
-| `energy` | optional | unset | Energy counter (optional, kWh) |
-| `cover` | optional | unset | Cover or blind (optional) |
-| `window` | optional | unset | Window or door sensor (optional) |
-| `co2` | optional | unset | CO2 sensor (optional) |
-| `fan` | optional | unset | Room fan switch (optional) |
-| `dehumidifier` | optional | unset | Dehumidifier switch (optional) |
-| `boiler` | optional | unset | Boiler switch (optional) |
-| `humidifier` | optional | unset | Humidifier switch (optional) |
-| `pm25` | optional | unset | PM2.5 sensor (optional) |
-| `schedule` | optional | unset | Schedule entity (optional) |
-| `motion` | optional | unset | Motion sensor (optional) |
-| `presence` | optional | unset | Presence sources: any home means home, all away for the away delay means away (optional) |
-| `valve` | optional | unset | Valve or TRV opening number (optional) |
-| `trv_temperature` | optional | unset | TRV own temperature sensor (optional, needs a valve). A TRV that reads warmer than the room opens the valve more. Each 1 K of offset (TRV minus room) moves the valve opening by 100 percentage points, clamped to 0 to 100. |
-| `whole_house_power` | optional | unset | Whole-house power sensor (optional) |
-| `vacation` | optional | unset | Vacation switch, on means vacation mode (optional) |
-| `vacation_c` | optional | unset (code uses `27.0`) | Vacation setpoint (°C) |
-| `heater_switch` | optional | unset | Heater switch (optional) |
-| `radiators` | optional | `False` | Heater is radiators or underfloor heat (residual heat after it stops) |
-| `heater_kp` | optional | unset (code uses `20.0`) | Heater PID proportional gain |
-| `heater_ki` | optional | unset (code uses `60.0`) | Heater PID integral gain (per hour) |
-| `heater_kd` | optional | unset (code uses `0.5`) | Heater PID derivative time (hours) |
-| `heater_algorithm` | optional | `pid` | Heater algorithm |
-| `tpi_coef_int` | optional | `0.6` | TPI coefficient for the room gap (per K, used with TPI) |
-| `tpi_coef_ext` | optional | `0.01` | TPI coefficient for the outdoor gap (per K, used with TPI) |
-| `tpi_threshold_high` | optional | unset | TPI high threshold, K above target while the room rises (TPI; 0 is off, needs the low threshold) |
-| `tpi_threshold_low` | optional | unset | TPI low threshold, K above target while the room falls (TPI; 0 is off, needs the high threshold) |
-| `max_on_percent` | optional | unset | TPI maximum on-percent (TPI; unset means no cap) |
-| `whole_house_fan` | optional | unset | Whole-house fan switch (optional) |
-| `lock_pin` | optional | unset | Lock PIN (optional) |
-| `coil_dry` | optional | `False` | Dry the AC coil after cooling |
-| `dry_for_humidity` | optional | `False` | Use the AC dry mode when humid (no dehumidifier set; uses a lot of water) |
-| `ac_heat` | optional | `False` | Let the AC heat when the heat source is the AC (no heater switch) |
-| `mpc_heat_plan` | optional | `False` | Heat plan starts AC heat when its first step says heat (AC heat source, no heater switch, someone home) |
-| `night_plan_act` | optional | `False` | Night plan acts on the AC: pre-cool cools to comfort, hold stops a cool start |
-| `economizer_fan` | optional | `False` | Economizer fan assist: run the fan switch in the economizer fan_assist phase (home, unlocked, no stalled sensor) |
-| `accuracy_panel` | optional | `False` | Show this entry in the HVAC Accuracy sidebar panel (one panel for all entries) |
-| `window_actuator` | optional | unset | Window actuator, a cover or switch (optional): opens on natural ventilation or economizer advice |
-| `peer_entry` | optional | unset | Peer entry, the entry_id or title of another HVAC Horizon entry (optional): its valve opens when this room is 2 K warmer |
-| `peer_setpoint_mode` | optional | `False` | Peer setpoint mode: with a peer entry, a room 2 K warmer lowers the peer cool setpoint by 1 K instead of opening its valve |
-| `auto_fan` | optional | `False` | Set the AC fan mode from the room gap while cooling |
-| `setpoint_regulation` | optional | `True` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none |
-| `house_sealed` | optional | `False` | House is sealed (never run the whole-house fan) |
-| `price_cheap` | optional | unset (code uses `0.15`) | Cheap price threshold |
-| `price_expensive` | optional | unset (code uses `0.4`) | Expensive price threshold |
-| `min_on_min` | optional | unset | Deprecated. Kept for compatibility; a stop is never delayed and the value is ignored |
-| `min_off_min` | optional | unset (code uses `3.0`) | Restart delay (min): a start waits this long after the device stopped. 0 disables it |
-| `away_delay_min` | optional | unset (code uses `30.0`) | Minutes without presence before away mode |
-| `motion_away_min` | optional | `30.0` | Minutes without motion before the room counts as unoccupied |
-| `stall_window_s` | optional | `900.0` | Seconds without a report before a sensor counts as stalled (default 900) |
-| `shed_max_w` | optional | unset | Power limit in watts (optional) |
-| `shed_loads` | optional | unset | Loads to shed, as entity_id\|watts, lowest priority first (optional) |
-| `compressor_group` | optional | unset | Compressor group name (optional). Entries with the same name keep at least 5 minutes between their AC starts. |
-| `comfort_c` | optional | `24.0` | Comfort setpoint (°C) |
-| `eco_c` | optional | unset | Eco setpoint (°C) |
-| `comfort_energy_weight` | optional | unset | Comfort to eco weight, 0 to 1 (optional, 0 is off) |
-| `heat_eco_c` | optional | unset | Heat setpoint under eco and when motion is idle (°C, optional). Unset heats to comfort minus 1. |
-| `heat_boost_c` | optional | unset | Heat setpoint under boost (°C, optional). Unset heats to comfort plus 1. |
-| `boost_c` | optional | `23.0` | Boost setpoint (°C) |
-| `away_c` | optional | `27.0` | Away setpoint (°C) |
-| `window_delay_min` | optional | `10.0` | Minutes a window may stay open before the AC pauses |
-| `window_azimuth` | optional | `180.0` | Window facing direction, degrees from north (optional) |
-| `window_area_m2` | optional | unset | Window area, m² (optional, needed for solar gain) |
-| `irradiance` | optional | unset | Irradiance sensor on the window, W/m² (optional) |
-| `control` | optional | `False` | Let HVAC Horizon control the AC (off = observe only) |
-| `heater_inverted` | optional | `False` | Heater switch is inverted (on means off) |
-| `output_min` | optional | unset (code uses `0.0`) | Minimum heater output (%) |
-| `output_max` | optional | unset (code uses `100.0`) | Maximum heater output (%) |
-| `output_min_entity` | optional | unset | Minimum heater output number entity (optional, overrides the minimum above) |
-| `output_max_entity` | optional | unset | Maximum heater output number entity (optional, overrides the maximum above) |
-| `schedule_blocks` | optional | `[]` | Schedule blocks: a list of [start_h, end_h, preset], hours 0 to 24, preset comfort, eco, boost or away (optional) |
-| `fleet` | optional | `[]` | Room devices: a list of [device_id, kind cool or heat, rate_k_per_h_per_kw, rated_w, power_sensor optional] |
-| `dispatch_mode` | optional | `fast` | Device choice: fast (highest effect first) or economy (lowest cost per kelvin) |
-| `ai_conversation` | optional | unset | AI conversation agent for the investigator (optional) |
-| `ai_budget_per_day` | optional | unset | Model calls per day for the investigator (0 or empty is off) |
+| `climate` | AC climate entity | required | The AC that HVAC Horizon reads and, with control on, drives. One entry per climate entity. |
+| `power` | AC power sensor (W) | required | Power of the whole AC unit in watts. Feeds the room model, the energy forecast and the running check: below 0.2 kW the AC counts as off. |
+| `room_sensors` | Room temperature sensors | required | One or more temperature sensors in the room. The room temperature is their median. A stalled sensor drops out of the median. |
+| `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit and the 22 °C heating limit. |
+
+## Comfort and presets
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `schedule` | Schedule entity | unset | Its `next_event` attribute, an ISO time, sets the deadline for pre-cooling. When the room cannot reach the setpoint by the event and the event is within 120 minutes, cooling starts at once. |
+| `vacation` | Vacation switch, on means vacation mode | unset | While on, cooling holds `vacation_c` and heating holds 16 °C. |
+| `vacation_c` | Vacation setpoint (°C) | `27.0` | Cooling target while vacation is on. |
+| `away_delay_min` | Minutes without presence before away mode | `30.0` | Delay before an empty house counts as away. |
+| `comfort_c` | Comfort setpoint (°C) | `24.0` | The normal target. Range 16 to 30. |
+| `eco_c` | Eco setpoint (°C) | unset | Target for the eco preset. An unoccupied house cools to this value when set. |
+| `comfort_energy_weight` | Comfort to eco weight, 0 to 1 (0 is off) | unset | 0 keeps the comfort target. 1 uses the eco setpoint. Needs `eco_c`. |
+| `heat_eco_c` | Heat setpoint under eco and when motion is idle | unset | Heat target for eco. |
+| `heat_boost_c` | Heat setpoint under boost (°C, optional). Unset heats to comfort plus 1. | unset | Heat target for boost. |
+| `boost_c` | Boost setpoint (°C) | `23.0` | Target for the boost preset. |
+| `away_c` | Away setpoint (°C) | `27.0` | Cooling target for an unoccupied house when `eco_c` is not set. Also the away preset target. |
+| `schedule_blocks` | Schedule blocks | `[]` | Presets by hour of day. See [[guides/services-and-presets]]. |
+
+## Price
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `price` | Electricity price sensor | unset | Sets the price used for cost. Without it the target does not move with price. |
+| `energy` | Energy counter (kWh) | unset | Cumulative energy counter. The room model uses it for interval power when the power sensor has no interval mean. |
+| `price_cheap` | Cheap price threshold | `0.15` | At or below this price the target moves 1 K down. |
+| `price_expensive` | Expensive price threshold | `0.4` | At or above this price the target moves 1 K up. |
+
+## Heater
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `boiler` | Boiler switch | unset | On when the heat source is the boiler, at 5 °C outdoors or below, and the room is below comfort minus 1 K. |
+| `valve` | Valve or TRV opening number | unset | Opening in percent. Fully open 1 K below the target, closed at the target. |
+| `trv_temperature` | TRV own temperature sensor | unset | The TRV's own reading, compared with the room. Each 1 K of offset moves the opening by 100 points, clamped to 0 to 100. |
+| `heater_switch` | Heater switch | unset | Switch for the heater plug. The heater output runs in 10 minute windows. |
+| `radiators` | Heater is radiators or underfloor heat (residual heat after it stops) | `False` | Counts the residual heat after the heater stops: a 1 K peak that decays over 20 minutes. |
+| `heater_kp` | Heater PID proportional gain | `20.0` | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |
+| `heater_ki` | Heater PID integral gain (per hour) | `60.0` | Same rule as `heater_kp`. |
+| `heater_kd` | Heater PID derivative time (hours) | `0.5` | Same rule as `heater_kp`. |
+| `heater_algorithm` | Heater algorithm | `pid` | `pid` or `tpi`. PID stops 0.5 K below the heat target. TPI heats up to the heat target. |
+| `tpi_coef_int` | TPI coefficient for the room gap (per K, used with TPI) | `0.6` | TPI gain on the room gap. |
+| `tpi_coef_ext` | TPI coefficient for the outdoor gap (per K, used with TPI) | `0.01` | TPI gain on the outdoor gap. |
+| `tpi_threshold_high` | TPI high threshold, K above target while the room rises | unset | With the low threshold, forces the TPI output to 0 while the room rises and is this far above the target. Both must be above 0 to apply. TPI then heats up to the larger threshold above the target. |
+| `tpi_threshold_low` | TPI low threshold, K above target while the room falls | unset | With the high threshold, forces the TPI output to 0 while the room falls and is this far above the target. Both must be above 0 to apply. |
+| `max_on_percent` | TPI maximum on-percent (TPI; unset means no cap) | unset | Caps the TPI output, 0 to 100 %. |
+| `ac_heat` | Let the AC heat when the heat source is the AC (no heater switch) | `False` | Lets the AC heat when the heat source is the AC and no heater switch is set. |
+| `mpc_heat_plan` | Heat plan starts AC heat when its first step says heat | `False` | With the AC as heat source, no heater switch and someone home, the heat plan starts AC heat when its first step says heat. |
+| `heater_inverted` | Heater switch is inverted (on means off) | `False` | Swaps the on and off commands for the heater switch. |
+| `output_min` | Minimum heater output (%) | `0.0` | Lower limit for the heater output. |
+| `output_max` | Maximum heater output (%) | `100.0` | Upper limit for the heater output. |
+| `output_min_entity` | Minimum heater output number entity (overrides the minimum above) | unset | When set, its value overrides `output_min`. |
+| `output_max_entity` | Maximum heater output number entity (overrides the maximum above) | unset | When set, its value overrides `output_max`. |
+
+## Occupancy and windows
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `weather` | Weather entity for the forecast | unset | Supplies the daily and hourly forecast. The day type, the night plan, the outdoor temperature series and the outdoor fallback use it. See [[guides/read-the-forecast]]. |
+| `heatwave_warning` | Heatwave warning binary sensor, on means a warning is current | unset | A binary sensor. While it is on, the Heatwave sensor is on. It changes no device command. |
+| `cover` | Cover or blind | unset | Closes the cover above 0.5 kW of solar gain. Opens it again below that. |
+| `window` | Window or door sensor | unset | A window open longer than `window_delay_min` pauses cooling. The heater is also gated. |
+| `motion` | Motion sensor | unset | Motion in the room means occupied. No motion for `motion_away_min` means unoccupied: the room cools to `eco_c` or `away_c` and heats to the eco heat setpoint. |
+| `presence` | Presence sources: any home means home, all away for the away delay means away | unset | A source in state `on` or `home` means home. All sources away for `away_delay_min` means away. With a motion sensor, motion in the room counts as occupied whatever presence says. Once motion is idle, an empty house heats to the 16 °C frost floor. |
+| `window_actuator` | Window actuator, a cover or switch: opens on natural ventilation or economizer advice | unset | Opens on natural ventilation or economizer advice. Closes when the advice ends. The AC does not cool while the entry holds the window open. When the room climbs 2 K above the cool threshold, the window closes and the AC cools. |
+| `motion_away_min` | Minutes without motion before the room counts as unoccupied | `30.0` | Used only with `motion`. Minimum 1. |
+| `window_delay_min` | Minutes a window may stay open before the AC pauses | `10.0` | Minutes a window may stay open before cooling pauses. 0 to 120. |
+| `window_azimuth` | Window facing direction, degrees from north | `180.0` | Direction of the window for solar gain. |
+| `window_area_m2` | Window area, m² (needed for solar gain) | unset | Needed for solar gain. |
+| `irradiance` | Irradiance sensor on the window, W/m² | unset | Measured sun on the window for solar gain. |
+
+## Air quality and humidity
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `humidity` | Outdoor humidity sensor | unset | Keeps windows shut to humid air. Window advice, the economizer and the window actuator stay closed when the outdoor dew point is 1 K or more above the room's. With no `room_humidity`, the limit is an outdoor dew point of 20 °C. |
+| `room_humidity` | Room humidity sensor, e.g. the bedroom monitor | unset | Keeps room humidity between 40 and 60 %. Above 60 % the dehumidifier runs. Below 40 % the humidifier runs. Sets the drying status. |
+| `co2` | CO2 sensor | unset | Above 1000 ppm the room fan runs. |
+| `fan` | Room fan switch | unset | Runs for ventilation. |
+| `dehumidifier` | Dehumidifier switch | unset | On while room humidity is above 60 %, off at 57 %. In `dry` mode with no humidity sensor it stays on. Off while the room is held off. |
+| `humidifier` | Humidifier switch | unset | On while room humidity is below 40 %, off at 43 %. Off while the room is held off. |
+| `pm25` | PM2.5 sensor | unset | Above 25 µg/m³ the room fan runs. |
+| `whole_house_fan` | Whole-house fan switch | unset | On when the room is above the cool threshold, outdoors is at least 2 K cooler and the house is not sealed. The AC stays off while the fan runs. When the room climbs 2 K above the cool threshold, the fan stops and the AC cools. |
+| `coil_dry` | Dry the AC coil after cooling | `False` | Runs the AC dry mode for 20 minutes after cooling. |
+| `dry_for_humidity` | Use the AC dry mode when humid (no dehumidifier set; uses a lot of water) | `False` | Above 60 % room humidity, with no dehumidifier set, the AC runs dry mode. Dry mode uses a lot of water. |
+| `economizer_fan` | Economizer fan assist | `False` | Runs the fan switch in the economizer fan assist phase. Needs home, unlocked and no stalled sensor. |
+| `auto_fan` | Set the AC fan mode from the room gap while cooling | `False` | Sets the AC fan mode from the gap to the target while cooling. |
+| `house_sealed` | House is sealed (never run the whole-house fan) | `False` | Stops the whole-house fan. |
+
+## Devices and power limits
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `climate_2` | Second AC in the same room | unset | Adds a second cooling device to the room model. |
+| `power_2` | Second AC power sensor, W (enables the two-device fit) | unset | Power of the second AC. With `climate_2` and this field, the two-device fit runs. |
+| `whole_house_power` | Whole-house power sensor | unset | Total house power, W. Used with `shed_max_w`. |
+| `min_on_min` | Deprecated. Kept for compatibility; a stop is never delayed and the value is ignored | unset | Deprecated and ignored. A stop is never delayed. |
+| `min_off_min` | Restart delay (min): a start waits this long after the device stopped. 0 disables it | `3.0` | Restart delay. A start waits this long after the device stopped. 0 disables it. 0 to 120. |
+| `shed_max_w` | Power limit in watts | unset | House limit, W. Above it, the loads in `shed_loads` switch off. |
+| `shed_loads` | Loads to shed, as entity_id\|watts, lowest priority first | unset | One `entity_id\|watts` entry per load. The first entry sheds first. |
+| `compressor_group` | Compressor group name. Entries with the same name keep at least 5 minutes between their AC starts. | unset | Entries with the same name keep 5 minutes between their AC starts. |
+| `fleet` | Room devices | `[]` | The heaters and coolers in the room. HVAC Horizon runs the ones that cover the gap to the target. See [[reference/settings]] for the device keys. |
+| `dispatch_mode` | Device choice: fast (highest effect first) or economy (lowest cost per kelvin) | `fast` | `fast` runs the device that delivers the most first. `economy` runs the device with the lowest cost per kelvin first. |
+
+## Advanced
+
+| Key | Form label | Default | Effect |
+| :-- | :-- | :-- | :-- |
+| `lock_pin` | Lock PIN | unset | Needed to lock control. See [[guides/troubleshoot]]. |
+| `night_plan_act` | Night plan acts on the AC: pre-cool cools to comfort, hold stops a cool start | `False` | Pre-cool cools to comfort. Hold stops a cool start. |
+| `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel (one panel for all entries) | `False` | Adds this entry to one shared sidebar panel. |
+| `peer_entry` | Peer entry, the entry_id or title of another HVAC Horizon entry | unset | When this room is 2 K warmer, the peer entry's valve opens. |
+| `peer_setpoint_mode` | Peer setpoint mode | `False` | With a peer entry, a room 2 K warmer lowers the peer's cool setpoint by 1 K instead of opening its valve. |
+| `setpoint_regulation` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none | `True` | Lowers the setpoint sent to the AC by the gap between the room median and the AC's own `current_temperature`, so an AC whose sensor reads cool still runs. An AC with no such attribute is regulated from power. |
+| `stall_window_s` | Seconds without a report before a sensor counts as stalled (default 900) | `900.0` | Range 300 to 3600 seconds. See [[guides/troubleshoot]]. |
+| `control` | Let HVAC Horizon control the AC (off = observe only) | `False` | Off: observe only. HVAC Horizon learns and forecasts and sends no commands. On: it drives the AC, the heater and the other devices. |
+| `ai_conversation` | AI conversation agent for the investigator | unset | Writes the investigator answer when the AC mode changes, within the daily budget. |
+| `ai_budget_per_day` | Model calls per day for the investigator (0 or empty is off) | unset | Daily limit on model calls. |
 
 ## Room devices (`fleet`)
 
@@ -127,3 +164,8 @@ Each device is an object with these keys. The form rejects any other key.
 ```
 
 Fleet devices use the same restart delay `min_off_min` as the AC. The form shows `Room devices are invalid` with the reason when the list breaks a rule.
+
+:::see-also
+- [[guides/set-up-the-integration]]: how to open each form section.
+- [[reference/sensors]]: what the entry publishes.
+:::

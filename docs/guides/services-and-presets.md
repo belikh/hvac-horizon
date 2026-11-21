@@ -2,39 +2,31 @@
 
 # Services and presets
 
-## Presets
+## Which preset applies
 
-A preset sets the cooling target and the heating target. The preset in use is the first match of these:
+A preset sets the cool threshold and the heat target. HVAC Horizon uses the first of these that applies:
 
-1. The timed preset, while its duration runs. See `start_timed_preset`.
-2. The preset chosen on the room climate entity, until the schedule moves to another block. See below.
+1. A timed preset, while its minutes run. See `start_timed_preset` below.
+2. The preset you chose on the room thermostat, until the schedule moves to another block.
 3. The schedule block that covers the current local hour.
-4. `comfort`, when none applies.
+4. `comfort`.
 
-| Preset | Cooling target | Heating target |
+| Preset | Cools above | Heats to |
 | :--- | :--- | :--- |
 | `comfort` | `comfort_c` | `comfort_c` |
 | `eco` | `eco_c`, or `comfort_c` when unset | `heat_eco_c`, or comfort minus 1 |
 | `boost` | `boost_c`, or `comfort_c` when unset | `heat_boost_c`, or comfort plus 1 |
-| `away` | `away_c` | 16 °C frost floor |
+| `away` | `away_c` | 16 °C |
 
-An unoccupied room cools to `eco_c` when set. Otherwise it cools to `away_c`. It heats to the 16 °C frost floor. With a motion sensor and no motion for `motion_away_min`, it heats to the eco heat setpoint instead.
+Three things move these values:
 
-Boost with a heater and heating allowed raises its cooling target to the heat target plus 0.5 K. The AC then does not cool while the heater heats.
-
-The vacation switch sets its own targets, separate from the presets. While it is on, `vacation_c` replaces the comfort target. Occupancy and the preset still choose the cooling threshold, so an unoccupied house cools to `eco_c` or `away_c`. Heating holds the 16 °C frost floor.
+- **Price.** With a price sensor, the cool threshold moves 1 K down at the cheap price and 1 K up at the expensive price.
+- **Boost with a heater.** When heating is allowed, boost lifts its cool threshold to the heat target plus 0.5 K. The AC then does not cool while the heater heats.
+- **Vacation.** While the vacation switch is on, `vacation_c` replaces the comfort target and heating holds 16 °C.
 
 ## Schedule blocks
 
-Set `schedule_blocks` in the form. The value is a list of blocks. Each block has three keys.
-
-| Key | Type | Rule |
-| :--- | :--- | :--- |
-| `start_h` | number | 0 to 24. The block starts at this hour. |
-| `end_h` | number | 0 to 24. The block ends before this hour. |
-| `preset` | text | `comfort`, `eco`, `boost` or `away`. |
-
-`start_h` must differ from `end_h`. When `end_h` is below `start_h`, the block crosses midnight. With no blocks, the preset is `comfort` all day.
+Set `schedule_blocks` in the **Comfort and presets** section. The value is a list of blocks.
 
 **Schedule blocks**
 
@@ -45,81 +37,90 @@ Set `schedule_blocks` in the form. The value is a list of blocks. Each block has
 ]
 ```
 
-A form error reads `Schedule blocks must be a list of [start_h, end_h, preset]. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away.`
+| Key | Type | Rule |
+| :--- | :--- | :--- |
+| `start_h` | number | 0 to 24. The block starts at this hour. |
+| `end_h` | number | 0 to 24. The block ends before this hour. |
+| `preset` | text | `comfort`, `eco`, `boost` or `away`. |
+
+`start_h` must differ from `end_h`. A block whose `end_h` is below its `start_h` crosses midnight. Hours outside every block use `comfort`.
 
 Before a comfort block, the heater starts early when the learned heat-up time needs it. The Heat-up time sensor shows the estimate in minutes.
 
-## Room climate entity
+## Run a preset for a set time
 
-Each entry has one `climate` entity, named after its device (`HVAC Horizon <climate name>`). It sets targets on HVAC Horizon. It never drives a device itself. The coordinator applies each change on its next tick, through the control, lock, inhibit and minimum-time gates.
+**Boost for one hour**
 
-| Property | Behaviour |
-| :--- | :--- |
-| Current temperature | The median of the room temperature sensors. |
-| Target temperature | 16 to 32 °C in 0.5 K steps. Setting it stores your target. HVAC Horizon uses it as `comfort_c` from the next tick, and keeps it across restarts. Before you set one, it shows `comfort_c` from the form. |
-| Preset | `comfort`, `eco`, `boost` or `away`. It shows the preset in use. Setting one holds it until the schedule moves to another block. A timed preset still wins while it runs. The hold is not kept across a restart. |
-| Mode | `off`, `cool`, `auto`, `heat` when the entry has `heater_switch`, `ac_heat`, `mpc_heat_plan` or a heating fleet device, and `dry` when the AC lists a dry mode or the entry has `dehumidifier`. It shows the mode you chose, `auto` by default. It shows `off` when control is off or when you turned the room off. |
-| Action | `cooling`, `heating` or `drying` while a device draws power, `idle` while nothing runs, `off` while the room is held off. It follows the devices as they change. |
+```yaml
+action: hvac_horizon.start_timed_preset
+data:
+  entry_id: 01M7W2QT14QZYW5QG2879X0FHA
+  preset: boost
+  minutes: 60
+```
 
-The mode decides which devices may run. A device starts only when the room needs it.
-
-| Mode | Cooling devices | Heating devices |
-| :--- | :--- | :--- |
-| `cool` | Run above the cool threshold | Stay off |
-| `heat` | Stay off | Run below the heat threshold |
-| `auto` | Run above the cool threshold | Run below the heat threshold |
-| `dry` | Stay off | Run below the heat threshold |
-| `off` | Stay off | Stay off |
-
-Cooling devices are the AC, the second AC, the AC's dry mode for humidity and cooling fleet devices. Heating devices are the heater switch, the AC in heat mode and heating fleet devices. Changing to `heat` while the AC cools sends off to the AC at once.
-
-In `dry` the AC runs in its dry mode and never cools. With `room_humidity` set, it dries while the room is above 60 % and goes off at 55 %. With no humidity sensor it dries until you change the mode. An entry with `dehumidifier` runs that switch and leaves the AC off. Dry mode cools the room, so the heater switch may run at the same time to hold the heat target. The heater obeys its usual gates, including the outdoor heating limit, so on a mild day it stays off. When the room falls 1 K below the heat threshold, the AC pauses and resumes once the room is back at the threshold. An AC that is drying cannot heat, so `ac_heat` is left out in `dry`. A room run by fleet climates offers `dry` only with `dehumidifier`.
-
-Setting `off` holds the room off: every device goes off and nothing starts. The `climate.turn_on` service ends the hold and returns to the mode chosen before it. The mode is kept across restarts.
-
-While the lock is on, setting a target, a preset or a mode fails with `HVAC Horizon entry is locked`.
+`minutes` is 1 to 720. When the time ends, the schedule preset applies again. Find the `entry_id` in the URL of the entry's page, or in its diagnostics download.
 
 ## Services
 
-Every service except `set_house_mode` takes `entry_id`, the HVAC Horizon entry. Services marked response only return data and set nothing.
+Every service except `set_house_mode` takes `entry_id`. The services marked response only return data and change nothing.
 
 | Service | Fields | What it does |
 | :--- | :--- | :--- |
-| `hvac_horizon.set_lock` | `locked`, `pin` | Locks control, so normal commands stop. Unlocking needs the PIN. |
-| `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint. |
-| `hvac_horizon.start_timed_preset` | `preset`, `minutes` (1 to 720) | Runs the preset for `minutes`, then returns to the schedule preset. |
-| `hvac_horizon.start_autotune` | `setpoint` (15 to 26 °C) | Starts a relay test. The heater plug switches on and off. The setpoint must be at least 2 K above the room. The test ends after 120 minutes, or when the AC cools or the room reaches the heat-on threshold. Do not run it while the AC is under test. |
-| `hvac_horizon.cancel_autotune` | none | Ends a running relay test and turns the heater off. Does nothing when no test runs. The `autotune_status` attribute then reads `cancelled`. |
-| `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current fitted room coefficient `k` as the baseline. `false` hides the suggestion until `k` changes. |
-| `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report. Uses the conversation agent when the daily budget allows. Otherwise stores the rule-based report. |
-| `hvac_horizon.reset_learning` | none | Clears the stored readings, the fitted model and the backtest. Settings stay. |
+| `hvac_horizon.start_timed_preset` | `preset`, `minutes` | Runs the preset for `minutes`. |
+| `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint and heat to 16 °C. |
+| `hvac_horizon.set_lock` | `locked`, `pin` | Locks or unlocks control. |
+| `hvac_horizon.start_autotune` | `setpoint` | Starts a relay test of the heater and stores PID gains from it. |
+| `hvac_horizon.cancel_autotune` | none | Ends a running relay test and turns the heater off. |
+| `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current heat-gain rate as the baseline. `false` hides the suggestion until the rate changes. |
+| `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report on the Status sensor. |
+| `hvac_horizon.reset_learning` | none | Clears the stored readings, the room model, the backtest and the outdoor bias. Settings stay. |
 | `hvac_horizon.export_samples` | none | Response only. Returns `samples`, the stored readings. |
 | `hvac_horizon.export_csv` | none | Response only. Returns `csv`, the stored readings as CSV text. |
-| `hvac_horizon.what_if` | `room_c`, `target_c`, `outdoor_c`, `power_kw` | Response only. Returns `status`, `minutes`, `energy_kwh`, `cost` and `reason`. |
+| `hvac_horizon.what_if` | `room_c`, `target_c`, `outdoor_c`, `power_kw` | Response only. Returns `status`, `minutes`, `energy_kwh`, `cost` and `reason` for the values you give. |
 
-The `what_if` ranges are 0 to 50 °C for `room_c` and `target_c`, -20 to 60 °C for `outdoor_c`, and 0 to 10 kW for `power_kw`.
+`what_if` accepts 0 to 50 °C for `room_c` and `target_c`, -20 to 60 °C for `outdoor_c`, and 0 to 10 kW for `power_kw`.
 
-`start_autotune` fails with an error when the setpoint is outside 15 to 26 °C, when no room sensor has a reading, or when the setpoint is less than 2 K above the room.
+## Lock and PIN
 
-### Lock and PIN
+The lock stops normal commands, so nobody changes the room by accident.
 
-The lock needs a PIN in the form. Without one, `set_lock` with `locked: true` fails. A wrong PIN fails the unlock. Both raise this error:
+1. Open **Reconfigure**, select **Advanced** and enter a value in **Lock PIN**. Select **Submit**, then **Save and close**.
+2. Call `hvac_horizon.set_lock` with `locked: true`.
+3. To unlock, call it with `locked: false` and `pin` set to the PIN.
 
-**Error**
+While locked, HVAC Horizon sends no AC setpoint, valve, cover or window command, and holds the heater output at 0. The room thermostat refuses a new target, preset or mode. A stalled sensor, a window open longer than `window_delay_min` or an away house still turns the AC and the room devices off. The lock is stored and stays on after a restart.
 
-```text
-lock not changed: wrong PIN, or no PIN configured
+| Message | Cause | Fix |
+| :--- | :--- | :--- |
+| `lock not changed: wrong PIN, or no PIN configured` | The entry has no PIN, or the `pin` in the call is wrong. | Set a PIN in **Advanced**, or send the right one. |
+| `HVAC Horizon entry is locked` | You changed the thermostat while the lock is on. | Unlock first. |
+
+## Auto-tune the heater
+
+`start_autotune` switches the heater on and off around a setpoint and derives PID gains from the room's swing.
+
+**Start a relay test**
+
+```yaml
+action: hvac_horizon.start_autotune
+data:
+  entry_id: 01M7W2QT14QZYW5QG2879X0FHA
+  setpoint: 22
 ```
 
-The lock is stored. It stays on after a reload or a restart of Home Assistant. The PIN stays in the config entry.
+The setpoint is 15 to 26 °C and at least 2 K above the room. The test ends after 120 minutes, when the AC cools, or when the room reaches the heat threshold. The Status sensor's `autotune_status` attribute reads `running`, `done`, `timed_out`, `cancelled` or `reached_cutoff`. The gains apply to any of `heater_kp`, `heater_ki` and `heater_kd` that you left at its default.
 
-While locked, the integration sends no normal commands: no AC setpoint, no valve, cover or window action. The heater output is held at 0. It still turns the AC and the room devices off when a sensor is stalled, a window has been open longer than `window_delay_min`, or the house mode is `away`. The action text then reads `locked: off, <reason>`.
+> [!WARNING]
+> **The heater runs during the test**
+>
+> The relay test turns the heater on at full output in cycles. Do not start it while you test the AC.
 
-### House mode
+## House mode
 
 `set_house_mode` stores the mode with each entry. It survives a restart. The default is `home`.
 
 **See also**
 
-- [Set up the integration](set-up-the-integration.md): the form fields for presets and setpoints.
-- [Troubleshoot](troubleshoot.md): what the lock and the stall stop look like.
+- [Use the room thermostat](use-the-room-thermostat.md): modes, targets and presets on the thermostat.
+- [Settings](../reference/settings.md): the fields for presets and setpoints.
