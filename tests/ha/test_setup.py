@@ -1751,12 +1751,25 @@ def test_every_conf_key_is_in_the_flow_schema():
     assert not missing, f"CONF_* keys with no config flow field: {missing}"
 
 
+async def enable_sensors(hass, entry, *keys):
+    """Enable status sensors that are disabled by default, then reload the entry so they are added."""
+    registry = er.async_get(hass)
+    for key in keys:
+        eid = registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_{key}")
+        assert eid is not None, key
+        if registry.async_get(eid).disabled:
+            registry.async_update_entity(eid, disabled_by=None)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
 async def test_status_sensors_exist_with_control_off(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await enable_sensors(hass, entry, "band_action")  # disabled by default
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     registry = er.async_get(hass)
@@ -1768,6 +1781,28 @@ async def test_status_sensors_exist_with_control_off(hass, enable_custom_integra
         assert state is not None and state.state not in ("unavailable", "unknown"), (key, state)
     target = hass.states.get(registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_target_c"))
     assert float(target.state) == 24.0, target.state
+
+
+async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, enable_custom_integrations, config_data):
+    from homeassistant.const import EntityCategory
+
+    from custom_components.hvac_horizon.sensor import DIAGNOSTIC_DISABLED_KEYS, DIAGNOSTIC_ENABLED_KEYS, PRIMARY_KEYS
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    sensors = [e for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id) if e.domain == sensor.DOMAIN]
+    prefix = f"{entry.entry_id}_"
+    primary = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is None and not e.disabled}
+    diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
+    disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
+    assert primary == PRIMARY_KEYS and len(primary) == 11
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 23
+    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 32
+    assert len(sensors) == 66
+    assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
 async def test_device_echo_of_rounded_setpoint_is_not_a_manual_change(hass, enable_custom_integrations, config_data):
@@ -2374,6 +2409,7 @@ async def test_window_pauses_control_only_after_the_delay(hass, enable_custom_in
 
 async def test_heater_and_threshold_sensors_publish_state(hass, enable_custom_integrations, config_data):
     entry, _ = await setup_heater(hass, config_data)
+    await enable_sensors(hass, entry, "heater_pid_output", "backtest_runs")  # disabled by default
     await refresh(hass, entry)
     registry = er.async_get(hass)
     for key in ("heating_failure", "heater_pid_output", "cool_on_above_c", "heat_on_below_c", "backtest_runs"):
@@ -2954,6 +2990,7 @@ async def test_list_status_sensors_show_their_content_not_a_count(hass, enable_c
     import json
 
     entry, _ = await setup_heater(hass, config_data)
+    await enable_sensors(hass, entry, key)  # mpc_plan and shed are disabled by default
     entry.runtime_data.data[key] = value
     entry.runtime_data.async_update_listeners()
     await hass.async_block_till_done()
@@ -3226,6 +3263,7 @@ async def test_forecast_day_counts_are_published_as_content(hass, enable_custom_
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await enable_sensors(hass, entry, "forecast_days")  # disabled by default
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert entry.runtime_data.data["forecast_days"] == {"hot": 1, "warm": 1, "mild": 1, "cool": 0, "cold": 1}
@@ -5976,6 +6014,7 @@ async def test_rooms_max_age_is_the_age_of_the_oldest_reading_used(hass, enable_
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    await enable_sensors(hass, entry, "rooms_max_age_s")  # disabled by default
     assert entry.runtime_data.data["rooms_max_age_s"] == 0.0
     # Room A last reported 6 minutes ago, inside the 15 minute stall window, so the median still uses it.
     freezer.tick(timedelta(minutes=6))

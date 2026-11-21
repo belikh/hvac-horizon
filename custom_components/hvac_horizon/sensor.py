@@ -6,6 +6,7 @@ import json
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -78,6 +79,33 @@ STATUS_KEYS: dict[str, str] = {
     "minutes_low": "Minutes to setpoint, low",
     "minutes_high": "Minutes to setpoint, high",
 }
+
+# Sensors a user reads every day. They are enabled and have no entity category.
+PRIMARY_KEYS = frozenset(
+    {
+        "minutes_to_setpoint", "energy_kwh", "cost", "status", "forecast_error_min", "target_c", "preset",
+        "cool_on_above_c", "heat_on_below_c", "minutes_low", "minutes_high",
+    }
+)
+# Diagnostic sensors that stay enabled: a user reads or acts on them.
+DIAGNOSTIC_ENABLED_KEYS = frozenset(
+    {
+        "sensors_stalled", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
+        "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
+        "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
+        "learning_suggestion", "external_change",
+    }
+)
+# Diagnostic sensors that are internal detail. They are created disabled; enable one in the entity settings.
+DIAGNOSTIC_DISABLED_KEYS = frozenset(
+    {
+        "heater_pwm_on", "heater_pid_output", "heater_output_pct", "tpi_output_pct", "safety_output_pct", "heater_feedback",
+        "mpc_plan", "mpc_heat_steps", "shed", "restored", "room_fit", "backtest_runs", "rooms_max_age_s", "samples_heat",
+        "samples_dry", "forecast_days", "trv_offset_k", "valve_opening_pct", "solar_scale", "solar_gain_kw",
+        "ventilation_rate", "fan_speed", "band_action", "house_cooling", "heat_up_min", "boiler_demand", "second_ac",
+        "economizer", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
+    }
+)
 STATUS_UNITS = {
     "target_c": "°C",
     "cool_on_above_c": "°C",
@@ -113,6 +141,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     )
 
 
+def _set_category(entity: SensorEntity, key: str) -> None:
+    """Mark every sensor outside PRIMARY_KEYS diagnostic, and the internal ones disabled by default."""
+    if key in PRIMARY_KEYS:
+        return
+    entity._attr_entity_category = EntityCategory.DIAGNOSTIC
+    entity._attr_entity_registry_enabled_default = key not in DIAGNOSTIC_DISABLED_KEYS
+
+
 class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
@@ -124,6 +160,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         self._attr_state_class = state_class
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        _set_category(self, key)
 
     @property
     def extra_state_attributes(self):
@@ -185,6 +222,7 @@ class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         self._attr_native_unit_of_measurement = STATUS_UNITS.get(key)
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        _set_category(self, key)
 
     @property
     def extra_state_attributes(self):
