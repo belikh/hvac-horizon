@@ -2,6 +2,12 @@
 
 The entity never drives a device. The coordinator applies each change on its next tick through the control,
 lock, inhibit and minimum-time gates.
+
+Target temperature and preset: the temperature shown is the effective target the coordinator planned on its last
+tick. It is the cool threshold while the mode is cool or off, and the heat target while the mode is heat. Both
+follow the preset, so eco shows its own cooling setpoint. Setting a temperature stores the user's comfort target,
+the base the presets work from. It leaves the preset unchanged. Under eco the shown value stays at the eco
+setpoint until the preset changes.
 """
 
 from __future__ import annotations
@@ -56,7 +62,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def target_temperature(self) -> float:
-        return self.coordinator.comfort_c
+        return self.coordinator.effective_target_c(self.hvac_mode == HVACMode.HEAT)
 
     @property
     def preset_mode(self) -> str | None:

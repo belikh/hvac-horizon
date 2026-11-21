@@ -5987,3 +5987,38 @@ async def test_rooms_max_age_is_the_age_of_the_oldest_reading_used(hass, enable_
     state = hass.states.get("sensor.hvac_horizon_test_ac_room_reading_age")
     assert state is not None and state.state == "360.0"
     assert state.attributes["unit_of_measurement"] == "s"
+
+
+def _room_climate_id(hass, entry):
+    return er.async_get(hass).async_get_entity_id("climate", DOMAIN, f"{entry.entry_id}_room")
+
+
+async def test_room_entity_shows_the_eco_cool_threshold_and_the_forecast_uses_it(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data, room="25.0", extra={CONF_ECO_C: 26.0})
+    hass.states.async_set(PRICE, "0.275", hass.states.get(PRICE).attributes)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 60})
+    targets = []
+    original = entry.runtime_data._forecast
+
+    def spy(now, target_c=None):
+        targets.append(target_c)
+        return original(now, target_c)
+
+    entry.runtime_data._forecast = spy
+    await refresh(hass, entry)
+    state = hass.states.get(_room_climate_id(hass, entry))
+    assert state.attributes["temperature"] == 26.0
+    assert targets[-1] == pytest.approx(26.0)
+    assert entry.runtime_data.data["target_c"] == 26.0
+
+
+async def test_room_entity_set_temperature_sets_the_comfort_target(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data, room="25.0", extra={CONF_ECO_C: 26.0})
+    hass.states.async_set(PRICE, "0.275", hass.states.get(PRICE).attributes)
+    entity_id = _room_climate_id(hass, entry)
+    # setup_heater replaces the climate.set_temperature service with a fake, so call the entity itself.
+    await hass.data["climate"].get_entity(entity_id).async_set_temperature(temperature=23.0)
+    await hass.async_block_till_done()
+    state = hass.states.get(entity_id)
+    assert state.attributes["temperature"] == 23.0
+    assert state.attributes["preset_mode"] == "comfort"

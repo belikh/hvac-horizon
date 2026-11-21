@@ -591,6 +591,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return self._target_override_c
         return float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
 
+    def effective_target_c(self, heating: bool) -> float:
+        """The target the last tick planned: the heat target when `heating`, else the cool threshold. Both follow the preset."""
+        return self._heat_target_c if heating else self._cool_above_c
+
     @property
     def preset_now(self) -> str | None:
         return self._preset_now
@@ -1973,6 +1977,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # target, the price shift, the mould bump and occupancy exactly as decide() does.
         if self.entry.data.get(CONF_CONTROL):
             result["target_c"] = result["cool_on_above_c"]
+            # The forecast aims at the same cool threshold. It ran before the plan, so it runs again with the planned target.
+            planned = {"preset": result.get("preset"), "target_c": result["target_c"]}
+            result.update(self._forecast(now, self._cool_above_c))
+            result.update(planned)
         result["dispatch"] = self._dispatch()
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 
@@ -2809,9 +2817,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return active, power_kw
         return combined
 
-    def _forecast(self, now: float) -> dict[str, Any]:
+    def _forecast(self, now: float, target_c: float | None = None) -> dict[str, Any]:
         # Observe-only values: the control path overwrites target_c and preset with the full decision.
-        comfort_default = self.comfort_c
+        # `target_c` is the effective cool threshold from _plan_control. It replaces the comfort target when control is on.
+        comfort_default = self.comfort_c if target_c is None else target_c
         result: dict[str, Any] = {
             "target_c": round(comfort_default, 2),
             "preset": "comfort",
@@ -2861,7 +2870,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Observe-only uses the climate entity's own setpoint, as the original request asked.
         # Control mode uses the comfort setting, because the integration writes that setpoint.
         if self.entry.data.get(CONF_CONTROL):
-            target = self.comfort_c
+            target = comfort_default
         else:
             setpoint = climate.attributes.get("temperature") if climate else None
             target = float(setpoint) if setpoint is not None else self.comfort_c
