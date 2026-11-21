@@ -39,7 +39,7 @@ The first form has the four required fields only. Every other field sits in one 
 | Occupancy and windows | `occupancy` | `presence`, `motion`, `motion_away_min`, `window`, `window_delay_min`, `window_actuator`, `cover`, `window_azimuth`, `window_area_m2`, `irradiance`, `weather` |
 | Air quality and humidity | `air_quality` | `humidity`, `room_humidity`, `co2`, `pm25`, `fan`, `auto_fan`, `dehumidifier`, `humidifier`, `coil_dry`, `dry_for_humidity`, `house_sealed`, `economizer_fan`, `whole_house_fan` |
 | Devices and power limits | `devices` | `climate_2`, `power_2`, `fleet`, `dispatch_mode`, `whole_house_power`, `shed_max_w`, `shed_loads`, `compressor_group`, `min_on_min`, `min_off_min` |
-| Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `ai_conversation`, `ai_budget_per_day` |
+| Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `setpoint_regulation`, `ai_conversation`, `ai_budget_per_day` |
 
 The tables below group the same fields by topic.
 
@@ -113,8 +113,8 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | `output_max` | Maximum heater output (%) | 100 | Upper limit for the heater output. |
 | `output_min_entity` | Minimum heater output number entity (optional) | none | When set, its value overrides `output_min`. |
 | `output_max_entity` | Maximum heater output number entity (optional) | none | When set, its value overrides `output_max`. |
-| `min_on_min` | Minimum AC on time (min) | 5 | Shortest time the AC runs before a mode change. |
-| `min_off_min` | Minimum AC off time (min) | 3 | Shortest time the AC stays off before a mode change. |
+| `min_on_min` | Minimum AC on time (min), deprecated | 5 | Ignored. A stop is never delayed. |
+| `min_off_min` | Restart delay (min) | 3 | Shortest time a device stays off before it starts again. 0 disables the delay. |
 | `stall_window_s` | Seconds without a report before a sensor counts as stalled | 900 | Range 300 to 3600 seconds. See [Troubleshoot](troubleshoot.md). |
 | `lock_pin` | Lock PIN (optional) | none | Needed to lock control. See [Troubleshoot](troubleshoot.md). |
 | `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel | off | Adds this entry to one shared sidebar panel. |

@@ -18,7 +18,7 @@ from typing import Any
 from unittest.mock import patch
 
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.hvac_horizon.const import (
     CONF_CLIMATE,

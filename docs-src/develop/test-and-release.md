@@ -23,7 +23,7 @@ The package imports Home Assistant. Run the tests in a virtual environment.
    .venv/bin/pip install -r requirements-test.txt
    ```
 
-   The pins are `pytest-homeassistant-custom-component` 0.13.375, `pytest` 9.0.3 and `pytest-asyncio` 1.4.0.
+   The pins are `pytest-homeassistant` 2026.11.2, `pytest` 9.0.3 and `pytest-asyncio` 1.4.0. `pytest-homeassistant` is Home Assistant's own test package, and its release number is the Home Assistant version it tests.
 
 ## Run the tests
 
@@ -87,7 +87,7 @@ The repository has no release workflow. Release by hand with these steps.
 
 1. Set `version` in `custom_components/hvac_horizon/manifest.json`.
 2. Set `version` in `docs.config.json` to the same value. No test checks that the two match. At this commit both files read `0.2.0`.
-3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports. Set it to the version the tests run on. At this commit both `hacs.json` and the harness pin in `requirements-test.txt` read `2026.10.4`. To claim a newer version, run the suite on it first, then raise both values together.
+3. Check `homeassistant` in `hacs.json`. It holds the minimum Home Assistant version the integration supports. Set it to the version the tests run on. At this commit `hacs.json` and the `pytest-homeassistant` pin in `requirements-test.txt` both read `2026.11.2`. To claim a newer version, raise the pin, run the suite, then raise `hacs.json`.
 4. Run the suite with `scripts/check.sh`.
 5. Commit the version change, then push it.
 6. Tag the commit as `v<version>` and publish a GitHub release for the tag. HACS offers the newest release to users. A release gives each install a fixed version.

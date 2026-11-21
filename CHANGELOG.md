@@ -4,6 +4,7 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
+- Tests run on Home Assistant 2026.11.2 with `pytest-homeassistant`, Home Assistant's own test package. The old `pytest-homeassistant-custom-component` harness is retired and does not load on 2026.11. The minimum Home Assistant version in `hacs.json` is now 2026.11.2.
 - Off is immediate. Turning the room off from the room entity sends off to the first AC, the second AC, the heater switch and every fleet device in the same call. No minimum on time, inhibit window or sensor gate delays it.
 - `min_on_min` no longer delays any stop and is ignored. `min_off_min` is now the restart delay: a start waits that long after the device stopped, and 0 disables it.
 - A start held by the restart delay is re-checked when the delay ends instead of at the next 5 minute tick. The room entity has the attribute `pending` (for example `start in 2 min: restart delay`) and there is a `Pending action` sensor.

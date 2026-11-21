@@ -63,11 +63,12 @@ A heater gain from a relay test replaces the unset or default value of `heater_k
 | `peer_entry` | optional | unset | Peer entry, the entry_id or title of another HVAC Horizon entry (optional): its valve opens when this room is 2 K warmer |
 | `peer_setpoint_mode` | optional | `False` | Peer setpoint mode: with a peer entry, a room 2 K warmer lowers the peer cool setpoint by 1 K instead of opening its valve |
 | `auto_fan` | optional | `False` | Set the AC fan mode from the room gap while cooling |
+| `setpoint_regulation` | optional | `True` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none |
 | `house_sealed` | optional | `False` | House is sealed (never run the whole-house fan) |
 | `price_cheap` | optional | unset (code uses `0.15`) | Cheap price threshold |
 | `price_expensive` | optional | unset (code uses `0.4`) | Expensive price threshold |
-| `min_on_min` | optional | unset (code uses `5.0`) | Minimum AC on time (min) |
-| `min_off_min` | optional | unset (code uses `3.0`) | Minimum AC off time (min) |
+| `min_on_min` | optional | unset | Deprecated. Kept for compatibility; a stop is never delayed and the value is ignored |
+| `min_off_min` | optional | unset (code uses `3.0`) | Restart delay (min): a start waits this long after the device stopped. 0 disables it |
 | `away_delay_min` | optional | unset (code uses `30.0`) | Minutes without presence before away mode |
 | `motion_away_min` | optional | `30.0` | Minutes without motion before the room counts as unoccupied |
 | `stall_window_s` | optional | `900.0` | Seconds without a report before a sensor counts as stalled (default 900) |
@@ -121,4 +122,4 @@ Each device is an object with these keys. The form rejects any other key.
 ]
 ```
 
-Fleet devices use the same `min_on_min` and `min_off_min` as the AC. The form shows `Room devices are invalid` with the reason when the list breaks a rule.
+Fleet devices use the same restart delay `min_off_min` as the AC. The form shows `Room devices are invalid` with the reason when the list breaks a rule.

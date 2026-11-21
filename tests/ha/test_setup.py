@@ -20,7 +20,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from homeassistant.util import dt as dt_util
 
@@ -6977,3 +6977,19 @@ def test_climate_entity_uses_the_temperature_names_its_base_class_supports(monke
     finally:
         monkeypatch.undo()
         importlib.reload(climate_module)
+
+
+async def test_home_assistant_logs_no_deprecation_for_this_integration(hass, enable_custom_integrations, config_data, caplog):
+    """Home Assistant reports deprecated API use by a custom integration in its log. Setup and two ticks must log none."""
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    await refresh(hass, entry)
+    offending = [
+        record.getMessage()
+        for record in caplog.records
+        if "deprecat" in record.getMessage().lower() and ("hvac_horizon" in record.getMessage() or "Horizon" in record.getMessage())
+    ]
+    assert offending == []
