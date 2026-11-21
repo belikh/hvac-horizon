@@ -31,6 +31,10 @@ from .coordinator import HorizonCoordinator
 
 PRESETS = ["comfort", "eco", "boost", "away"]
 
+# Home Assistant 2026.11 deprecates `_attr_temperature_unit`, `current_temperature` and `target_temperature` in favour of the
+# native_* names. 2026.10.4 has no native_* names. The entity defines the pair its base class supports, so neither version warns.
+_NATIVE_TEMPERATURE_API = hasattr(ClimateEntity, "native_temperature_unit")
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     async_add_entities([HorizonClimate(entry.runtime_data, entry)])
@@ -39,7 +43,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     _attr_has_entity_name = True
     _attr_name = None
-    _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_target_temperature_step = 0.5
     _attr_min_temp = 16.0
     _attr_max_temp = 32.0
@@ -61,13 +64,33 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         self._has_heat = bool(entry.data.get(CONF_HEATER_SWITCH)) or bool(entry.data.get(CONF_AC_HEAT, False))
         self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else [])
 
-    @property
-    def current_temperature(self) -> float | None:
+    def _room_temperature(self) -> float | None:
         return self.coordinator.median_room_c()
 
-    @property
-    def target_temperature(self) -> float:
+    def _target(self) -> float:
         return self.coordinator.effective_target_c(self.hvac_mode == HVACMode.HEAT)
+
+    if _NATIVE_TEMPERATURE_API:
+        _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
+
+        @property
+        def native_current_temperature(self) -> float | None:
+            return self._room_temperature()
+
+        @property
+        def native_target_temperature(self) -> float:
+            return self._target()
+
+    else:
+        _attr_temperature_unit = UnitOfTemperature.CELSIUS
+
+        @property
+        def current_temperature(self) -> float | None:
+            return self._room_temperature()
+
+        @property
+        def target_temperature(self) -> float:
+            return self._target()
 
     @property
     def hvac_action(self) -> HVACAction:

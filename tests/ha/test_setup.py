@@ -6953,3 +6953,27 @@ async def test_action_of_a_fleet_climate_follows_its_own_power_sensor(hass, enab
     entry.runtime_data.async_update_listeners()
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"
+
+
+def test_climate_entity_uses_the_temperature_names_its_base_class_supports(monkeypatch):
+    import importlib
+
+    from homeassistant.components.climate import ClimateEntity
+
+    from custom_components.hvac_horizon import climate as climate_module
+
+    old_names = {"current_temperature", "target_temperature", "_attr_temperature_unit"}
+    native_names = {"native_current_temperature", "native_target_temperature", "_attr_native_temperature_unit"}
+    try:
+        # The installed Home Assistant: use whichever API its ClimateEntity has.
+        has_native = hasattr(ClimateEntity, "native_temperature_unit")
+        defined = set(vars(climate_module.HorizonClimate))
+        assert (native_names <= defined and not old_names & defined) if has_native else (old_names <= defined and not native_names & defined)
+        # A base class with the native API, as in 2026.11: the entity defines only the native names.
+        monkeypatch.setattr(ClimateEntity, "native_temperature_unit", "°C", raising=False)
+        importlib.reload(climate_module)
+        defined = set(vars(climate_module.HorizonClimate))
+        assert native_names <= defined and not old_names & defined
+    finally:
+        monkeypatch.undo()
+        importlib.reload(climate_module)
