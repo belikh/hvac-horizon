@@ -7,6 +7,7 @@ so the standard-library unittest run does not collect it.
 
 import math
 import statistics
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
@@ -5609,10 +5610,13 @@ STOP_CO2 = "sensor.stop_co2"
 STOP_HUMIDITY = "sensor.stop_humidity"
 
 
-async def _setup_recording(hass, config_data, *, room="20.0", outdoor="10.0", climate="off", extra=None, states=None):
+async def _setup_recording(hass, config_data, *, room="20.0", outdoor="10.0", climate="off", extra=None, states=None, climate_age_s=None):
     """Set up a control-on entry with no heater. Every switch, climate and number service call is recorded as (domain, service, entity, value)."""
     set_inputs(hass)
-    hass.states.async_set(CLIMATE, climate, {"temperature": 24.0, "friendly_name": "Test AC"})
+    since = None if climate_age_s is None else time.time() - climate_age_s
+    if since is not None:
+        hass.states.async_remove(CLIMATE)  # set_inputs already set it, and an unchanged state keeps its old last_changed
+    hass.states.async_set(CLIMATE, climate, {"temperature": 24.0, "friendly_name": "Test AC"}, timestamp=since)
     for entity in (ROOM_A, ROOM_B):
         hass.states.async_set(entity, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
@@ -5781,3 +5785,59 @@ async def test_no_command_before_the_first_valid_readings(hass, enable_custom_in
     await refresh(hass, entry)
     assert ("climate", "set_hvac_mode", CLIMATE, "cool") in calls
     assert ("switch", "turn_on", STOP_FAN, None) in calls
+
+
+async def test_ac_switched_on_by_hand_is_held_until_the_minimum_on_time(hass, enable_custom_integrations, config_data, freezer):
+    # The user turned the AC on 2 minutes ago. The entry wants it off, but the 5 minute minimum on time counts from that change.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await _setup_recording(hass, config_data, climate="cool", extra={"ac_heat": False}, climate_age_s=120)
+    assert ("climate", "set_hvac_mode", CLIMATE, "off") not in calls
+    freezer.tick(timedelta(minutes=2))
+    set_room(hass, "20.0")
+    await refresh(hass, entry)
+    assert ("climate", "set_hvac_mode", CLIMATE, "off") not in calls
+    freezer.tick(timedelta(minutes=2))
+    set_room(hass, "20.0")
+    await refresh(hass, entry)
+    assert ("climate", "set_hvac_mode", CLIMATE, "off") in calls
+
+
+async def test_ac_the_entry_started_is_not_stopped_early_after_a_reload(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC"})
+    set_room(hass, "26.0")
+    calls = []
+
+    async def record_mode(call):
+        calls.append(call.data["hvac_mode"])
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, call.data["hvac_mode"], dict(state.attributes), timestamp=time.time())
+
+    async def record_temp(call):
+        state = hass.states.get(CLIMATE)
+        hass.states.async_set(CLIMATE, state.state, {**state.attributes, "temperature": call.data["temperature"]})
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", record_temp)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "control": True, "ac_heat": False}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == ["cool"]
+    freezer.tick(timedelta(minutes=2))
+
+    async def no_stop(self):
+        return None
+
+    # A restart leaves the AC running. The unload stop would turn it off first, so it is skipped here.
+    monkeypatch.setattr(type(entry.runtime_data), "async_safety_stop", no_stop)
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    set_room(hass, "20.0")
+    await refresh(hass, entry)
+    assert calls == ["cool"]
+    freezer.tick(timedelta(minutes=4))
+    set_room(hass, "20.0")
+    await refresh(hass, entry)
+    assert calls == ["cool", "off"]

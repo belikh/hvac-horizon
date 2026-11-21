@@ -1962,10 +1962,23 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             power += kw
         return {"cool": cool, "heat": heat, "power_kw": round(power, 3), "devices": info}
 
+    def _changed_at(self, state: State | None, own: float | None) -> float | None:
+        """Time of the last on or off change of a device: the later of this entry's own write and the entity's last_changed.
+
+        last_changed covers a restart and a change made by hand. A state that is missing or unavailable adds nothing.
+        """
+        times = [] if own is None else [own]
+        if state is not None and state.state not in ("unavailable", "unknown"):
+            times.append(state.last_changed.timestamp())
+        return max(times) if times else None
+
+    def _since_min(self, state: State | None, own: float | None, now: float) -> float:
+        changed = self._changed_at(state, own)
+        return (now - changed) / 60.0 if changed is not None else 1e9
+
     def _fleet_minimum_ok(self, device: Device, running: bool, now: float) -> bool:
         """True when the device may change state now. Fleet devices use the same minimum on and off times as the AC."""
-        changed = self._fleet_changed_at.get(device.device_id)
-        since_min = (now - changed) / 60.0 if changed is not None else 1e9
+        since_min = self._since_min(self.hass.states.get(device.entity_id), self._fleet_changed_at.get(device.device_id), now)
         return minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0))
 
     async def _drive_fleet(self, now: float, result: dict[str, Any], action: Any, stalled: bool) -> None:
@@ -2247,7 +2260,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         running = climate.state in ("cool", "heat")
         if climate.state != wanted_mode and (running or wanted_mode == "cool"):
-            since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
+            since_min = self._since_min(climate, self._state_changed_at, now)
             if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
                 result["action"] = f"{action.mode.value}: waiting for minimum time"
                 return
@@ -2432,7 +2445,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # The device has no heat mode, so the AC cannot heat. Do not send a mode it does not list.
             return False
         if climate.state != "heat":
-            since_min = (now - self._state_changed_at) / 60.0 if self._state_changed_at is not None else 1e9
+            since_min = self._since_min(climate, self._state_changed_at, now)
             running = climate.state in ("cool", "heat")
             if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
                 return True
@@ -2628,7 +2641,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _second_minimum_ok(self, state: str, now: float) -> bool:
         """True when the second AC may change mode now. It uses the same minimum on and off times as the first AC."""
-        since_min = (now - self._second_changed_at) / 60.0 if self._second_changed_at is not None else 1e9
+        since_min = self._since_min(self.hass.states.get(self.entry.data.get(CONF_CLIMATE_2)), self._second_changed_at, now)
         return minimum_time_ok(
             state in ("cool", "heat"),
             since_min,
