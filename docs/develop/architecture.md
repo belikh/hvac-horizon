@@ -9,7 +9,7 @@ Every module is in `custom_components/hvac_horizon/`.
 | Module | Job |
 | :--- | :--- |
 | `__init__.py` | Registers the services, sets up the coordinator and the sensor platform, and unloads the entry. |
-| `config_flow.py` | The setup and reconfigure forms. `_schema()` lists every key, selector and default. |
+| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to one step. |
 | `const.py` | Config keys, defaults and limits. |
 | `coordinator.py` | `HorizonCoordinator`. Samples the room, refits the model, plans the target, drives the devices and publishes the result. |
 | `collector.py` | `Entry`, one reading. Sample history, running power, the cycle check and CSV export. |

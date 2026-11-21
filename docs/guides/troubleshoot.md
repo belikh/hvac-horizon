@@ -40,11 +40,11 @@ The AC mode does not change until the current state has lasted long enough.
 - The defaults are 5 minutes for `min_on_min` and 3 minutes for `min_off_min`, used when the fields are unset.
 - Devices in `fleet` use the same two times. A stall stop and the safety stops ignore them.
 
-Change them in the reconfigure form. Each accepts 0 to 120 minutes.
+Change them in the **Devices and power limits** section of reconfigure. Each accepts 0 to 120 minutes.
 
 ## Lock with a PIN
 
-1. Open the reconfigure form. Enter a value in **Lock PIN**. The field is a password box.
+1. Open reconfigure and select **Advanced**. Enter a value in **Lock PIN**. The field is a password box. Select **Save and close** afterwards.
 2. Call `hvac_horizon.set_lock` with `locked: true`. Locking needs no PIN in the call, but fails when no PIN is configured.
 3. Call `hvac_horizon.set_lock` with `locked: false` and `pin` set to the PIN. Unlocking needs the same PIN.
 

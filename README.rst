@@ -33,7 +33,7 @@ Add ``https://github.com/belikh/hvac-horizon`` to HACS as a custom repository wi
    :target: https://hacs.xyz/
    :alt: HACS custom repository
 
-Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon* and pick the AC climate entity, its power sensor, the room temperature sensors and the outdoor temperature sensor. To turn control on later, open the integration card, select the entry menu and choose *Reconfigure*.
+Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon* and pick the AC climate entity, its power sensor, the room temperature sensors and the outdoor temperature sensor, then choose *Finish now* in the menu, or open any of seven optional sections first. To turn control on later, open the integration card, select the entry menu, choose *Reconfigure* and open *Advanced*.
 
 The status sensor shows *learning* until the first fit. The fit needs at least three hours with the AC on and three hours with it off, in at least three separate runs.
 

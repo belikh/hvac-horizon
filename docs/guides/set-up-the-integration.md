@@ -18,16 +18,34 @@ Four fields are required. Have these entities ready.
 ## Add the integration
 
 1. Select **Add integration** above. Or open **Settings > Devices & services**, select **Add integration**, and search for **HVAC Horizon**.
-2. Fill in the four required fields.
-3. Select **Submit**.
+2. Fill in the four required fields in the **Room** step and select **Submit**.
+3. In the **What next** menu, select **Finish now** to create the entry in observe-only mode. Or open a section from the steps below.
+4. After a section, the menu returns. Open another section or select **Finish now**.
 
 The entry takes the friendly name of the climate entity. One climate entity can have one entry. A second entry for the same entity stops with `This AC is already set up.`
 
 The integration takes a sample every 5 minutes.
 
+## Setup steps
+
+The first form has the four required fields only. Every other field sits in one of seven optional sections. A section is one form. Submit it empty to keep the defaults. A section with an error, such as a malformed schedule block, shows the error on that section and stores nothing from it.
+
+| Step | Step ID | Fields |
+| :--- | :--- | :--- |
+| Room | `room` | `climate`, `power`, `room_sensors`, `outdoor` |
+| Comfort and presets | `comfort` | `comfort_c`, `eco_c`, `boost_c`, `away_c`, `heat_eco_c`, `heat_boost_c`, `comfort_energy_weight`, `schedule`, `schedule_blocks`, `vacation`, `vacation_c`, `away_delay_min` |
+| Price | `price` | `price`, `price_cheap`, `price_expensive`, `energy` |
+| Heater | `heater` | `heater_switch`, `heater_inverted`, `radiators`, `heater_algorithm`, `heater_kp`, `heater_ki`, `heater_kd`, `tpi_coef_int`, `tpi_coef_ext`, `tpi_threshold_high`, `tpi_threshold_low`, `max_on_percent`, `output_min`, `output_max`, `output_min_entity`, `output_max_entity`, `valve`, `trv_temperature`, `boiler`, `ac_heat`, `mpc_heat_plan` |
+| Occupancy and windows | `occupancy` | `presence`, `motion`, `motion_away_min`, `window`, `window_delay_min`, `window_actuator`, `cover`, `window_azimuth`, `window_area_m2`, `irradiance`, `weather` |
+| Air quality and humidity | `air_quality` | `humidity`, `room_humidity`, `co2`, `pm25`, `fan`, `auto_fan`, `dehumidifier`, `humidifier`, `coil_dry`, `dry_for_humidity`, `house_sealed`, `economizer_fan`, `whole_house_fan` |
+| Devices and power limits | `devices` | `climate_2`, `power_2`, `fleet`, `dispatch_mode`, `whole_house_power`, `shed_max_w`, `shed_loads`, `compressor_group`, `min_on_min`, `min_off_min` |
+| Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `ai_conversation`, `ai_budget_per_day` |
+
+The tables below group the same fields by topic.
+
 ## Optional fields
 
-Every optional field is off until you set it, unless the table gives a default. Labels are the form labels.
+Every optional field is off until you set it, unless the table gives a default. Labels are the form labels. The setup steps table above shows which step holds each field.
 
 ### Price and energy
 
@@ -140,8 +158,6 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | `ai_conversation` | AI conversation agent for the investigator (optional) | none | Writes the investigator answer when the AC mode changes, within the daily budget. |
 | `ai_budget_per_day` | Model calls per day for the investigator | none, 0 is off | Daily limit on model calls. |
 
-The form also has `accuracy_panel`, which is in the heater and limits table above.
-
 ## Observe only and control
 
 Observe only is the default. The `control` field is off.
@@ -150,9 +166,9 @@ With control off, the integration reads sensors, learns and publishes forecasts.
 
 To turn control on:
 
-1. Open the HVAC Horizon entry and start its reconfigure action. The form is titled **Edit HVAC Horizon**.
-2. Turn on **Let HVAC Horizon control the AC (off = observe only)**.
-3. Select **Submit**. The entry reloads.
+1. Open the HVAC Horizon entry and start its reconfigure action. The menu is titled **Edit HVAC Horizon**.
+2. Select **Advanced** and turn on **Let HVAC Horizon control the AC (off = observe only)**.
+3. Select **Submit**, then **Save and close**. The entry reloads.
 
 The form reports `Settings updated. Stored samples are kept.` when the save works.
 
@@ -160,7 +176,9 @@ With control on, the Target temperature and Preset sensors show the planned valu
 
 ## Change settings later
 
-The reconfigure form replaces the whole set of fields. A field you clear is removed. The lock PIN is the exception: a blank PIN box keeps the stored PIN.
+Reconfigure opens a menu with the same sections, plus **Room**, and **Save and close**. Open a section, change it and submit. The menu returns. Nothing is saved until you select **Save and close**.
+
+A section replaces its own fields. A field you clear in a section is removed. Sections you do not open keep their values. The lock PIN is the exception: a blank PIN box keeps the stored PIN.
 
 Stored samples stay. Only the `reset_learning` service clears them. See [Services and presets](services-and-presets.md).
 
