@@ -9,8 +9,10 @@ follow the preset, so eco shows its own cooling setpoint. Setting a temperature 
 the base the presets work from. It leaves the preset unchanged. Under eco the shown value stays at the eco
 setpoint until the preset changes.
 
-hvac_mode is the user's intent and hvac_action is what the devices do. With control off the mode reads off and
-the `control` attribute reads "observe only".
+hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose
+(cool by default). hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
+RUNNING_MIN_KW), idle while the AC runs the fan only. With control off the mode reads off and the `control` attribute
+reads "observe only".
 """
 
 from __future__ import annotations
@@ -89,14 +91,10 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
+        """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (cool by default)."""
         if not self._entry.data.get(CONF_CONTROL) or self.coordinator.user_off:
             return HVACMode.OFF
-        state = self.hass.states.get(self._entry.data[CONF_CLIMATE])
-        if state is not None and state.state == "cool":
-            return HVACMode.COOL
-        if self._has_heat and ((state is not None and state.state == "heat") or (self.coordinator.data or {}).get("heater_pwm_on")):
-            return HVACMode.HEAT
-        return HVACMode.OFF
+        return HVACMode.HEAT if self._has_heat and self.coordinator.user_mode == "heat" else HVACMode.COOL
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
@@ -106,7 +104,8 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         # Off holds the room off. Cool and heat return it to automatic control, which starts the AC only when the room needs it.
-        self.coordinator.set_user_off(hvac_mode == HVACMode.OFF)
+        # The chosen mode is stored with the hold.
+        self.coordinator.set_user_off(hvac_mode == HVACMode.OFF, None if hvac_mode == HVACMode.OFF else str(hvac_mode))
         await self.coordinator.async_refresh()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:

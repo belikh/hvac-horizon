@@ -6870,3 +6870,86 @@ async def test_ac_heat_setpoint_is_raised_by_the_offset_when_the_ac_reads_warmer
     heat_target = entry.runtime_data._heat_on_below_c
     assert _setpoints(calls) == [round(heat_target + 2.0)]
     assert entry.runtime_data.data["ac_sensor_offset_k"] == 2.0
+
+
+# ---- the entity mode is the user's intent, the action is what the compressor does -----------------------------
+
+
+async def test_entity_mode_is_cool_with_control_on_even_when_the_ac_is_not_running(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data)
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls
+    freezer.tick(timedelta(minutes=1))
+    set_room(hass, "22.0")
+    await refresh(hass, entry)  # the AC stopped: decision off
+    assert hass.states.get(CLIMATE).state == "off"
+    assert hass.states.get(entity_id).state == "cool"
+    freezer.tick(timedelta(minutes=1))
+    set_room(hass, "26.0")
+    await refresh(hass, entry)  # decision cool, the restart delay holds the start, the device is still off
+    assert entry.runtime_data.data["pending"] is not None
+    assert hass.states.get(entity_id).state == "cool"
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"
+
+
+async def test_entity_mode_is_off_with_the_hold_and_with_control_off(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data)
+    assert hass.states.get(entity_id).state == "cool"
+    await _room_off(hass, entity_id)
+    assert hass.states.get(entity_id).state == "off"
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "off"
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "cool"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "cool"
+    # With control off the mode reads off.
+    off_entry, off_entity, _ = await _setup_room_climate(hass, {**config_data}, ac_state="cool")
+    assert hass.states.get(off_entity).state == "off"
+
+
+async def test_entity_mode_heat_is_the_last_mode_the_user_chose_and_is_stored(hass, enable_custom_integrations, config_data, freezer, hass_storage):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, extra={CONF_HEATER_SWITCH: HEATER}, states={HEATER: ("off", {})})
+    assert hass.states.get(entity_id).state == "cool"  # the default
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "heat"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "heat"
+    assert (await _stored_payload(hass, entry, hass_storage))["user_mode"] == "heat"
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).state == "heat"
+    # Off keeps the stored mode, and turning it on again returns to it.
+    await _room_off(hass, entity_id)
+    assert hass.states.get(entity_id).state == "off"
+    assert entry.runtime_data.user_mode == "heat"
+
+
+@pytest.mark.parametrize(
+    "ac_state,power,action",
+    [("cool", "1100", "cooling"), ("cool", "50", "idle"), ("off", "0", "idle"), ("heat", "1100", "heating"), ("heat", "50", "idle")],
+)
+async def test_action_is_cooling_only_when_the_compressor_runs(hass, enable_custom_integrations, config_data, freezer, ac_state, power, action):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, extra={"min_off_min": 0})
+    hass.states.async_set(CLIMATE, ac_state, _ac_attrs())
+    hass.states.async_set(POWER, power, {"unit_of_measurement": "W", "device_class": "power"})
+    coordinator = entry.runtime_data
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == action
+
+
+async def test_action_of_a_fleet_climate_follows_its_own_power_sensor(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    fleet = [{"device_id": "small", "kind": "cool", "entity_id": SMALL_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0, "power_sensor": "sensor.small_power"}]
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, states={SMALL_AC: ("off", {"temperature": 30.0}), "sensor.small_power": ("1000", {})}, extra={"fleet": fleet}
+    )
+    hass.states.async_set(SMALL_AC, "cool", {"temperature": 24.0})
+    entry.runtime_data.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "cooling"
+    hass.states.async_set("sensor.small_power", "40")
+    entry.runtime_data.async_update_listeners()
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"

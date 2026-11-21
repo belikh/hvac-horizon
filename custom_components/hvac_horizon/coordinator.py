@@ -178,6 +178,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._locked = False
         self._target_override_c: float | None = None  # the target the user set on the climate entity; stored
         self._user_off = False  # the user turned the room off on the climate entity; stored
+        self._user_mode = "cool"  # the mode the user last chose on the climate entity; stored with the hold
         self._manual_preset: str | None = None  # a preset the user chose on the climate entity
         self._manual_scheduled: str | None = None  # the scheduled preset when the manual one started; a change of schedule ends it
         self._heater_pid: Pid | None = None

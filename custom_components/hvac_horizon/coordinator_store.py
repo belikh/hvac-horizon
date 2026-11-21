@@ -56,6 +56,7 @@ class StoreMixin:
     _timed_duration_min: float
     _timed_preset: str | None
     _timed_started_min: float | None
+    _user_mode: str
     _user_off: bool
     _valve_commanded_pct: float
     _valve_driven: str | None
@@ -161,6 +162,7 @@ class StoreMixin:
         override = data.get("target_override_c")
         self._target_override_c = float(override) if override is not None else None
         self._user_off = bool(data.get("user_off", False))
+        self._user_mode = "heat" if data.get("user_mode") == "heat" else "cool"
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
         self._locked = bool(data.get("locked", False))
@@ -263,6 +265,7 @@ class StoreMixin:
             "investigation_report": self._report,
             "target_override_c": self._target_override_c,
             "user_off": self._user_off,
+            "user_mode": self._user_mode,
             "locked": self._locked,  # the PIN stays in the config entry and is never stored here
             "house_mode": house_mode_from_store(self.hass.data.get(DOMAIN, {})),
             "inhibit_until_min": self._inhibit_until_min,

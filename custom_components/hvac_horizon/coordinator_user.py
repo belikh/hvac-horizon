@@ -19,8 +19,10 @@ from .const import (
     CONF_COMFORT_C,
     CONF_HEATER_SWITCH,
     CONF_LOCK_PIN,
+    CONF_POWER,
     DEFAULT_COMFORT_C,
 )
+from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
 from custom_components.hvac_horizon.fleet import COOL
 from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.pid import Pid
@@ -33,6 +35,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
 )
 from custom_components.hvac_horizon.forecast import forecast
+from custom_components.hvac_horizon.coordinator_common import _float
 
 
 class UserMixin:
@@ -58,6 +61,7 @@ class UserMixin:
     _timed_started_min: float | None
     _tuner: RelayTuner | None
     _tuner_started_s: float
+    _user_mode: str
     _user_off: bool
     entry: ConfigEntry
     hass: HomeAssistant
@@ -107,19 +111,31 @@ class UserMixin:
     def device_action(self) -> str:
         """What the room's devices do now, from their own states: "cooling", "heating", "idle" or "off".
 
-        Reads the first AC, the heater switch and the fleet devices. "off" means the user holds the room off and
-        nothing runs. A room with control off and nothing running is "idle".
+        Reads the first AC, the heater switch and the fleet devices. A climate in cool or heat counts as running only when
+        its power sensor reads at least RUNNING_MIN_KW (below that it runs the fan only, which is "idle"). A device with no
+        power reading counts by its state. "off" means the user holds the room off and nothing runs. A room with control
+        off and nothing running is "idle".
         """
         data = self.entry.data
         climate = self.hass.states.get(data[CONF_CLIMATE])
+        fan_only = False
         if climate is not None and climate.state in ("cool", "heat"):
-            return "cooling" if climate.state == "cool" else "heating"
+            power = _float(self.hass.states.get(data[CONF_POWER]))
+            if power is None or power / 1000.0 >= RUNNING_MIN_KW:
+                return "cooling" if climate.state == "cool" else "heating"
+            fan_only = True
         heater = self.hass.states.get(data[CONF_HEATER_SWITCH]) if data.get(CONF_HEATER_SWITCH) else None
         if heater is not None and heater.state == "on":
             return "heating"
         for device in self._fleet():
             if self._fleet_running(device):
+                sensor = _float(self.hass.states.get(device.power_sensor)) if device.power_sensor else None
+                if sensor is not None and sensor / 1000.0 < RUNNING_MIN_KW:
+                    fan_only = True
+                    continue
                 return "cooling" if device.kind == COOL else "heating"
+        if fan_only:
+            return "idle"
         return "off" if self._user_off else "idle"
 
     @property
@@ -129,6 +145,11 @@ class UserMixin:
     @property
     def user_off(self) -> bool:
         return self._user_off
+
+    @property
+    def user_mode(self) -> str:
+        """The mode the user last chose on the climate entity, "cool" or "heat". Shown as hvac_mode while the room is not held off."""
+        return self._user_mode
 
     def _require_unlocked(self) -> None:
         if not lock_allows_control(self._locked):
@@ -140,10 +161,15 @@ class UserMixin:
         self._target_override_c = float(target_c)
         self._store.async_delay_save(self._save_payload, 0)
 
-    def set_user_off(self, off: bool) -> None:
-        """Hold the room off (AC and heater) or return it to automatic control. The next tick sends the change through the usual gates."""
+    def set_user_off(self, off: bool, mode: str | None = None) -> None:
+        """Hold the room off (AC and heater) or return it to automatic control. The next tick sends the change through the usual gates.
+
+        `mode` ("cool" or "heat") records the mode the user chose and is kept with the hold.
+        """
         self._require_unlocked()
         self._user_off = off
+        if mode in ("cool", "heat"):
+            self._user_mode = mode
         self._store.async_delay_save(self._save_payload, 0)
 
     def set_manual_preset(self, preset: str) -> None:
