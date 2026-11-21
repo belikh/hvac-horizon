@@ -22,7 +22,7 @@ FIT_EVERY_N_SAMPLES = 12  # refit about hourly
 CONF_HUMIDITY = "humidity"  # outdoor humidity sensor
 CONF_ROOM_HUMIDITY = "room_humidity"  # optional humidity sensor in the room
 CONF_ENERGY = "energy"
-STORE_VERSION = 3  # 2 adds setpoint, mode, rooms, humidity, price and energy fields; 3 adds lock, house mode, inhibit, timed preset, shed loads and window-opened flag
+STORE_VERSION = 4  # 2 adds setpoint, mode, rooms, humidity, price and energy fields; 3 adds lock, house mode, inhibit, timed preset, shed loads and window-opened flag; 4 makes user_mode decide which devices run
 
 CONF_CONTROL = "control"  # False by default: observe only
 CONF_WINDOW = "window"

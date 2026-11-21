@@ -5,7 +5,8 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 ## Unreleased
 
 - Fix: the room entity's mode now decides which devices run. In 0.5.0 the mode was only stored, so the AC cooled a warm room in `heat` mode. `cool` runs cooling devices only, `heat` runs heating devices only.
-- New `auto` mode runs both, and is the default. An entry that was in `cool` or `heat` keeps that mode.
+- New `auto` mode runs both, and is the default. A mode stored by 0.5.0 or earlier loads as `auto`, which is how those versions behaved. Store version 4.
+- The mode also gates the boiler, the valve, the whole-house fan, the economizer fan and the window actuator. Ventilation for CO2 and PM2.5 runs in every mode.
 - A room whose only heat source is a heating fleet device now offers `heat`.
 - `climate.turn_on` returns to the mode chosen before off. Before, Home Assistant's default picked `heat` when the room had a heater.
 - The room entity's `hvac_action` follows the AC, its power sensor, the heater switch and the fleet devices as they change. Before, it updated only on the 5 minute tick, so it could read idle while the compressor ran.

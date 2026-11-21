@@ -82,7 +82,13 @@ USER_MODES = ("cool", "heat", "auto")  # the modes the room climate entity offer
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 class _HorizonStore(Store[dict[str, Any]]):
-    """Store that accepts older payloads. Keys added after version 2 are optional, so older data loads as it is."""
+    """Store that accepts older payloads. Keys added after version 2 are optional, so older data loads as it is.
+
+    Before version 4 `user_mode` was stored ("cool" by default) and control ignored it, so every room both cooled and
+    heated. An older payload drops the key, which loads as "auto" and keeps that behaviour.
+    """
 
     async def _async_migrate_func(self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]) -> dict[str, Any]:
+        if old_major_version < 4 and isinstance(old_data, dict):
+            old_data = {key: value for key, value in old_data.items() if key != "user_mode"}
         return old_data

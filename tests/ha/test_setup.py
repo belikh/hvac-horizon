@@ -5422,7 +5422,7 @@ async def test_store_payload_holds_no_pin_and_old_payloads_load(hass, enable_cus
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     stored = hass_storage[f"hvac_horizon.{entry.entry_id}"]
-    assert stored["version"] == 3
+    assert stored["version"] == 4
     assert stored["data"]["locked"] is True
     assert "1234" not in str(stored)
     # A version 2 payload has none of the new keys. They take their defaults.
@@ -7489,3 +7489,86 @@ async def test_turn_on_returns_to_the_mode_chosen_before_off(hass, enable_custom
     await hass.services.async_call("climate", "turn_on", {"entity_id": entity_id}, blocking=True)
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == "cool"
+
+
+async def test_ac_heat_obeys_the_room_mode(hass, enable_custom_integrations, config_data, freezer):
+    """An AC that heats: cool mode stops it and sends no heat, heat lets it heat a cold room again."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, modes, temps = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
+    coordinator = entry.runtime_data
+    assert modes == ["heat"]  # auto, the default
+
+    async def tick():
+        freezer.tick(timedelta(minutes=10))
+        for sensor, value in ((ROOM_A, "20.0"), (ROOM_B, "20.0"), (OUTDOOR, "10.0")):
+            hass.states.async_set(sensor, value, {"unit_of_measurement": "°C", "device_class": "temperature"}, force_update=True)
+        await refresh(hass, entry)
+
+    coordinator.set_user_off(False, "cool")
+    await tick()
+    assert modes == ["heat", "off"]
+    await tick()
+    assert modes == ["heat", "off"]
+    assert entry.runtime_data.data["action"] != "off: sensor stalled"
+    coordinator.set_user_off(False, "heat")
+    await tick()
+    assert modes == ["heat", "off", "heat"]
+
+
+async def test_a_mode_stored_before_version_4_loads_as_auto(hass, enable_custom_integrations, config_data, hass_storage, freezer):
+    """0.5.0 stored "cool" by default and ignored it. After the update such a room must still heat."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass_storage[f"hvac_horizon.{OFF_ENTRY_ID}"] = {
+        "version": 3, "minor_version": 1, "key": f"hvac_horizon.{OFF_ENTRY_ID}", "data": {"entries": [], "user_mode": "cool"},
+    }
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(HEATER, "off")
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, "17.0")
+    hass.states.async_set(OUTDOOR, "8.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True, CONF_HEATER_SWITCH: HEATER}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.user_mode == "auto"
+    for _ in range(2):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "17.0")
+        hass.states.async_set(OUTDOOR, "8.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert ("turn_on", HEATER, None) in calls
+
+
+async def test_a_stored_heat_mode_reads_auto_once_the_entry_cannot_heat(hass, enable_custom_integrations, config_data, hass_storage, freezer):
+    """The heater was removed through reconfigure. The entity and control agree on auto, and the room cools."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass_storage[f"hvac_horizon.{OFF_ENTRY_ID}"] = {
+        "version": 4, "minor_version": 1, "key": f"hvac_horizon.{OFF_ENTRY_ID}", "data": {"entries": [], "user_mode": "heat"},
+    }
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, "27.0")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    assert hass.states.get(entity_id).state == "auto"
+    assert "heat" not in hass.states.get(entity_id).attributes["hvac_modes"]
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls
+
+
+async def test_heat_mode_keeps_the_window_actuator_shut(hass, enable_custom_integrations, config_data, freezer):
+    """Room 26 C with 18 C outdoors opens the window in auto. In heat mode free cooling stays off."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="26.0", extra={"window_actuator": "cover.test_window"})
+    assert calls == [("open", "cover.test_window")]
+    entry.runtime_data.set_user_off(False, "heat")
+    await refresh(hass, entry)
+    assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
+    await refresh(hass, entry)
+    assert calls[-1] == ("close", "cover.test_window") and len(calls) == 2

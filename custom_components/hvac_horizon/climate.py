@@ -27,7 +27,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_AC_HEAT, CONF_CLIMATE, CONF_CONTROL, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
+from .const import CONF_CLIMATE, CONF_CONTROL, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
 from .coordinator import HorizonCoordinator
 
 PRESETS = ["comfort", "eco", "boost", "away"]
@@ -61,9 +61,8 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_room"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
-        # Heat is offered when the room has a heater switch. An AC that heats by itself reports heat too, so it is listed as well.
-        fleet_heat = any(isinstance(d, dict) and d.get("kind") == "heat" for d in entry.data.get(CONF_FLEET) or [])
-        self._has_heat = bool(entry.data.get(CONF_HEATER_SWITCH)) or bool(entry.data.get(CONF_AC_HEAT, False)) or fleet_heat
+        # Heat is offered when the entry can heat: a heater switch, the AC or a heating fleet device.
+        self._has_heat = coordinator.has_heat
         # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
         self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else []) + [HVACMode.AUTO]
 
@@ -138,10 +137,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (auto by default)."""
         if not self._entry.data.get(CONF_CONTROL) or self.coordinator.user_off:
             return HVACMode.OFF
-        mode = self.coordinator.user_mode
-        if mode == "heat" and self._has_heat:
-            return HVACMode.HEAT
-        return HVACMode.COOL if mode == "cool" else HVACMode.AUTO
+        return HVACMode(self.coordinator.user_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:

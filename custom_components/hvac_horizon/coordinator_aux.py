@@ -167,7 +167,7 @@ class AuxMixin:
         # House away ends the open advice, so an actuator this integration opened closes at once.
         open_advice = (
             result.get("window_advice") == "open" or result.get("economizer") in ("open_windows", "fan_assist")
-        ) and not house_away
+        ) and not house_away and self.cooling_permitted  # opening a window to cool is cooling; heat mode leaves it shut
         # Open advice needs a room that wants cooling. A wanted or running heater blocks it.
         heater_id = self._heater_switch()
         heater_state = self.hass.states.get(heater_id) if heater_id else None

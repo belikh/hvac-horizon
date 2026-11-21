@@ -18,12 +18,14 @@ from .const import (
     CONF_CLIMATE,
     CONF_COMFORT_C,
     CONF_HEATER_SWITCH,
+    CONF_AC_HEAT,
+    CONF_MPC_HEAT_PLAN,
     CONF_LOCK_PIN,
     CONF_POWER,
     DEFAULT_COMFORT_C,
 )
 from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
-from custom_components.hvac_horizon.fleet import COOL
+from custom_components.hvac_horizon.fleet import COOL, HEAT
 from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.decide import Preset
@@ -147,19 +149,35 @@ class UserMixin:
         return self._user_off
 
     @property
+    def has_heat(self) -> bool:
+        """True when the entry can heat: a heater switch, the AC (ac_heat or mpc_heat_plan) or a heating fleet device."""
+        data = self.entry.data
+        return (
+            bool(data.get(CONF_HEATER_SWITCH))
+            or bool(data.get(CONF_AC_HEAT, False))
+            or bool(data.get(CONF_MPC_HEAT_PLAN, False))
+            or any(device.kind == HEAT for device in self._fleet())
+        )
+
+    @property
     def user_mode(self) -> str:
-        """The mode the user chose on the climate entity: "cool", "heat" or "auto". Shown as hvac_mode while the room is not held off."""
+        """The mode in force: "cool", "heat" or "auto". The climate entity shows it and control obeys it.
+
+        A stored "heat" on an entry that can no longer heat reads "auto", so the entity and control agree.
+        """
+        if self._user_mode == "heat" and not self.has_heat:
+            return "auto"
         return self._user_mode
 
     @property
     def cooling_permitted(self) -> bool:
-        """True when the chosen mode lets the room cool: cool or auto. In heat mode nothing cools."""
-        return self._user_mode in ("cool", "auto")
+        """True when the mode lets the room cool: cool or auto. In heat mode nothing cools."""
+        return self.user_mode in ("cool", "auto")
 
     @property
     def heating_permitted(self) -> bool:
-        """True when the chosen mode lets the room heat: heat or auto. In cool mode nothing heats."""
-        return self._user_mode in ("heat", "auto")
+        """True when the mode lets the room heat: heat or auto. In cool mode nothing heats."""
+        return self.user_mode in ("heat", "auto")
 
     def _require_unlocked(self) -> None:
         if not lock_allows_control(self._locked):

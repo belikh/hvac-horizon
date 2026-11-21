@@ -278,14 +278,17 @@ class AcMixin:
             fan_on = pwm_on(co2_rate * 100.0, FAN_PWM_WINDOW_MIN, now / 60.0) or pm25_on
         # The economizer fan_assist phase runs the fan too, when the economizer_fan option is on and the gates pass.
         house_home = effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
-        if fan_assist_on(result.get("economizer"), bool(self.entry.data.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled):
+        # Free cooling is cooling, so heat mode leaves it out. Ventilation for CO2 and PM2.5 above runs in every mode.
+        if self.cooling_permitted and fan_assist_on(
+            result.get("economizer"), bool(self.entry.data.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled
+        ):
             fan_on = True
         started = self._inputs_seen  # no switch starts before the first valid room and outdoor readings
         await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on and started, track=True)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify" and started, track=True)
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
         heat_ok = result.get("heating_allowed", True)
-        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
         outdoor_now = self._outdoor_now()
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
@@ -296,7 +299,7 @@ class AcMixin:
             fan_on=self._switch_on(self.entry.data.get(CONF_WHOLE_HOUSE_FAN)),
         )
         result["whole_house_fan"] = fan_ok
-        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started and self.cooling_permitted, track=True)
         if self._user_off:
             return  # _user_off_stop already sent the off commands to the ACs, the heater switch and the fleet
         # The first AC's block below returns early on several paths, so the second AC is driven before it.
