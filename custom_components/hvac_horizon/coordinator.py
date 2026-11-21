@@ -249,6 +249,13 @@ MPC_HEAT_COST_WEIGHT = 50.0
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 
+class _HorizonStore(Store[dict[str, Any]]):
+    """Store that accepts older payloads. Keys added after version 2 are optional, so older data loads as it is."""
+
+    async def _async_migrate_func(self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]) -> dict[str, Any]:
+        return old_data
+
+
 class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
@@ -259,7 +266,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=SAMPLE_INTERVAL_S),
         )
         self.entry = entry
-        self._store: Store[dict[str, Any]] = Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}")
+        self._store: Store[dict[str, Any]] = _HorizonStore(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._entries: list[Entry] = []
         self._fit: Fit | None = None
         self._fit_reason = "not enough data"
@@ -452,7 +459,30 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._user_off = bool(data.get("user_off", False))
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
+        self._locked = bool(data.get("locked", False))
+        house_mode = data.get("house_mode")
+        if house_mode in ("home", "away"):
+            self.hass.data.setdefault(DOMAIN, {})["house_mode"] = house_mode
+        now_min = dt_util.utcnow().timestamp() / 60.0
+        inhibit = data.get("inhibit_until_min")
+        self._inhibit_until_min = float(inhibit) if inhibit is not None and float(inhibit) > now_min else None
+        timed = data.get("timed_preset")
+        self._timed_preset = None
+        self._timed_started_min = None
+        self._timed_duration_min = 0.0
+        if isinstance(timed, dict) and timed.get("name") is not None:
+            started, duration = float(timed["started_min"]), float(timed["duration_min"])
+            if started + duration > now_min:
+                self._timed_preset = str(timed["name"])
+                self._timed_started_min = started
+                self._timed_duration_min = duration
+        self._shed_loads = {str(e) for e in data.get("shed_loads", [])}
+        self._actuator_opened_by_us = bool(data.get("actuator_opened_by_us", False))
         self._refit()
+
+    def save_soon(self) -> None:
+        """Queue a store write now. Used by the set_house_mode service."""
+        self._store.async_delay_save(self._save_payload, 0)
 
     def what_if(self, room_c: float, target_c: float, outdoor_c: float, power_kw: float) -> dict[str, Any]:
         """Forecast minutes, energy and cost for given conditions, using the current fit and price slots."""
@@ -473,6 +503,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._timed_preset = preset
         self._timed_started_min = now_min
         self._timed_duration_min = minutes
+        self._store.async_delay_save(self._save_payload, 0)
 
     def _effective_preset(self, now_min: float, normal: str) -> str:
         if self._manual_preset is not None:
@@ -532,6 +563,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if locked and not configured:
             return False
         self._locked = locked
+        self._store.async_delay_save(self._save_payload, 0)
         return True
 
     def reset_learning(self) -> None:
@@ -597,6 +629,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "investigation_report": self._report,
             "target_override_c": self._target_override_c,
             "user_off": self._user_off,
+            "locked": self._locked,  # the PIN stays in the config entry and is never stored here
+            "house_mode": house_mode_from_store(self.hass.data.get(DOMAIN, {})),
+            "inhibit_until_min": self._inhibit_until_min,
+            "timed_preset": None
+            if self._timed_preset is None or self._timed_started_min is None
+            else {"name": self._timed_preset, "started_min": self._timed_started_min, "duration_min": self._timed_duration_min},
+            "shed_loads": sorted(self._shed_loads),
+            "actuator_opened_by_us": self._actuator_opened_by_us,
         }
 
     async def async_shutdown_store(self) -> None:
@@ -1468,6 +1508,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for entity_id in to_shed:
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
             self._shed_loads.add(entity_id)
+            self._store.async_delay_save(self._save_payload, 0)
 
     async def _drive_restore(self, entity_id: str) -> bool:
         """Switch a load back on after the power limit shed it. Runs only with control on, unlocked and not inhibited.
@@ -1484,7 +1525,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False  # keep the record until the load reports again
         sent = state.state != "on"
         await self._drive_switch(entity_id, True)
-        self._shed_loads.discard(entity_id)
+        if entity_id in self._shed_loads:
+            self._shed_loads.discard(entity_id)
+            self._store.async_delay_save(self._save_payload, 0)
         return sent
 
     async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
@@ -1519,7 +1562,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         domain = actuator.split(".", 1)[0]
         service = {"open": "open_cover" if domain == "cover" else "turn_on", "close": "close_cover" if domain == "cover" else "turn_off"}[command]
         await self.hass.services.async_call(domain, service, {"entity_id": actuator}, blocking=True)
-        self._actuator_opened_by_us = command == "open"
+        opened = command == "open"
+        if opened != self._actuator_opened_by_us:
+            self._actuator_opened_by_us = opened
+            self._store.async_delay_save(self._save_payload, 0)
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""
@@ -1723,6 +1769,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             manual = self._device_setpoint()
             if manual != self._inhibited_for_setpoint:
                 self._inhibit_until_min = now_min + INHIBIT_MIN
+                self._store.async_delay_save(self._save_payload, 0)
                 self._inhibited_for_setpoint = manual
         else:
             self._inhibited_for_setpoint = None

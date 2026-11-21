@@ -4704,3 +4704,113 @@ async def test_climate_target_survives_a_reload(hass, enable_custom_integrations
     await hass.async_block_till_done()
     assert entry.runtime_data.comfort_c == 22.5
     assert hass.states.get(entity_id).attributes["temperature"] == 22.5
+
+
+async def _restart(hass, entry):
+    """Unload and set up the entry again. The house mode lives in hass.data, so it is cleared as a restart would."""
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.data.get(DOMAIN, {}).pop("house_mode", None)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_lock_survives_a_reload(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data, extra={"lock_pin": "1234"})
+    await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    await _restart(hass, entry)
+    coordinator = entry.runtime_data
+    assert coordinator._locked is True
+    await refresh(hass, entry)
+    assert coordinator.data["action"] == "locked"
+
+
+async def test_house_mode_away_survives_a_reload(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    await hass.services.async_call("hvac_horizon", "set_house_mode", {"mode": "away"}, blocking=True)
+    await hass.async_block_till_done()
+    await _restart(hass, entry)
+    assert hass.data[DOMAIN]["house_mode"] == "away"
+
+
+async def test_timed_preset_survives_a_reload_with_the_same_end(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    now_min = dt_util.utcnow().timestamp() / 60.0
+    entry.runtime_data.start_timed_preset("away", 120.0, now_min)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=30))
+    await _restart(hass, entry)
+    coordinator = entry.runtime_data
+    assert coordinator._timed_preset == "away"
+    assert coordinator._timed_started_min + coordinator._timed_duration_min == now_min + 120.0
+    later = dt_util.utcnow().timestamp() / 60.0
+    assert coordinator._effective_preset(later, "comfort") == "away"
+
+
+async def test_expired_timed_preset_does_not_return_after_a_reload(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    entry.runtime_data.start_timed_preset("away", 20.0, dt_util.utcnow().timestamp() / 60.0)
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=30))
+    await _restart(hass, entry)
+    assert entry.runtime_data._timed_preset is None
+
+
+async def test_expired_inhibit_is_dropped_and_a_running_one_is_kept(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    end = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    entry.runtime_data._inhibit_until_min = end
+    entry.runtime_data.save_soon()
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=10))
+    await _restart(hass, entry)
+    assert entry.runtime_data._inhibit_until_min == end
+    entry.runtime_data.save_soon()
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(minutes=30))
+    await _restart(hass, entry)
+    assert entry.runtime_data._inhibit_until_min is None
+
+
+async def test_window_opened_by_us_is_closed_after_a_reload(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    calls = _window_actuator_fakes(hass)
+    entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    assert calls == [("open", "cover.test_window")]
+    await _restart(hass, entry)
+    assert entry.runtime_data._actuator_opened_by_us is True
+    hass.states.async_set(OUTDOOR, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
+
+
+async def test_shed_loads_survive_a_reload(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    entry.runtime_data._shed_loads.add("switch.test_load")
+    entry.runtime_data.save_soon()
+    await hass.async_block_till_done()
+    await _restart(hass, entry)
+    assert entry.runtime_data._shed_loads == {"switch.test_load"}
+
+
+async def test_store_payload_holds_no_pin_and_old_payloads_load(hass, enable_custom_integrations, config_data, hass_storage):
+    entry, _ = await setup_heater(hass, config_data, extra={"lock_pin": "1234"})
+    await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    stored = hass_storage[f"hvac_horizon.{entry.entry_id}"]
+    assert stored["version"] == 3
+    assert stored["data"]["locked"] is True
+    assert "1234" not in str(stored)
+    # A version 2 payload has none of the new keys. They take their defaults.
+    hass_storage[f"hvac_horizon.{entry.entry_id}"] = {"version": 2, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}", "data": {"entries": []}}
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator._locked is False
+    assert coordinator._shed_loads == set()
+    assert coordinator._timed_preset is None

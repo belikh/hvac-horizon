@@ -82,6 +82,7 @@ def _register_services(hass: HomeAssistant) -> None:
         hass.data.setdefault(DOMAIN, {})["house_mode"] = mode
         for entry in hass.config_entries.async_entries(DOMAIN):
             if hasattr(entry, "runtime_data"):
+                entry.runtime_data.save_soon()
                 await entry.runtime_data.async_request_refresh()
 
     from homeassistant.core import SupportsResponse
