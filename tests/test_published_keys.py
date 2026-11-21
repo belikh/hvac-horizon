@@ -1,7 +1,7 @@
 """Every key the coordinator writes to its result is shown on an entity or read back by the coordinator.
 
 A key counts as shown when sensor.py lists it in STATUS_KEYS or returns it from extra_state_attributes.
-A key counts as read when coordinator.py reads it from result. ALLOWED holds internal keys, each with a reason.
+A key counts as read when coordinator.py or a coordinator_*.py mixin reads it from result. ALLOWED holds internal keys, each with a reason.
 """
 
 import ast
@@ -21,6 +21,11 @@ def _tree(name: str) -> ast.Module:
     return ast.parse((PKG / name).read_text(), filename=name)
 
 
+def _coordinator_trees() -> list[ast.Module]:
+    """The coordinator module and the mixin modules split from it (coordinator_*.py)."""
+    return [_tree(path.name) for path in sorted(PKG.glob("coordinator*.py"))]
+
+
 def _is_result(node: ast.AST) -> bool:
     return isinstance(node, ast.Name) and node.id == "result"
 
@@ -28,7 +33,7 @@ def _is_result(node: ast.AST) -> bool:
 def _written_keys() -> set[str]:
     """Keys the coordinator adds to a result: result["k"] = ..., a result dict literal, and result.update(k=...)."""
     keys = set()
-    for n in ast.walk(_tree("coordinator.py")):
+    for n in (n for tree in _coordinator_trees() for n in ast.walk(tree)):
         if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store) and _is_result(n.value):
             if isinstance(n.slice, ast.Constant) and isinstance(n.slice.value, str):
                 keys.add(n.slice.value)
@@ -46,7 +51,7 @@ def _written_keys() -> set[str]:
 
 def _read_keys() -> set[str]:
     keys = set()
-    for n in ast.walk(_tree("coordinator.py")):
+    for n in (n for tree in _coordinator_trees() for n in ast.walk(tree)):
         if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Load) and _is_result(n.value):
             if isinstance(n.slice, ast.Constant) and isinstance(n.slice.value, str):
                 keys.add(n.slice.value)

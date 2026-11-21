@@ -1,0 +1,86 @@
+"""Helpers and constants shared by the coordinator and its mixins. The logger keeps the coordinator module name so log filters stay valid."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+from datetime import datetime
+from dataclasses import fields
+
+from homeassistant.core import State
+from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
+
+from custom_components.hvac_horizon.collector import Entry
+
+
+_LOGGER = logging.getLogger("custom_components.hvac_horizon.coordinator")
+
+def _parse_deadline(raw: Any) -> tuple[float | None, str | None]:
+    """Epoch seconds of a schedule next_event, and a problem text when the value cannot be read.
+
+    Accepts a datetime, an ISO string or a timestamp in seconds. An empty, unknown or unavailable value is no deadline
+    and no problem. A naive time is read in the Home Assistant time zone.
+    """
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() in ("", "unknown", "unavailable", "none")):
+        return None, None
+    try:
+        if isinstance(raw, datetime):
+            when = raw
+        elif isinstance(raw, bool):
+            raise TypeError("bool")
+        elif isinstance(raw, (int, float)):
+            return float(raw), None
+        elif isinstance(raw, str):
+            try:
+                return float(raw), None
+            except ValueError:
+                when = datetime.fromisoformat(raw.strip())
+        else:
+            raise TypeError(type(raw).__name__)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=dt_util.get_default_time_zone())
+        return when.timestamp(), None
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None, f"next_event {raw!r} is not a datetime, ISO string or timestamp"
+
+_ENTRY_FIELDS = {f.name for f in fields(Entry)}
+
+def _round_or_none(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
+
+def _float(state: State | None) -> float | None:
+    if state is None or state.state in ("unknown", "unavailable", ""):
+        return None
+    try:
+        return float(state.state)
+    except ValueError:
+        return None
+
+def _optional_float(value: Any) -> float | None:
+    """A stored number, or None when the key is absent or empty."""
+    return None if value is None or value == "" else float(value)
+
+def _entry_from_dict(raw: dict[str, Any]) -> Entry:
+    """Load a stored record. Unknown keys are dropped, missing optional keys take their defaults."""
+    clean = {k: v for k, v in raw.items() if k in _ENTRY_FIELDS}
+    if "rooms_c" in clean:
+        clean["rooms_c"] = tuple(clean["rooms_c"])
+    return Entry(**clean)
+
+MPC_STEP_MIN = 15.0
+
+MPC_STEPS = 16  # 4 hours
+
+# The heat plan's energy cost is multiplied by this. At 1.0, one 15 min step at $0.18/kWh costs about 0.05 units, and
+# one K of discomfort costs 1 unit per step, so price rarely changes step 0. At 50, a $0.28/kWh step costs about 3.9 units.
+# Picked by a sweep of 1 to 119 on one room at 23.4 C. It is not calibrated against metered data.
+MPC_HEAT_COST_WEIGHT = 50.0
+
+SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
+
+class _HorizonStore(Store[dict[str, Any]]):
+    """Store that accepts older payloads. Keys added after version 2 are optional, so older data loads as it is."""
+
+    async def _async_migrate_func(self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]) -> dict[str, Any]:
+        return old_data

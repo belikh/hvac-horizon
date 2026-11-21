@@ -11,7 +11,22 @@ Every module is in `custom_components/hvac_horizon/`.
 | `__init__.py` | Registers the services, sets up the coordinator and the sensor platform, and unloads the entry. |
 | `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to one step. |
 | `const.py` | Config keys, defaults and limits. |
-| `coordinator.py` | `HorizonCoordinator`. Samples the room, refits the model, plans the target, drives the devices and publishes the result. |
+| `coordinator.py` | `HorizonCoordinator`. Holds `__init__`, the tick (`_async_update_data`, `_async_update_steps`) and `_plan_control`. It inherits the mixins below. |
+| `coordinator_common.py` | Helpers, constants and the logger shared by the coordinator and its mixins. |
+| `coordinator_store.py` | `StoreMixin`. The store payload, the commanded-state record, recorder backfill and power-interval tracking. |
+| `coordinator_user.py` | `UserMixin`. Target, off, lock, presets, what-if and the relay auto-tune. |
+| `coordinator_learning.py` | `LearningMixin`. Model and fleet refits, online gains and the gain suggestion. |
+| `coordinator_forecast.py` | `ForecastMixin`. Weather, solar and price inputs, the forecast, pre-cool and pre-heat timing. |
+| `coordinator_inputs.py` | `InputsMixin`. Reading room and optional sensors, stall detection and derived context. |
+| `coordinator_heater.py` | `HeaterMixin`. The heating-failure check, PWM windows, the heater switch and output limits. |
+| `coordinator_ac.py` | `AcMixin`. `_async_control`, setpoint and mode writes, AC heat, coil dry, the second AC and compressor groups. |
+| `coordinator_fleet.py` | `FleetMixin`. Fleet choice and driving with minimum on and off times. |
+| `coordinator_aux.py` | `AuxMixin`. Valve, load shedding, window actuator, cover and fan mode. |
+| `coordinator_safety.py` | `SafetyMixin`. The safety stop, the locked stop and the optional-switch driver. |
+| `coordinator_peers.py` | `PeersMixin`. Requests between coordinators of one house. |
+| `coordinator_investigator.py` | `InvestigatorMixin`. The mode-change explanation and the on-demand report. |
+
+The mixins hold methods that use `self` of `HorizonCoordinator`. Each lists the instance attributes it reads as class-level annotations. A test that patches a module-level function patches the module that calls it, for example `coordinator_learning` for `fit` and `backtest`.
 | `collector.py` | `Entry`, one reading. Sample history, running power, the cycle check and CSV export. |
 | `model.py` | `fit()` learns the room coefficients `k`, `c` and `g` from readings. |
 | `tpi.py` | `learn_room_rates()` and the online gains `adjust_cool_gain()` and `adjust_heat_gain()`. `tpi_on_percent()` sets the TPI output. |
@@ -60,8 +75,8 @@ Every module is in `custom_components/hvac_horizon/`.
 | :--- | :--- | :--- |
 | `HorizonCoordinator._async_update_data()` | `coordinator.py` | Runs one tick, steps 1 to 16. |
 | `HorizonCoordinator._plan_control()` | `coordinator.py` | The preset and the single target for the tick. |
-| `HorizonCoordinator._async_control()` | `coordinator.py` | The AC action. Runs with control on. |
-| `HorizonCoordinator._async_heater_step()` | `coordinator.py` | The heater gates, PWM and switch. |
+| `AcMixin._async_control()` | `coordinator_ac.py` | The AC action. Runs with control on. |
+| `HeaterMixin._async_heater_step()` | `coordinator_heater.py` | The heater gates, PWM and switch. |
 | `decide()` | `decide.py` | Priority of window, away, pre-cool and comfort. Pure. |
 | `forecast()` | `forecast.py` | Integrates the room temperature to the target. Step is 1 minute. |
 | `learn_room_rates()` | `tpi.py` | Fits `k` and `g` from AC-off readings, then `c` from AC-on readings. |
@@ -72,7 +87,7 @@ Every module is in `custom_components/hvac_horizon/`.
 
 ## Adding a published key
 
-Add the key to the result dict in `coordinator.py`. Add it to `STATUS_KEYS` in `sensor.py`, or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither. See [Test and release](test-and-release.md).
+Add the key to the result dict in `coordinator.py` or the `coordinator_*.py` mixin that computes it. Add it to `STATUS_KEYS` in `sensor.py`, or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither. See [Test and release](test-and-release.md).
 
 **See also**
 

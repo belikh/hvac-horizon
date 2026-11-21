@@ -28,6 +28,7 @@ from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.devices import forecast_fit
 from custom_components.hvac_horizon.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
+from custom_components.hvac_horizon import coordinator_learning as coordinator_learning_module
 from custom_components.hvac_horizon.collector import Entry, running_power_kw
 from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.pid import Pid
@@ -1701,9 +1702,9 @@ async def test_accuracy_pairs_and_forecast_error_follow_the_backtest(hass, enabl
         BacktestRun(30, 60.0, 52.0, -8.0),
         BacktestRun(40, 25.0, 31.0, 6.0),
     ]
-    monkeypatch.setattr(coordinator_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
-    monkeypatch.setattr(coordinator_module, "has_enough_cycles", lambda samples: True)
-    monkeypatch.setattr(coordinator_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
+    monkeypatch.setattr(coordinator_learning_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
+    monkeypatch.setattr(coordinator_learning_module, "has_enough_cycles", lambda samples: True)
+    monkeypatch.setattr(coordinator_learning_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
     entry.add_to_hass(hass)
@@ -1733,9 +1734,9 @@ async def test_accuracy_view_returns_the_pairs_and_median_to_a_signed_in_user(ha
         BacktestRun(30, 60.0, 52.0, -8.0),
         BacktestRun(40, 25.0, 31.0, 6.0),
     ]
-    monkeypatch.setattr(coordinator_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
-    monkeypatch.setattr(coordinator_module, "has_enough_cycles", lambda samples: True)
-    monkeypatch.setattr(coordinator_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
+    monkeypatch.setattr(coordinator_learning_module, "backtest", lambda samples, target_c, min_train, margin_c: runs)
+    monkeypatch.setattr(coordinator_learning_module, "has_enough_cycles", lambda samples: True)
+    monkeypatch.setattr(coordinator_learning_module, "fit", lambda samples: Fit(k=0.4, c=1.5, g=0.0))
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
     entry.add_to_hass(hass)
@@ -4164,6 +4165,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
     deadband is 0.5 K, so a room at 23.0 C is below the idle limit of 23.54 C, and a room at 23.8 C is above it.
     """
     from custom_components.hvac_horizon import coordinator as coordinator_module
+    from custom_components.hvac_horizon import coordinator_forecast as coordinator_forecast_module
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
     from custom_components.hvac_horizon.model import Fit
 
@@ -4178,6 +4180,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
         monkeypatch.setattr(HorizonCoordinator, "_price_forecast", lambda self, now: [])
     if power_kw is not None:
         monkeypatch.setattr(coordinator_module, "running_power_kw", lambda entries, now, *a, **k: power_kw)
+        monkeypatch.setattr(coordinator_forecast_module, "running_power_kw", lambda entries, now, *a, **k: power_kw)
     set_inputs(hass)
     _set_ac_rooms(hass, room)
     hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
@@ -4557,8 +4560,8 @@ async def test_output_limits_fall_back_to_config_when_the_entity_is_unavailable(
 async def test_preheat_starts_the_heater_one_heat_up_time_before_comfort(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
     # Eco 00:00 to 07:00 heats to 16 C. Comfort starts at 07:00. The learned room model needs 60 minutes to warm 19 C to 24 C.
     # Stub the learned model: k 0, g 0 and a heat rate of 5 K/h at full output, so the warm-up is 60 steps.
-    monkeypatch.setattr(coordinator_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
-    monkeypatch.setattr(coordinator_module, "learn_heat_rate", lambda pairs, k, g: 5.0)
+    monkeypatch.setattr(coordinator_learning_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
+    monkeypatch.setattr(coordinator_learning_module, "learn_heat_rate", lambda pairs, k, g: 5.0)
     local = dt_util.get_time_zone(hass.config.time_zone)
     freezer.move_to(datetime(2026, 11, 20, 5, 55, tzinfo=local))
     extra = {CONF_SCHEDULE_BLOCKS: [{"start_h": 0, "end_h": 7, "preset": "eco"}], CONF_HEAT_ECO_C: 16.0}
@@ -4589,8 +4592,8 @@ async def test_preheat_is_off_without_a_learned_heat_model(hass, enable_custom_i
 async def test_heat_gain_learns_from_heating_and_survives_reload(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
     # The learned model is stubbed: base heat rate 1 K/h, no passive drift. The room rises 0.25 K per tick,
     # which is faster than the base rate predicts at any heater output, so the heat gain rises each tick.
-    monkeypatch.setattr(coordinator_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
-    monkeypatch.setattr(coordinator_module, "learn_heat_rate", lambda pairs, k, g: 1.0)
+    monkeypatch.setattr(coordinator_learning_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
+    monkeypatch.setattr(coordinator_learning_module, "learn_heat_rate", lambda pairs, k, g: 1.0)
     entry, _ = await setup_heater(hass, config_data, room="20.0")
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
     # Setup arms the manual-change inhibit for an hour, and unchanged room sensors count as stalled. Wait it out with fresh readings.
