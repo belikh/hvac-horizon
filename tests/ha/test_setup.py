@@ -1792,6 +1792,69 @@ async def test_heater_turns_off_when_a_sensor_is_stalled(hass, enable_custom_int
     assert entry.runtime_data.data["safety_output_pct"] == 0.0
 
 
+async def test_heater_safety_step_runs_when_a_window_actuator_raises(hass, enable_custom_integrations, config_data, freezer):
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.helpers.event import async_call_later
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+
+    async def failing_open(call):
+        raise HomeAssistantError("cover offline")
+
+    hass.services.async_register("cover", "open_cover", failing_open)
+    hass.states.async_set("cover.test_window", "unavailable")
+    entry, calls = await setup_heater(hass, config_data, outdoor="18.0", room="24.0", extra={"window_actuator": "cover.test_window"})
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    # A heater that is on with a live PWM timer, as in the middle of a window.
+    hass.states.async_set(HEATER, "on")
+    coordinator._heater_gated = False
+    coordinator._heater_commanded_on = True
+    coordinator._pwm_cancel.append(async_call_later(hass, 120, coordinator._pwm_timer))
+    # The cover now reports closed with open advice, so the actuator step calls open_cover and raises.
+    hass.states.async_set("cover.test_window", "closed")
+    calls.clear()
+    await refresh(hass, entry)
+    assert coordinator.last_update_success is False
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+    assert coordinator._pwm_cancel == []
+    assert coordinator._heater_gated is True
+
+
+async def test_locked_entry_stops_a_cooling_ac_on_a_stall(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="26.0", climate="cool", outdoor="30.0", extra={"lock_pin": "1234"})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    assert entry.runtime_data.set_lock(True, None) is True
+    # Both room sensors report nothing for longer than the stall window.
+    freezer.tick(timedelta(minutes=20))
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert modes == ["off"]
+    assert entry.runtime_data.data["action"].startswith("locked")
+
+
+async def test_locked_entry_without_a_stop_condition_sends_no_climate_command(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="26.0", climate="cool", outdoor="30.0", extra={"lock_pin": "1234"})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    assert entry.runtime_data.set_lock(True, None) is True
+    await refresh(hass, entry)
+    assert modes == []
+    assert entry.runtime_data.data["action"] == "locked"
+
+
 async def test_heater_switches_off_on_unload(hass, enable_custom_integrations, config_data):
     entry, calls = await setup_heater(hass, config_data)
     await refresh(hass, entry)

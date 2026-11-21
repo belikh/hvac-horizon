@@ -270,6 +270,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heater_on_min: float = 0.0
         self._heater_check_t: float | None = None
         self._heater_gated = False
+        self._heater_step_done = False
         self._ac_cooling_tick = False
         self._heating_fail_reported = False
         self._baseline_k: float | None = None
@@ -1073,7 +1074,25 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return price_slots(pairs, now)
 
     async def _async_update_data(self) -> dict[str, Any]:
+        """Run one tick. The heater safety step runs on every tick, also when an earlier step raises."""
         now = dt_util.utcnow().timestamp()
+        result: dict[str, Any] = {}
+        self._heater_step_done = False
+        try:
+            return await self._async_update_steps(now, result)
+        except BaseException:
+            if not self._heater_step_done:
+                # A step failed before the heater step. Close the gate and cancel the PWM timers, then turn the heater off.
+                self._heater_gated = True
+                self._pwm_output_pct = 0.0
+                self._cancel_pwm_timers()
+                try:
+                    await self._async_heater_step(now, result)
+                except Exception:  # the original error is the one to raise
+                    _LOGGER.exception("Heater safety step failed after an earlier step raised")
+            raise
+
+    async def _async_update_steps(self, now: float, result: dict[str, Any]) -> dict[str, Any]:
         now_min = now / 60.0
         if self._weather_checked_min is None or now_min - self._weather_checked_min >= 30:
             self._weather_checked_min = now_min
@@ -1091,7 +1110,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._refit()
                 self._samples_since_fit = 0
             self._store.async_delay_save(self._save_payload, 900)  # write at most every 15 minutes
-        result = self._forecast(now)
+        result.update(self._forecast(now))
         result["sensors_stalled"] = self._stalled_sensors(now)
         self._report_stalls(result["sensors_stalled"])
         if self._rooms() or self._last_room_data_s is None:
@@ -1329,6 +1348,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.entry.data.get(CONF_CONTROL):
                 await self._async_control(now, result)
         finally:
+            self._heater_step_done = True
             await self._async_heater_step(now, result)
         await self._publish_investigation(now, result)
         heater_switch = (room_devices(self.entry.data)["heating"] or [None])[0]
@@ -1606,13 +1626,39 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return comfort_c, "active", needed
         return heat_target_c, "waiting", needed
 
+    async def _locked_safety_stop(self, now: float, result: dict[str, Any], climate_id: str, climate: State | None) -> None:
+        """Turn the AC off while locked when a stall, an open window or an away house calls for it."""
+        window = self._optional(CONF_WINDOW)
+        if window is not None and window.state == "on":
+            self._window_open_since = self._window_open_since or now
+        else:
+            self._window_open_since = None
+        window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
+        window_delay_min = float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+        house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
+        reason = None
+        if self._stall_blocks(result) or self._no_room_data_stop(now):
+            reason = "sensor stalled"
+        elif window_open_pause(window_open_min, window_delay_min):
+            reason = "window open"
+        elif house_away:
+            reason = "house away"
+        if reason is None or climate is None or climate.state in ("off", "unavailable", "unknown"):
+            return
+        await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+        self._last_sent_min = now / 60.0
+        self._last_written_mode = "off"
+        result["action"] = f"locked: off, {reason}"
+
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
         """Send one climate action per cycle. Runs only when the control option is on."""
         climate_id = self.entry.data[CONF_CLIMATE]
         first_ac = self.hass.states.get(climate_id)
         self._ac_cooling_tick = first_ac is not None and first_ac.state == "cool"
         if not lock_allows_control(self._locked):
+            # The lock blocks normal commands. A stall, an open window or an away house still stops the AC.
             result["action"] = "locked"
+            await self._locked_safety_stop(now, result, climate_id, first_ac)
             return
         now_min = now / 60.0
         if self._external_change():
