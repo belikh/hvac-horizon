@@ -12,6 +12,7 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 - The Forecast error sensor has two new attributes. `range_coverage_pct` is the percentage of backtest runs whose
   measured minutes fell inside the forecast range of that run, and `range_runs` is the count of those runs. The
   accuracy panel shows both.
+- The manifest declares the category `climate.thermostats_heating`.
 - `tests/ha/test_basics.py` runs 12 seeded random days with noisy room sensors, a restart and a target change.
 
 ## 0.5.4 (2026-11-22)
