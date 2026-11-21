@@ -206,6 +206,115 @@
           "description": "The HVAC Horizon entry whose test to cancel."
         }
       }
+    },
+    "set_lock": {
+      "name": "Set lock",
+      "description": "Lock control so no commands are sent, or unlock it. Unlocking needs the configured PIN.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        },
+        "locked": {
+          "name": "Locked"
+        },
+        "pin": {
+          "name": "PIN"
+        }
+      }
+    },
+    "set_house_mode": {
+      "name": "Set house mode",
+      "description": "Set home or away for every HVAC Horizon room. Away makes each room use its away setpoint.",
+      "fields": {
+        "mode": {
+          "name": "Mode"
+        }
+      }
+    },
+    "export_csv": {
+      "name": "Export CSV",
+      "description": "Return the stored readings as CSV text, in the layout the backfill tool reads.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        }
+      }
+    },
+    "reset_learning": {
+      "name": "Reset learning",
+      "description": "Forget the stored samples and the fitted model for an HVAC Horizon entry.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry",
+          "description": "The HVAC Horizon entry to reset."
+        }
+      }
+    },
+    "export_samples": {
+      "name": "Export samples",
+      "description": "Return the stored readings for an HVAC Horizon entry.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        }
+      }
+    },
+    "what_if": {
+      "name": "What-if forecast",
+      "description": "Forecast minutes, energy and cost to a target for given conditions, using the current model and price slots.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        },
+        "room_c": {
+          "name": "Room temperature"
+        },
+        "target_c": {
+          "name": "Target"
+        },
+        "outdoor_c": {
+          "name": "Outdoor temperature"
+        },
+        "power_kw": {
+          "name": "AC power"
+        }
+      }
+    },
+    "start_timed_preset": {
+      "name": "Start timed preset",
+      "description": "Use a preset's setpoint for a set number of minutes, then return to the normal preset.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        },
+        "preset": {
+          "name": "Preset"
+        },
+        "minutes": {
+          "name": "Minutes"
+        }
+      }
+    },
+    "respond_suggestion": {
+      "name": "Respond to learning suggestion",
+      "description": "Accept the learned heat gain as the new baseline, or dismiss the current suggestion until the gain changes again.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        },
+        "accept": {
+          "name": "Accept"
+        }
+      }
+    },
+    "generate_investigation_report": {
+      "name": "Generate investigation report",
+      "description": "Build a report on the AC from the last 24 hours of readings. Uses the conversation agent when one is set and the daily model budget allows; otherwise stores the rule-based report.",
+      "fields": {
+        "entry_id": {
+          "name": "Entry"
+        }
+      }
     }
   },
   "issues": {
