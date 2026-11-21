@@ -7323,3 +7323,22 @@ async def test_no_learning_sample_is_recorded_while_the_outdoor_sensor_is_stalle
     await refresh(hass, entry)
     assert entry.runtime_data.data["samples"] == stalled_count
     assert stalled_count <= before + 3
+
+
+async def test_room_entity_action_updates_between_ticks(hass, enable_custom_integrations, config_data):
+    """hvac_action follows the AC's power and state when they change, without waiting for the next coordinator tick."""
+    entry, _ = await setup_heater(hass, config_data, room="25.0", climate="cool")
+    entity_id = _room_climate_id(hass, entry)
+    attrs = {"unit_of_measurement": "W", "device_class": "power"}
+    # Fan only: the AC is in cool mode but the compressor is not running.
+    hass.states.async_set(POWER, "80", attrs)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"
+    # The compressor starts. No coordinator refresh happens here.
+    hass.states.async_set(POWER, "950", attrs)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "cooling"
+    # The AC goes off.
+    hass.states.async_set(CLIMATE, "off", dict(hass.states.get(CLIMATE).attributes))
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["hvac_action"] == "idle"

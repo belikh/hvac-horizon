@@ -22,11 +22,12 @@ from typing import Any
 from homeassistant.components.climate import ClimateEntity, HVACAction, ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_AC_HEAT, CONF_CLIMATE, CONF_CONTROL, CONF_HEATER_SWITCH, DOMAIN
+from .const import CONF_AC_HEAT, CONF_CLIMATE, CONF_CONTROL, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
 from .coordinator import HorizonCoordinator
 
 PRESETS = ["comfort", "eco", "boost", "away"]
@@ -63,6 +64,24 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         # Heat is offered when the room has a heater switch. An AC that heats by itself reports heat too, so it is listed as well.
         self._has_heat = bool(entry.data.get(CONF_HEATER_SWITCH)) or bool(entry.data.get(CONF_AC_HEAT, False))
         self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else [])
+
+    def _device_entity_ids(self) -> list[str]:
+        """The entities whose state decides hvac_action: the AC, its power sensor, the heater switch and the fleet devices."""
+        data = self._entry.data
+        ids = [data.get(CONF_CLIMATE), data.get(CONF_POWER), data.get(CONF_HEATER_SWITCH)]
+        for device in data.get(CONF_FLEET) or []:
+            if isinstance(device, dict):
+                ids += [device.get("entity_id"), device.get("power_sensor")]
+        return [entity_id for entity_id in ids if isinstance(entity_id, str) and entity_id]
+
+    async def async_added_to_hass(self) -> None:
+        """Follow the devices between coordinator ticks, so hvac_action shows what they do now."""
+        await super().async_added_to_hass()
+        self.async_on_remove(async_track_state_change_event(self.hass, self._device_entity_ids(), self._device_changed))
+
+    @callback
+    def _device_changed(self, _event: Event) -> None:
+        self.async_write_ha_state()
 
     def _room_temperature(self) -> float | None:
         return self.coordinator.median_room_c()

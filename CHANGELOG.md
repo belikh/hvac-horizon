@@ -2,6 +2,10 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+- The room entity's `hvac_action` follows the AC, its power sensor, the heater switch and the fleet devices as they change. Before, it updated only on the 5 minute tick, so it could read idle while the compressor ran.
+
 ## 0.5.0 (2026-11-21)
 
 - Learning samples are not recorded while the outdoor sensor is stalled or unavailable, so the fit only sees measured outdoor temperatures.
