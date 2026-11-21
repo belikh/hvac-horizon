@@ -58,9 +58,21 @@ Each entry has one `climate` entity, named after its device (`HVAC Horizon <clim
 | Current temperature | The median of the room temperature sensors. |
 | Target temperature | 16 to 32 °C in 0.5 K steps. Setting it stores your target. HVAC Horizon uses it as `comfort_c` from the next tick, and keeps it across restarts. Before you set one, it shows `comfort_c` from the form. |
 | Preset | `comfort`, `eco`, `boost` or `away`. It shows the preset in use. Setting one holds it until the schedule moves to another block. A timed preset still wins while it runs. The hold is not kept across a restart. |
-| Mode | `off`, `cool`, and `heat` when the entry has `heater_switch` or `ac_heat`. It shows `off` when control is off, when you turned the room off, or when neither the AC nor the heater is running. |
+| Mode | `off`, `cool`, `auto`, and `heat` when the entry has `heater_switch`, `ac_heat` or a heating fleet device. It shows the mode you chose, `auto` by default. It shows `off` when control is off or when you turned the room off. |
+| Action | `cooling` or `heating` while a device draws power, `idle` while nothing runs, `off` while the room is held off. It follows the devices as they change. |
 
-Setting the mode to `off` holds the room off: the AC and the heater switch go off and nothing starts. Setting `cool` or `heat` ends the hold and returns the room to automatic control. It does not force a start: the AC runs when the room needs it.
+The mode decides which devices may run. A device starts only when the room needs it.
+
+| Mode | Cooling devices | Heating devices |
+| :--- | :--- | :--- |
+| `cool` | Run above the cool threshold | Stay off |
+| `heat` | Stay off | Run below the heat threshold |
+| `auto` | Run above the cool threshold | Run below the heat threshold |
+| `off` | Stay off | Stay off |
+
+Cooling devices are the AC, the second AC, the AC's dry mode for humidity and cooling fleet devices. Heating devices are the heater switch, the AC in heat mode and heating fleet devices. Changing to `heat` while the AC cools sends off to the AC at once.
+
+Setting `off` holds the room off: every device goes off and nothing starts. The `climate.turn_on` service ends the hold and returns to the mode chosen before it. The mode is kept across restarts.
 
 While the lock is on, setting a target, a preset or a mode fails with `HVAC Horizon entry is locked`.
 

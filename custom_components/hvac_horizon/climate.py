@@ -10,7 +10,7 @@ the base the presets work from. It leaves the preset unchanged. Under eco the sh
 setpoint until the preset changes.
 
 hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose
-(cool by default). hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
+(auto by default). Cool lets only cooling devices run, heat lets only heating devices run, auto lets both run. hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
 RUNNING_MIN_KW), idle while the AC runs the fan only. With control off the mode reads off and the `control` attribute
 reads "observe only".
 """
@@ -62,8 +62,10 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         self._attr_unique_id = f"{entry.entry_id}_room"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
         # Heat is offered when the room has a heater switch. An AC that heats by itself reports heat too, so it is listed as well.
-        self._has_heat = bool(entry.data.get(CONF_HEATER_SWITCH)) or bool(entry.data.get(CONF_AC_HEAT, False))
-        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else [])
+        fleet_heat = any(isinstance(d, dict) and d.get("kind") == "heat" for d in entry.data.get(CONF_FLEET) or [])
+        self._has_heat = bool(entry.data.get(CONF_HEATER_SWITCH)) or bool(entry.data.get(CONF_AC_HEAT, False)) or fleet_heat
+        # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
+        self._attr_hvac_modes = [HVACMode.OFF, HVACMode.COOL] + ([HVACMode.HEAT] if self._has_heat else []) + [HVACMode.AUTO]
 
     def _device_entity_ids(self) -> list[str]:
         """The entities whose state decides hvac_action: the AC, its power sensor, the heater switch and the fleet devices."""
@@ -133,10 +135,13 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (cool by default)."""
+        """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (auto by default)."""
         if not self._entry.data.get(CONF_CONTROL) or self.coordinator.user_off:
             return HVACMode.OFF
-        return HVACMode.HEAT if self._has_heat and self.coordinator.user_mode == "heat" else HVACMode.COOL
+        mode = self.coordinator.user_mode
+        if mode == "heat" and self._has_heat:
+            return HVACMode.HEAT
+        return HVACMode.COOL if mode == "cool" else HVACMode.AUTO
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
@@ -145,9 +150,18 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         await self.coordinator.async_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        # Off holds the room off. Cool and heat return it to automatic control, which starts the AC only when the room needs it.
-        # The chosen mode is stored with the hold.
+        # Off holds the room off. Cool lets only cooling devices run, heat only heating devices, auto both.
+        # A device starts only when the room needs it. The chosen mode is stored with the hold.
         self.coordinator.set_user_off(hvac_mode == HVACMode.OFF, None if hvac_mode == HVACMode.OFF else str(hvac_mode))
+        await self.coordinator.async_refresh()
+
+    async def async_turn_on(self) -> None:
+        """End the off hold and return to the mode chosen before it. Home Assistant's default would pick heat or cool itself."""
+        self.coordinator.set_user_off(False)
+        await self.coordinator.async_refresh()
+
+    async def async_turn_off(self) -> None:
+        self.coordinator.set_user_off(True)
         await self.coordinator.async_refresh()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:

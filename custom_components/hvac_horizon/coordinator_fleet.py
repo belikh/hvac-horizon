@@ -97,8 +97,8 @@ class FleetMixin:
         mode = self.entry.data.get(CONF_DISPATCH_MODE, FAST)
         price = _float(self._optional(CONF_PRICE)) or DEFAULT_PRICE_CHEAP
         cool_gap = max(median - self._cool_above_c, cool_floor_k)
-        cool = choose_devices(devices, COOL, cool_gap, 1.0, mode, price) if cool_allowed else []
-        heat = choose_devices(devices, HEAT, self._heat_target_c - median, 1.0, mode, price) if heat_allowed and median < self._heat_on_below_c else []
+        cool = choose_devices(devices, COOL, cool_gap, 1.0, mode, price) if cool_allowed and self.cooling_permitted else []
+        heat = choose_devices(devices, HEAT, self._heat_target_c - median, 1.0, mode, price) if heat_allowed and self.heating_permitted and median < self._heat_on_below_c else []
         power = 0.0
         by_id = {d.device_id: d for d in devices}
         for device_id in cool + heat:

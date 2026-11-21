@@ -115,6 +115,7 @@ class HeaterMixin:
             or bool(result.get("house_cooling"))
             or not lock_allows_control(self._locked)
             or self._user_off
+            or not self.heating_permitted
             or self._stall_blocks(result)
         )
 

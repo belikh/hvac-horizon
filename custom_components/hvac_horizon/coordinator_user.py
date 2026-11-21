@@ -35,7 +35,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
 )
 from custom_components.hvac_horizon.forecast import forecast
-from custom_components.hvac_horizon.coordinator_common import _float
+from custom_components.hvac_horizon.coordinator_common import USER_MODES, _float
 
 
 class UserMixin:
@@ -148,8 +148,18 @@ class UserMixin:
 
     @property
     def user_mode(self) -> str:
-        """The mode the user last chose on the climate entity, "cool" or "heat". Shown as hvac_mode while the room is not held off."""
+        """The mode the user chose on the climate entity: "cool", "heat" or "auto". Shown as hvac_mode while the room is not held off."""
         return self._user_mode
+
+    @property
+    def cooling_permitted(self) -> bool:
+        """True when the chosen mode lets the room cool: cool or auto. In heat mode nothing cools."""
+        return self._user_mode in ("cool", "auto")
+
+    @property
+    def heating_permitted(self) -> bool:
+        """True when the chosen mode lets the room heat: heat or auto. In cool mode nothing heats."""
+        return self._user_mode in ("heat", "auto")
 
     def _require_unlocked(self) -> None:
         if not lock_allows_control(self._locked):
@@ -164,11 +174,11 @@ class UserMixin:
     def set_user_off(self, off: bool, mode: str | None = None) -> None:
         """Hold the room off (AC and heater) or return it to automatic control. The next tick sends the change through the usual gates.
 
-        `mode` ("cool" or "heat") records the mode the user chose and is kept with the hold.
+        `mode` ("cool", "heat" or "auto") records the mode the user chose and is kept with the hold.
         """
         self._require_unlocked()
         self._user_off = off
-        if mode in ("cool", "heat"):
+        if mode in USER_MODES:
             self._user_mode = mode
         self._store.async_delay_save(self._save_payload, 0)
 

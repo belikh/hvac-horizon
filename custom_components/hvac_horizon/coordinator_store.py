@@ -17,7 +17,7 @@ from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTR
 from custom_components.hvac_horizon.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.features import house_mode_from_store
-from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float, _entry_from_dict
+from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _float, _entry_from_dict
 
 
 class StoreMixin:
@@ -163,7 +163,7 @@ class StoreMixin:
         override = data.get("target_override_c")
         self._target_override_c = float(override) if override is not None else None
         self._user_off = bool(data.get("user_off", False))
-        self._user_mode = "heat" if data.get("user_mode") == "heat" else "cool"
+        self._user_mode = data.get("user_mode") if data.get("user_mode") in USER_MODES else "auto"
         self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
         self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
         self._locked = bool(data.get("locked", False))

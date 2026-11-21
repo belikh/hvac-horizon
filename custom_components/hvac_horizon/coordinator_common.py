@@ -78,6 +78,7 @@ MPC_STEPS = 16  # 4 hours
 # Picked by a sweep of 1 to 119 on one room at 23.4 C. It is not calibrated against metered data.
 MPC_HEAT_COST_WEIGHT = 50.0
 
+USER_MODES = ("cool", "heat", "auto")  # the modes the room climate entity offers besides off
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 
 class _HorizonStore(Store[dict[str, Any]]):

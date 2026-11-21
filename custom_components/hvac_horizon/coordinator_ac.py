@@ -232,6 +232,8 @@ class AcMixin:
                     action = Action(Mode.COOL, comfort_c, "night hold: setpoint holds comfort")
         if self._user_off:
             action = Action(Mode.OFF, None, "user turned the room off")
+        elif action.mode is Mode.COOL and not self.cooling_permitted:
+            action = Action(Mode.OFF, None, "mode is heat: no cooling")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan can idle a cool decision only when the room is within the deadband of the threshold (or below it)
         # and the next plan steps are all idle. A room more than the deadband above the threshold keeps cooling.
@@ -344,6 +346,7 @@ class AcMixin:
             if (
                 not stalled
                 and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
+                and self.cooling_permitted
                 and humidity.action == "dehumidify"
                 and not self.entry.data.get(CONF_DEHUMIDIFIER)
                 and climate.state == "dry"
@@ -354,6 +357,7 @@ class AcMixin:
             if (
                 not stalled
                 and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
+                and self.cooling_permitted
                 and humidity.action == "dehumidify"
                 and not self.entry.data.get(CONF_DEHUMIDIFIER)
                 and climate.state != "dry"
@@ -493,6 +497,7 @@ class AcMixin:
         return (
             action.mode is Mode.OFF
             and not self._user_off
+            and self.heating_permitted
             and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
