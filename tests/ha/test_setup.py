@@ -7818,3 +7818,30 @@ async def test_an_empty_house_heats_to_the_frost_floor_even_with_a_motion_sensor
     hass.states.async_set(OUTDOOR, "5.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert entry.runtime_data._heat_target_c == 24.0
+
+
+async def test_a_pre_cool_that_cannot_meet_the_event_starts_at_once(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    """Before the audit a planner with no plan that met the event returned nothing, so the AC stayed off until arrival."""
+    from datetime import datetime, timezone
+
+    from custom_components.hvac_horizon import coordinator_forecast
+    from custom_components.hvac_horizon.model import Fit
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="26.0", extra={"schedule": "schedule.test"})
+    coordinator = entry.runtime_data
+    monkeypatch.setattr(coordinator_forecast, "precool_start_in_min", lambda *args, **kwargs: None)
+    monkeypatch.setattr(coordinator_forecast, "running_power_kw", lambda *args, **kwargs: 1.0)
+    monkeypatch.setattr(type(coordinator), "_active_fit", lambda self: Fit(k=0.1, c=1.0, g=0.0, samples=50))
+    now = datetime(2026, 11, 20, 10, 0, tzinfo=timezone.utc).timestamp()
+
+    def event_in(minutes):
+        hass.states.async_set("schedule.test", "off", {"next_event": datetime.fromtimestamp(now + minutes * 60, timezone.utc).isoformat()})
+
+    event_in(30)
+    assert coordinator._precool_start(now, [26.0]) == 0.0
+    assert coordinator._precool_status == "late: starts now, 30 min to the event"
+    event_in(300)  # too far away for a best effort
+    assert coordinator._precool_start(now, [26.0]) is None
+    event_in(30)  # a room already at the setpoint has nothing to pre-cool
+    assert coordinator._precool_start(now, [23.0]) is None

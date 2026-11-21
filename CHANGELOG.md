@@ -10,6 +10,7 @@ Faults found by an audit of all 86 settings (`tests/ha/test_settings_effect.py` 
 - The AC kept cooling after this entry opened the window actuator. The AC now stays off while the entry holds the window open, with the same 2 K give-up rule.
 - `humidity` (outdoor humidity) was stored with each sample and read by nothing. Window advice, the economizer and the window actuator now stay shut when outdoor air has a dew point 1 K or more above the room's (or at 20 °C and above with no room humidity sensor).
 - `presence` did nothing in an entry that also had `motion`. An empty house now heats to the frost floor once motion is idle. Motion in the room still counts as occupied.
+- A pre-cool with no plan that met the schedule event did nothing, so an unoccupied room stayed at its setback until the event. It now starts at once when the event is within 120 minutes (`precool_status` reads `late: starts now`).
 - `tpi_threshold_high` and `tpi_threshold_low` could not act, because every heater stopped 0.5 K below the heat target. With `heater_algorithm` `tpi` the heater now runs up to the target, and up to the larger threshold above it when both are set. PID is unchanged.
 
 ## 0.5.1 (2026-11-21)

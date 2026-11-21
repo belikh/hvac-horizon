@@ -47,7 +47,7 @@ from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, con
 from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
 from custom_components.hvac_horizon.forecast import forecast, forecast_range
 from custom_components.hvac_horizon.control import precool_start_in_min
-from custom_components.hvac_horizon.coordinator_common import _LOGGER, _parse_deadline, _round_or_none, _float
+from custom_components.hvac_horizon.coordinator_common import PRECOOL_LATE_MAX_MIN, _LOGGER, _parse_deadline, _round_or_none, _float
 
 
 class ForecastMixin:
@@ -347,6 +347,10 @@ class ForecastMixin:
         )
         if minutes <= 0:
             self._precool_status = "no deadline: next_event is in the past"
+        elif start is None and minutes <= PRECOOL_LATE_MAX_MIN and statistics.median(rooms) > setpoint:
+            # The room cannot reach the setpoint by the event. Cooling starts now, so it is as close as it can be.
+            start = 0.0
+            self._precool_status = f"late: starts now, {minutes:.0f} min to the event"
         elif start is None:
             self._precool_status = f"no plan reaches the setpoint in {minutes:.0f} min"
         else:

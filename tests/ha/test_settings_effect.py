@@ -399,9 +399,9 @@ class House:
         await tick(entries, count=2)
         env(price=0.28, room=27.0, window="on")
         await tick(entries, minutes=3.0, count=6)
-        env(window="off", room=26.0, outdoor=18.0)
+        env(window="off", room=25.5, outdoor=18.0)
         await tick(entries, count=9)
-        env(room=26.0, outdoor=21.0, out_rh=98.0, rh=45.0)
+        env(room=25.5, outdoor=21.0, out_rh=98.0, rh=45.0)
         await tick(entries, count=3)
         env(out_rh=55.0, rh=50.0)
         env(room=23.8, outdoor=22.0, rh=75.0)
@@ -565,7 +565,7 @@ LEVELS = {"none": 0, "published": 1, "control": 2}
 
 
 # Rows the scripted day does not yet show at their level. Each is traced by hand before it leaves this list.
-OPEN_ROWS = {"humidity": "window and economizer block not seen in device commands yet", "schedule": "pre-cool start not seen in device commands yet"}
+OPEN_ROWS: dict[str, str] = {}
 
 
 def _row(key: str):
