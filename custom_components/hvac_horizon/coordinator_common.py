@@ -81,6 +81,9 @@ MPC_HEAT_COST_WEIGHT = 50.0
 USER_MODES = ("cool", "heat", "auto", "dry")
 PRECOOL_LATE_MAX_MIN = 120.0  # a pre-cool with no plan that meets the event starts at once when the event is this close
 FREE_COOLING_GIVE_UP_K = 2.0  # an open window that leaves the room this far above the cool threshold is closed, and the AC cools
+AUTO_CHANGEOVER_MIN = 60.0  # in auto, minutes after the heater ran before the AC may cool
+AUTO_CHANGEOVER_OVERRIDE_K = 2.0  # a room this far above the cool threshold cools at once
+FREE_COOLING_GIVE_UP_MIN = 30.0  # minutes free cooling runs before it can be given up
 DRY_FLOOR_BELOW_HEAT_K = 1.0  # dry mode pauses the AC this far below the heat threshold, and resumes at the threshold  # the modes the room climate entity offers besides off
 SAFETY_FALLBACK_PCT = 0.0  # heater output when a sensor stalls; safety_output applies it
 

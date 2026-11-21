@@ -51,6 +51,7 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 | `tests/test_*.py` | The pure modules, such as `decide.py`, `features.py`, `model.py` and `fleet.py`. |
 | `tests/ha/test_config_flow.py` | The setup and reconfigure forms. |
 | `tests/ha/test_setup.py` | Setup, control, the room thermostat, services, restarts and unload, against fake devices. |
+| `tests/ha/test_basics.py` | The basics of a thermostat, from the outside: mode, target, off, restart and dead sensors against a simulated room. |
 | `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |
 | `tests/sim/` | The integration in a closed loop with a simulated room, 24 simulated hours for each of 9 profiles. Marker `sim`. |
 | `tests/test_no_dead_code.py` | Every public function has a caller. |
@@ -63,6 +64,18 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 Three tests exist to stop work that looks done and does nothing.
 
 **The thermostat contract.** `test_room_mode_decides_which_devices_may_run` in `tests/ha/test_setup.py` runs each mode against a hot room and a cold room. It asserts which devices receive a start command. It was added after the AC cooled a room in `heat` mode: the mode was stored and shown, and control never read it.
+
+**The basics.** `tests/ha/test_basics.py` uses the room thermostat as a person does. Each test sets a mode and a target, lets a simulated room run minute by minute and reads the heater switch, the AC and the thermostat state. No test reads the coordinator. The rules it holds:
+
+- `heat` warms a room below the target and `cool` cools a room above it, at outdoor temperatures from 5 to 35 °C.
+- The room reaches the target within 4 hours and stays within 1 K of it.
+- A new target starts or ends a run. The thermostat shows the target you set.
+- `off` and a mode change end a run in the same call.
+- The heater and the AC do not run against each other at any minute, and `auto` does not take turns between them over a day.
+- With a window actuator, `auto` cools with the window on a cold day and runs the AC when the window does not help.
+- The mode and the target survive a restart. Dead room sensors turn the devices off.
+
+Add a case here for every fault a user reports about basic behaviour, before the fix.
 
 **The settings audit.** `tests/ha/test_settings_effect.py` runs a scripted day twice for each setting: once with a base entry and once with the setting changed. It compares the device commands and the published data of the two runs.
 

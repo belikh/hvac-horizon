@@ -457,6 +457,9 @@ class House:
         self.stalled = True
         await tick(entries, minutes=4.0, count=3)
         self.stalled = False
+        # A quiet 70 minutes: in auto the AC does not cool within 60 minutes of the heater's last run.
+        env(room=24.0, outdoor=20.0)
+        await tick(entries, minutes=10.0, count=7)
         # Nobody moves in the room for 52 minutes while a schedule event is 50 minutes away. Then the house empties
         # for 40 minutes and gets cold.
         env(room=25.0, outdoor=31.0, motion="off", deadline=dt_util.utcnow() + timedelta(minutes=50))

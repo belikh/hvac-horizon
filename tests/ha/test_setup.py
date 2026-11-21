@@ -7398,6 +7398,49 @@ async def test_room_mode_decides_which_devices_may_run(hass, enable_custom_integ
     assert not ac_heated, calls
 
 
+# The owner's case: comfort 27 C, room 26.2 C (below the 26.5 C heat threshold), 22.7 C outdoors, above the 22 C heating limit.
+WARM_DAY_HEAT = [("heat", True, None), ("auto", False, "heat held: outdoors above 22 °C"), ("dry", False, "heat held: outdoors above 22 °C")]
+
+
+@pytest.mark.parametrize(("mode", "heater_runs", "pending"), WARM_DAY_HEAT)
+async def test_heat_mode_heats_on_a_warm_day(hass, enable_custom_integrations, config_data, freezer, mode, heater_runs, pending):
+    """Heat mode is the user's order to heat, so the outdoor heating limit applies in auto and dry only. A held heater names its reason."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="27.2", outdoor="22.7", states={HEATER: ("off", {})}, extra={CONF_HEATER_SWITCH: HEATER, "comfort_c": 27.0, "min_off_min": 0},
+    )
+    await _set_room_mode(hass, entity_id, mode)
+    calls.clear()
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "26.2")
+        hass.states.async_set(OUTDOOR, "22.7", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    heater_on = any(call[0] == "turn_on" and call[1] == HEATER for call in calls)
+    assert heater_on is heater_runs, calls
+    assert entry.runtime_data.data["heating_allowed"] is heater_runs
+    assert entry.runtime_data.data["pending"] == pending
+    assert hass.states.get(entity_id).attributes["pending"] == pending
+
+
+async def test_heat_mode_names_the_open_window_that_holds_the_heater(hass, enable_custom_integrations, config_data, freezer):
+    """Heat mode drops the outdoor limit only. An open window still holds the heater, and `pending` says so."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="23.8", outdoor="10.0", states={HEATER: ("off", {}), WINDOW: ("on", {})},
+        extra={CONF_HEATER_SWITCH: HEATER, "window": WINDOW, "min_off_min": 0},
+    )
+    await _set_room_mode(hass, entity_id, "heat")
+    calls.clear()
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "19.0")
+        hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert not any(call[0] == "turn_on" and call[1] == HEATER for call in calls), calls
+    assert hass.states.get(entity_id).attributes["pending"] == "heat held: window open"
+
+
 async def test_changing_to_heat_stops_an_ac_that_is_cooling(hass, enable_custom_integrations, config_data, freezer):
     """The owner's case: the AC was cooling a 25.6 C room, the mode went to heat, and the AC must stop at once."""
     freezer.move_to("2026-11-20T10:00:00+00:00")
@@ -7749,7 +7792,12 @@ async def test_whole_house_fan_cools_first_and_the_ac_takes_over_when_it_cannot_
     assert entry.runtime_data.data["action"] == "off: free cooling: window open or whole-house fan"
     await tick("25.5")
     assert hass.states.get(CLIMATE).state == "off"
-    # The room climbs more than 2 K above the cool threshold: the fan stops and the AC cools.
+    # The room climbs more than 2 K above the cool threshold. The fan keeps its 30 minutes, then it stops and the AC cools.
+    for _ in range(4):
+        await tick("26.5")
+        assert hass.states.get(HOUSE_FAN).state == "on"
+        assert hass.states.get(CLIMATE).state == "off"
+    await tick("26.5")
     await tick("26.5")
     assert hass.states.get(HOUSE_FAN).state == "off"
     assert hass.states.get(CLIMATE).state == "cool"

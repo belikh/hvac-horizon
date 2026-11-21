@@ -22,8 +22,9 @@ Then find the text in the table below.
 | `cool: waiting for restart delay` | A start waits for `min_off_min` after the last stop. The same text exists for `heat` and `dry`. | Wait. The `pending` attribute of the thermostat shows the minutes. |
 | `cool: waiting for compressor group` | Another entry in the same `compressor_group` started its AC less than 5 minutes ago. | Wait. |
 | `off: window open N min` | The window sensor has been open for `window_delay_min` or longer. | Close the window. |
-| `off: free cooling: window open or whole-house fan` | The entry holds the window actuator open, or the whole-house fan runs. | Nothing. The AC cools when the room is 2 K above the cool threshold. |
-| `off: outdoor N C below cooling limit` | Outdoors is below 16 °C. | Nothing. |
+| `off: free cooling: window open or whole-house fan` | The entry holds the window actuator open, or the whole-house fan runs. | Nothing. The AC cools when the room is still 2 K above the cool threshold after 30 minutes. |
+| `off: auto: the heater ran in the last 60 min` | The mode is `auto` and the heater runs, or stopped less than 60 minutes ago. | Nothing. A room 2 K above the cool threshold cools at once. Choose `cool` to cool now. |
+| `off: outdoor N C below cooling limit` | The mode is `auto`, the entry has a window actuator or a whole-house fan, and outdoors is below 16 °C. | Nothing. The window or the fan cools the room. Choose `cool` to run the AC. |
 | `off: away, room within setback` | The room is unoccupied and below `eco_c` or `away_c`. | Nothing. |
 | `cool: pre-cool starts now` | A schedule event is near and the room needs the time to cool. | Nothing. |
 | `off: dry paused, room below heat threshold` | Dry mode cooled the room to 1 K below the heat threshold. | Nothing. Drying resumes at the threshold. |
@@ -47,10 +48,12 @@ Check these in order.
 ## The heater does not start
 
 1. **Mode.** The heater runs in `auto`, `heat` and `dry` only.
-2. **Outdoor limit.** The Heating allowed sensor reads `False` when outdoors is above 22 °C.
+2. **Outdoor limit.** In `auto` and `dry` the heater stays off while outdoors is above 22 °C, and the Heating allowed sensor reads `False`. Choose `heat` to heat on a warm day.
 3. **Threshold.** The heater runs when the room is below the Heat below sensor.
 4. **AC cooling.** The heater stays off on a tick where the AC cools, and while another entry of the same house cools.
 5. **Window and house.** An open window, an away house, vacation and the lock each hold the heater at 0.
+
+When the room is below the heat threshold and one of these holds the heater, the `pending` attribute of the thermostat names it, for example `heat held: outdoors above 22 °C`.
 
 ## Sensor stalled
 

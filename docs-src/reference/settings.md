@@ -22,7 +22,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `climate` | AC climate entity | required | The AC that HVAC Horizon reads and, with control on, drives. One entry per climate entity. |
 | `power` | AC power sensor (W) | required | Power of the whole AC unit in watts. Feeds the room model, the energy forecast and the running check: below 0.2 kW the AC counts as off. |
 | `room_sensors` | Room temperature sensors | required | One or more temperature sensors in the room. The room temperature is their median. A stalled sensor drops out of the median. |
-| `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit and the 22 °C heating limit. |
+| `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit of `auto` with a window actuator or whole-house fan, and the 22 °C heating limit of `auto` and `dry`. |
 
 ## Comfort and presets
 
@@ -86,7 +86,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `window` | Window or door sensor | unset | A window open longer than `window_delay_min` pauses cooling. The heater is also gated. |
 | `motion` | Motion sensor | unset | Motion in the room means occupied. No motion for `motion_away_min` means unoccupied: the room cools to `eco_c` or `away_c` and heats to the eco heat setpoint. |
 | `presence` | Presence sources: any home means home, all away for the away delay means away | unset | A source in state `on` or `home` means home. All sources away for `away_delay_min` means away. With a motion sensor, motion in the room counts as occupied whatever presence says. Once motion is idle, an empty house heats to the 16 °C frost floor. |
-| `window_actuator` | Window actuator, a cover or switch: opens on natural ventilation or economizer advice | unset | Opens on natural ventilation or economizer advice. Closes when the advice ends. The AC does not cool while the entry holds the window open. When the room climbs 2 K above the cool threshold, the window closes and the AC cools. |
+| `window_actuator` | Window actuator, a cover or switch: opens on natural ventilation or economizer advice | unset | Opens on natural ventilation or economizer advice. Closes when the advice ends. The AC does not cool while the entry holds the window open. When the room is still 2 K above the cool threshold after 30 minutes, the window closes and the AC cools. |
 | `motion_away_min` | Minutes without motion before the room counts as unoccupied | `30.0` | Used only with `motion`. Minimum 1. |
 | `window_delay_min` | Minutes a window may stay open before the AC pauses | `10.0` | Minutes a window may stay open before cooling pauses. 0 to 120. |
 | `window_azimuth` | Window facing direction, degrees from north | `180.0` | Direction of the window for solar gain. |
@@ -104,7 +104,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `dehumidifier` | Dehumidifier switch | unset | On while room humidity is above 60 %, off at 57 %. In `dry` mode with no humidity sensor it stays on. Off while the room is held off. |
 | `humidifier` | Humidifier switch | unset | On while room humidity is below 40 %, off at 43 %. Off while the room is held off. |
 | `pm25` | PM2.5 sensor | unset | Above 25 µg/m³ the room fan runs. |
-| `whole_house_fan` | Whole-house fan switch | unset | On when the room is above the cool threshold, outdoors is at least 2 K cooler and the house is not sealed. The AC stays off while the fan runs. When the room climbs 2 K above the cool threshold, the fan stops and the AC cools. |
+| `whole_house_fan` | Whole-house fan switch | unset | On when the room is above the cool threshold, outdoors is at least 2 K cooler and the house is not sealed. The AC stays off while the fan runs. When the room is still 2 K above the cool threshold after 30 minutes, the fan stops and the AC cools. |
 | `coil_dry` | Dry the AC coil after cooling | `False` | Runs the AC dry mode for 20 minutes after cooling. |
 | `dry_for_humidity` | Use the AC dry mode when humid (no dehumidifier set; uses a lot of water) | `False` | Above 60 % room humidity, with no dehumidifier set, the AC runs dry mode. Dry mode uses a lot of water. |
 | `economizer_fan` | Economizer fan assist | `False` | Runs the fan switch in the economizer fan assist phase. Needs home, unlocked and no stalled sensor. |

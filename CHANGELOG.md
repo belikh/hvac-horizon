@@ -2,6 +2,21 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.5.4 (2026-11-22)
+
+- `heat` mode heats on a warm day. The 22 °C outdoor heating limit applies in `auto` and `dry` only. Before, `heat` with
+  the room below the heat threshold and outdoors above 22 °C left the heater off and gave no reason.
+- `cool` mode cools on a cold day. The 16 °C outdoor cooling limit applies only in `auto` on an entry with a window
+  actuator or a whole-house fan, and ends once free cooling has failed.
+- Free cooling gets 30 minutes before it is given up. Before, a window opened into a room more than 2 K above the cool
+  threshold closed again on the same tick.
+- In `auto` the AC waits 60 minutes after the heater ran, unless the room is 2 K above the cool threshold. Without
+  the wait the AC cooled away the heater's overshoot on a cold night.
+- `tests/ha/test_basics.py` tests the thermostat from the outside: 72 cases set a mode and a target on the room
+  thermostat, run a simulated room minute by minute and check the heater switch, the AC and the thermostat state.
+- The thermostat's `pending` attribute names the gate that holds a wanted heater off, for example
+  `heat held: window open`.
+
 ## 0.5.3 (2026-11-21)
 
 - `set_lock` needs an administrator.

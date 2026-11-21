@@ -57,7 +57,7 @@ The preset, your target, the price shift, occupancy, vacation and the mould bump
 
 `decide()` in `decide.py` returns one action for the AC. Its order is:
 
-1. A window open longer than its delay, or outdoors below 16 °C: off.
+1. A window open longer than its delay: off. In `auto`, with a window actuator or a whole-house fan, outdoors below 16 °C: off, until free cooling has failed for 30 minutes. `cool` mode has no outdoor limit. In `auto` the AC also waits 60 minutes after the heater ran, unless the room is 2 K above the cool threshold.
 2. A night pre-cool, when `night_plan_act` is on.
 3. An unoccupied room: pre-cool when a schedule event is near, else cool only above the setback.
 4. An occupied room: cool above the threshold.
@@ -80,7 +80,7 @@ A heater switch runs as a share of a 10 minute window. `pid.py` or `tpi.py` give
 The heater stays off in each of these cases:
 
 - The thermostat's mode does not heat.
-- Outdoors is above 22 °C.
+- Outdoors is above 22 °C and the mode is `auto` or `dry`. `heat` mode has no outdoor limit.
 - A window is open, the house is away or the lock is on.
 - A sensor is stalled.
 - The AC cools.

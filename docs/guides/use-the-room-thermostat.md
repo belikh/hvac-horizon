@@ -40,7 +40,7 @@ In `dry` the AC runs in its own dry mode.
 - With no room humidity sensor, the AC dries until you change the mode.
 - An entry with a dehumidifier switch runs that switch and leaves the AC off.
 
-Drying cools the room. The heater may run at the same time to hold the heat target. The heater still obeys the outdoor heating limit, so it stays off when outdoors is above 22 °C. When the room falls 1 K below the heat threshold, the AC pauses. It dries again once the room is back at the threshold.
+Drying cools the room. The heater may run at the same time to hold the heat target. In `dry` the heater obeys the outdoor heating limit, so it stays off when outdoors is above 22 °C. When the room falls 1 K below the heat threshold, the AC pauses. It dries again once the room is back at the threshold.
 
 ## Restart delay
 
@@ -53,6 +53,25 @@ start in 3 min: restart delay
 ```
 
 The device starts by itself when the delay ends. Set the delay with `min_off_min` in the **Devices and power limits** section. 0 turns it off.
+
+## Outdoor limits
+
+An entry with a window actuator or a whole-house fan cools with outdoor air first. In `auto` its AC stays off while outdoors is below 16 °C, unless the open window or the fan has left the room 2 K above the cool threshold for 30 minutes. An entry with neither has no outdoor cooling limit. `cool` has no outdoor limit: the AC cools whenever the room is above the cool threshold.
+
+In `auto` the AC does not cool while the heater runs or within 60 minutes of its last run. A room 2 K above the cool threshold cools at once. This stops the heater and the AC from taking turns.
+
+In `auto` and `dry` the heater stays off while outdoors is above 22 °C. `heat` has no outdoor limit: the heater runs whenever the room is below the heat threshold.
+
+When the room is below the heat threshold and a gate holds the heater off, `pending` names the gate:
+
+| `pending` | Cause |
+| :--- | :--- |
+| `heat held: outdoors above 22 °C` | The mode is `auto` or `dry` and outdoors is above 22 °C. |
+| `heat held: window open` | The window sensor reads open. |
+| `heat held: house mode is away` | The house mode is `away`. |
+| `heat held: another room is cooling` | Another entry of the same house cools. |
+| `heat held: locked` | The lock is on. |
+| `heat held: a sensor has stalled` | A room or outdoor sensor has stopped reporting. |
 
 ## Target temperature
 

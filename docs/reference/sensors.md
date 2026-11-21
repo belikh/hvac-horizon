@@ -45,7 +45,7 @@ These 28 sensors have the entity category `diagnostic` and are enabled. They sho
 | `compliance_pct` | Comfort compliance | % | Share of stored readings inside the comfort band. |
 | `heatwave` | Heatwave | none | On when `heatwave_warning` is on or the daily highs reach 30 °C three days running. It changes no device command. |
 | `occupancy` | Occupancy | none | `home` or `away`, from the presence sources and `away_delay_min`. |
-| `heating_allowed` | Heating allowed | none | False when outdoors is above 22 °C. The heater, the boiler and AC heat then stay off. |
+| `heating_allowed` | Heating allowed | none | False when outdoors is above 22 °C and the mode is `auto` or `dry`. The heater, the boiler and AC heat then stay off. Always True in `heat` mode. |
 | `learning_suggestion` | Learning suggestion | none | Set when the fitted heat-gain rate drifts from the stored baseline. Answer with `respond_suggestion`. |
 | `external_change` | External change | none | Set when the AC setpoint or mode changed outside HVAC Horizon. |
 | `sensors_stalled` | Stalled sensors | none | The sensors with no report inside the stall window. |
@@ -55,7 +55,7 @@ These 28 sensors have the entity category `diagnostic` and are enabled. They sho
 | `whole_house_fan` | Whole-house fan | none | True while the whole-house fan may run. |
 | `heating_failure` | Heating failure | none | True when the heater ran 60 minutes and the room rose less than 0.5 K. |
 | `dispatch` | Room dispatch | none | The fleet devices chosen for the current gap, with each device's rate and power. |
-| `pending` | Pending action | none | A start held by the restart delay, for example `start in 2 min: restart delay`. |
+| `pending` | Pending action | none | A start held by the restart delay, for example `start in 2 min: restart delay`, or the gate that holds a wanted heater off, for example `heat held: window open`. |
 | `ac_setpoint_sent_c` | Setpoint sent | °C | The setpoint last sent to the AC, after setpoint regulation. |
 | `ac_sensor_offset_k` | Sensor offset | K | Room median minus the AC's own temperature reading. |
 | `outdoor_forecast_used` | Outdoor forecast used | none | True when a fresh hourly forecast feeds the forecast, the plans, pre-cool and preheat. |

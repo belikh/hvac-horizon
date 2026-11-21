@@ -24,13 +24,14 @@ from custom_components.hvac_horizon.features import (
     valve_exercise_due,
     window_actuator_command,
 )
-from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, _float
+from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, FREE_COOLING_GIVE_UP_MIN, _float
 
 
 class AuxMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _actuator_opened_by_us: bool
     _free_cooling_gave_up: bool
+    _free_cooling_since: float | None
     _cool_above_c: float
     _heat_on_below_c: float
     _inhibit_until_min: float | None
@@ -152,17 +153,27 @@ class AuxMixin:
     def _update_free_cooling(self, room_c: float | None) -> None:
         """Give up on free cooling when it cannot hold the room, and allow it again once the room is at the threshold.
 
-        A window this entry opened, or a running whole-house fan, that leaves the room more than FREE_COOLING_GIVE_UP_K
-        above the cool threshold is given up: the window closes, the fan stops and the AC cools.
+        A window this entry opened, or a running whole-house fan, gets FREE_COOLING_GIVE_UP_MIN to work. If the room is
+        still more than FREE_COOLING_GIVE_UP_K above the cool threshold after that, free cooling is given up: the
+        window closes, the fan stops and the AC cools.
         """
         if room_c is None:
             return
+        now = dt_util.utcnow().timestamp()
         fan = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
         fan_state = self.hass.states.get(fan) if fan else None
         free_cooling = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
+        if not free_cooling:
+            self._free_cooling_since = None
+        elif self._free_cooling_since is None:
+            self._free_cooling_since = now
         if room_c <= self._cool_above_c:
             self._free_cooling_gave_up = False
-        elif free_cooling and room_c > self._cool_above_c + FREE_COOLING_GIVE_UP_K:
+        elif (
+            self._free_cooling_since is not None
+            and now - self._free_cooling_since >= FREE_COOLING_GIVE_UP_MIN * 60.0
+            and room_c > self._cool_above_c + FREE_COOLING_GIVE_UP_K
+        ):
             self._free_cooling_gave_up = True
 
     def _free_cooling_open(self) -> bool:

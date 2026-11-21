@@ -108,20 +108,44 @@ class HeaterMixin:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             self._heating_fail_reported = False
 
-    def _heater_gate_closed(self, result: dict[str, Any]) -> bool:
-        """True when a gate forces the heater off: window open, house away, heating not allowed, lock on, a stalled sensor
-        or another entry in the same house group cooling."""
+    def _heater_gate_reason(self, result: dict[str, Any]) -> str | None:
+        """The gate that forces the heater off, as text, or None when no gate is closed.
+
+        Gates: window open, house away, the outdoor heating limit, another entry of the house group cooling, the lock,
+        the room off, a mode with no heating, or a stalled sensor.
+        """
         window = self._optional(CONF_WINDOW)
-        return (
-            (window is not None and window.state == "on")
-            or house_mode_from_store(self.hass.data.get(DOMAIN, {})) == "away"
-            or not result.get("heating_allowed", True)
-            or bool(result.get("house_cooling"))
-            or not lock_allows_control(self._locked)
-            or self._user_off
-            or not self.heating_permitted
-            or self._stall_blocks(result)
-        )
+        if window is not None and window.state == "on":
+            return "window open"
+        if house_mode_from_store(self.hass.data.get(DOMAIN, {})) == "away":
+            return "house mode is away"
+        if not result.get("heating_allowed", True):
+            return "outdoors above 22 °C"
+        if result.get("house_cooling"):
+            return "another room is cooling"
+        if not lock_allows_control(self._locked):
+            return "locked"
+        if self._user_off:
+            return "room is off"
+        if not self.heating_permitted:
+            return f"mode is {self.user_mode}"
+        if self._stall_blocks(result):
+            return "a sensor has stalled"
+        return None
+
+    def _heater_gate_closed(self, result: dict[str, Any]) -> bool:
+        """True when a gate forces the heater off."""
+        return self._heater_gate_reason(result) is not None
+
+    def _heat_hold_text(self, result: dict[str, Any]) -> str | None:
+        """`heat held: <gate>` when the room is below the heat threshold, the mode allows heating and a gate keeps the heater off."""
+        if not (self.entry.data.get(CONF_CONTROL) and self._heater_switch()) or self._user_off or not self.heating_permitted:
+            return None
+        rooms = self._rooms()
+        if not rooms or statistics.median(rooms) >= self._heat_on_below_c:
+            return None
+        reason = self._heater_gate_reason(result)
+        return None if reason is None else f"heat held: {reason}"
 
     def _heater_off_at_c(self) -> float:
         """Room temperature at which the heater output is forced to 0.

@@ -40,7 +40,7 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 1. Open **Heater** and select the heater's switch in **Heater switch**.
 2. Select **Submit**, then **Save and close**.
 
-The room thermostat now lists `heat`. In `auto` or `heat`, the heater runs when the room is 0.5 K or more below the heat target and outdoors is at or below 22 °C. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
+The room thermostat now lists `heat`. The heater runs when the room is 0.5 K or more below the heat target. In `auto` it also needs outdoors at or below 22 °C. `heat` has no outdoor limit. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
 
 | To | Set |
 | :-- | :-- |
@@ -82,7 +82,7 @@ Motion in the room counts as occupied whatever the presence sources say.
 | Window actuator | `window_actuator` | Opens the window when outdoors is at least 2 K cooler than the room and at or below 24 °C |
 | Whole-house fan | `whole_house_fan` | Runs when the room is above the cool threshold and outdoors is at least 2 K cooler |
 
-The AC does not cool while the entry holds the window open or runs the whole-house fan. When the room climbs 2 K above the cool threshold, the window closes, the fan stops and the AC cools.
+The AC does not cool while the entry holds the window open or runs the whole-house fan. When the room is still 2 K above the cool threshold after 30 minutes, the window closes, the fan stops and the AC cools.
 
 With an outdoor humidity sensor in `humidity`, the window and the economizer stay shut when the outdoor dew point is 1 K or more above the room's.
 

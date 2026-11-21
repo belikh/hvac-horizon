@@ -206,6 +206,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
+        self._free_cooling_since: float | None = None  # when the window this entry opened, or the fan, started
         self._free_cooling_gave_up = False  # free cooling failed to hold the room; the window stays shut until the room is at the threshold
         self._actuator_opened_by_us = False  # set when this integration opens the window actuator; only then does it close it
         self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read
@@ -380,7 +381,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             low_edge = self.comfort_c - 1.0
             result["heat_source"] = source
             result["boiler_demand"] = boiler_demand(statistics.median(rooms_econ), low_edge, source)
-            result["heating_allowed"] = outdoor_allows("heat", outdoor_now)
+            # Heat mode is the user's order to heat, so the outdoor limit applies in auto and dry only.
+            result["heating_allowed"] = self.user_mode == "heat" or outdoor_allows("heat", outdoor_now)
         await self._drive_window_actuator(result)
         # The motion preset sets occupancy in _plan_control. The idle clock starts at the first tick, as presence does.
         motion_state = self._optional(CONF_MOTION)

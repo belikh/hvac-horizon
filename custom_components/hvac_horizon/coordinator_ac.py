@@ -38,6 +38,7 @@ from .const import (
     CONF_ROOM_HUMIDITY,
     CONF_SETPOINT_REGULATION,
     CONF_WHOLE_HOUSE_FAN,
+    CONF_WINDOW_ACTUATOR,
     CONF_WINDOW,
     CONF_WINDOW_DELAY_MIN,
     DEFAULT_WINDOW_DELAY_MIN,
@@ -73,7 +74,7 @@ from custom_components.hvac_horizon.features import (
     whole_house_fan_allowed,
     window_open_pause,
 )
-from custom_components.hvac_horizon.coordinator_common import DRY_FLOOR_BELOW_HEAT_K, _float
+from custom_components.hvac_horizon.coordinator_common import AUTO_CHANGEOVER_MIN, AUTO_CHANGEOVER_OVERRIDE_K, DRY_FLOOR_BELOW_HEAT_K, _float
 
 
 def _attr_float(state: State, name: str) -> float | None:
@@ -96,6 +97,9 @@ class AcMixin:
     _inhibit_until_min: float | None
     _inhibited_for_setpoint: float | None
     _inputs_seen: bool
+    _free_cooling_gave_up: bool
+    _heater_stopped_min: float | None
+    _heater_was_on: bool
     _last_sent_min: float | None
     _last_start_min: dict[str, float]
     _last_written_mode: str | None
@@ -219,7 +223,7 @@ class AcMixin:
                 window_open_min=window_open_min,
                 someone_home=self._someone_home,
                 precool_start_in_min=precool,
-                outdoor_c=outdoor,
+                outdoor_c=outdoor if self._outdoor_cool_limit_applies() else None,
                 night_precool_c=comfort_c if night == "pre-cool" else None,
             )
             cooling_now = self.hass.states.get(climate_id)
@@ -259,6 +263,8 @@ class AcMixin:
             action = Action(Mode.OFF, None, f"mode is {self.user_mode}: no cooling")
         elif action.mode is Mode.COOL and (fan_ok or self._free_cooling_open()):
             action = Action(Mode.OFF, None, "free cooling: window open or whole-house fan")
+        elif action.mode is Mode.COOL and rooms and self._changeover_holds_cooling(now, statistics.median(rooms)):
+            action = Action(Mode.OFF, None, f"auto: the heater ran in the last {AUTO_CHANGEOVER_MIN:.0f} min")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
         # The MPC plan can idle a cool decision only when the room is within the deadband of the threshold (or below it)
         # and the next plan steps are all idle. A room more than the deadband above the threshold keeps cooling.
@@ -698,14 +704,40 @@ class AcMixin:
         minutes = 3.0 if raw is None or raw == "" else float(raw)
         return restart_wait_min(self._since_min(state, own_changed_at, now), minutes)
 
+    def _changeover_holds_cooling(self, now: float, room_c: float) -> bool:
+        """True when auto mode must not cool yet: the heater runs or ran within AUTO_CHANGEOVER_MIN.
+
+        A heater overshoots its target by a few tenths. Without this wait the AC would cool that heat away and the two
+        would take turns. A room AUTO_CHANGEOVER_OVERRIDE_K above the cool threshold is a heat load and cools at once.
+        """
+        if self.user_mode != "auto" or room_c > self._cool_above_c + AUTO_CHANGEOVER_OVERRIDE_K:
+            return False
+        if self._heater_was_on:
+            return True
+        return self._heater_stopped_min is not None and now / 60.0 - self._heater_stopped_min < AUTO_CHANGEOVER_MIN
+
+    def _outdoor_cool_limit_applies(self) -> bool:
+        """True when the 16 C outdoor cooling limit applies: auto mode in a room that can cool with outdoor air.
+
+        Below 16 C outdoors a window actuator or a whole-house fan cools the room for less than the AC. A room with
+        neither has only the AC, so the AC cools. Once free cooling has failed to hold the room (_free_cooling_gave_up)
+        the AC cools too. Cool mode is the user's order to cool and has no outdoor limit.
+        """
+        data = self.entry.data
+        free_air = bool(data.get(CONF_WINDOW_ACTUATOR) or data.get(CONF_WHOLE_HOUSE_FAN))
+        return self.user_mode == "auto" and free_air and not self._free_cooling_gave_up
+
     def _hold_start(self, wait_min: float, name: str | None) -> None:
         """Record a start that the restart delay holds this cycle. `name` labels a device other than the first AC."""
         self._pending_waits.append((wait_min, name))
 
     def _publish_pending(self, result: dict[str, Any]) -> None:
-        """Publish the soonest held start as `pending` (None when nothing waits) and schedule a re-check when its delay ends."""
+        """Publish the soonest held start as `pending` and schedule a re-check when its delay ends.
+
+        With no held start, `pending` names the gate that keeps a wanted heater off, or is None.
+        """
         if not self._pending_waits:
-            result["pending"] = None
+            result["pending"] = self._heat_hold_text(result)
             return
         wait_min, name = min(self._pending_waits, key=lambda held: held[0])
         text = f"start in {max(1, math.ceil(wait_min - 1e-9))} min: restart delay"
