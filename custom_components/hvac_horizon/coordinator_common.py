@@ -1,4 +1,4 @@
-"""Helpers and constants shared by the coordinator and its mixins. The logger keeps the coordinator module name so log filters stay valid."""
+"""Helpers and constants shared by the coordinator and its mixins. The logger keeps the coordinator module name so logging configuration by module name keeps working."""
 
 from __future__ import annotations
 

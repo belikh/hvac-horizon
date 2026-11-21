@@ -16,9 +16,9 @@ HVAC Horizon is a Home Assistant custom integration for one room. It learns how 
 
 Each entry creates one device with these entities:
 
-- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool`` and (with a heater switch or ``ac_heat``) ``heat``.
+- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``auto``, ``heat`` (with a heater) and ``dry`` (with an AC dry mode or a dehumidifier).
 - Forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error.
-- 57 status sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch.
+- 69 status sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 36 of them are disabled until you enable them.
 
 Services cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
 
@@ -27,7 +27,7 @@ Services cover the lock, house mode, timed presets, a heater relay auto-tune, a 
 Install
 -------
 
-Add ``https://github.com/belikh/hvac-horizon`` to HACS as a custom repository with category *Integration*, download it and restart Home Assistant.
+Open HACS, search for *HVAC Horizon*, download it and restart Home Assistant. If the search finds nothing, add ``https://github.com/belikh/hvac-horizon`` under *Custom repositories* with the category *Integration* first.
 
 .. image:: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
    :target: https://hacs.xyz/
@@ -38,6 +38,18 @@ Open *Settings > Devices & services*, select *Add integration*, search for *HVAC
 The status sensor shows *learning* until the first fit. The fit needs at least three hours with the AC on and three hours with it off, in at least three separate runs.
 
 Documentation: `Install <https://docs.jupiter.au/hvac-horizon/start/install/>`__, `Set up the integration <https://docs.jupiter.au/hvac-horizon/guides/set-up-the-integration/>`__, `Settings <https://docs.jupiter.au/hvac-horizon/reference/settings/>`__ and `Sensors <https://docs.jupiter.au/hvac-horizon/reference/sensors/>`__.
+
+----
+
+Privacy
+-------
+
+HVAC Horizon sends no data outside your Home Assistant. It makes no network requests of its own and has no account, no cloud service and no telemetry.
+
+- It reads the entities you select and stores their readings in Home Assistant's ``.storage`` folder, up to 30 days. Removing the entry deletes that file.
+- It calls the ``weather.get_forecasts`` service of the weather entity you select. That integration fetches its own forecast.
+- With an AI conversation agent set, it sends that agent a short text with the room's recent temperatures, AC modes and actions. The agent's own integration decides where that text goes. The default is no agent and no calls.
+- The diagnostics download replaces entity IDs and the lock PIN with ``**REDACTED**``.
 
 ----
 

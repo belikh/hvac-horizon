@@ -180,7 +180,7 @@
     "heater_algorithm": {
       "options": {
         "pid": "PID (default)",
-        "tpi": "TPI duty cycle (Versatile Thermostat rule)"
+        "tpi": "TPI duty cycle"
       }
     }
   },

@@ -215,9 +215,8 @@ def _on_fit_error(on: list[Sample], k: float, g: float, c: float, den: float) ->
 def tpi_on_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: float, coef_ext: float, max_pct: float | None = None) -> float:
     """Heater on-percent from the TPI rule: coef_int * (target - room) + coef_ext * (target - outdoor), 0 to 100.
 
-    Same rule as Versatile Thermostat's heat branch (prop_algo_tpi.py at commit ce3be33), which returns a
-    fraction. This returns percent. A room above the target gives 0. A value above 100 is clamped to 100.
-    `max_pct` caps the result when it is set (VT's max_on_percent).
+    The result is in percent. A room above the target gives 0. A value above 100 is clamped to 100.
+    `max_pct` caps the result when it is set.
     """
     raw = coef_int * (target_c - room_c) + coef_ext * (target_c - outdoor_c)
     pct = min(100.0, max(0.0, 100.0 * raw))
@@ -227,7 +226,7 @@ def tpi_on_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: f
 def tpi_threshold_forced_off(room_c: float, target_c: float, slope: float | None, high_k: float, low_k: float) -> bool:
     """True when the activation thresholds force the TPI output to 0.
 
-    Same rule as Versatile Thermostat's threshold check (prop_algo_tpi.py at commit ce3be33). `slope` is the room's
+    `slope` is the room's
     change since the previous tick, so its sign is the trend. A rising room is forced off when it is more than
     `high_k` above the target. A falling room is forced off when it is more than `low_k` above the target.
     The rule does not apply when there is no slope, or when either threshold is 0 or below.

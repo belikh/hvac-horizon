@@ -64,7 +64,7 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 | `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |
 | `sensor.py` | `STATUS_KEYS` and the sensor entities. |
 | `diagnostics.py` | The diagnostics download, with entity IDs redacted. |
-| `accuracy_api.py` | The JSON view and the sidebar panel for the accuracy page in `frontend/accuracy.html`. |
+| `accuracy_api.py` | The JSON views and the sidebar panel. The panel is the web component in `frontend/accuracy-panel.js`, which calls the views through `hass.callApi`. |
 
 ## One tick
 

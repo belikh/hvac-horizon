@@ -5,6 +5,7 @@ Run with pytest-homeassistant-custom-component. This directory has no __init__.p
 so the standard-library unittest run does not collect it.
 """
 
+import json
 import math
 import random
 import statistics
@@ -1354,7 +1355,7 @@ async def test_tpi_threshold_forces_the_output_off_while_the_room_rises(hass, en
 
 
 async def test_tpi_threshold_with_one_value_at_zero_has_no_effect(hass, enable_custom_integrations, config_data, freezer):
-    # Same room as the test above. A low threshold of 0 disables the rule, as in VT, so the output stays at 13 %.
+    # Same room as the test above. A low threshold of 0 disables the rule, so the output stays at 13 %.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     base = {"comfort_c": 24.0, "heater_algorithm": "tpi", "tpi_coef_int": 0.1, "tpi_coef_ext": 0.01}
     entry, _ = await setup_heater(hass, config_data, outdoor="5.0", room="24.4", extra={**base, "tpi_threshold_high": 0.5, "tpi_threshold_low": 0.0})
@@ -1761,9 +1762,12 @@ async def test_accuracy_view_returns_the_pairs_and_median_to_a_signed_in_user(ha
 
     anonymous = await hass_client_no_auth()
     assert (await anonymous.get(url)).status == 401
-    page = await anonymous.get("/hvac_horizon/accuracy.html")
-    assert page.status == 200
-    assert "Forecast accuracy" in await page.text()
+    # The static path serves the panel module only. It holds no data and never reads a sign-in token.
+    module = await anonymous.get("/hvac_horizon/accuracy-panel.js")
+    assert module.status == 200
+    source = await module.text()
+    assert "hass.callApi" in source or "_hass.callApi" in source
+    assert "hassTokens" not in source and "localStorage" not in source and "innerHTML" not in source
 
 
 async def test_heater_algorithm_defaults_to_pid_when_the_key_is_absent(hass, enable_custom_integrations, config_data):
@@ -4944,14 +4948,16 @@ async def test_accuracy_panel_opens_the_page_with_the_entry_id_and_the_page_is_s
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     panel = hass.data[DATA_PANELS][ACCURACY_PANEL]
-    assert panel.component_name == "iframe"
+    assert panel.component_name == "custom"
     assert panel.sidebar_title == "HVAC Accuracy"
-    url = panel.config["url"]
-    assert url == f"/hvac_horizon/accuracy.html?entry_id={entry.entry_id}"
+    assert panel.config["entry_ids"] == [entry.entry_id]
+    custom = panel.config["_panel_custom"]
+    assert custom["name"] == "hvac-horizon-accuracy"
+    assert custom["embed_iframe"] is False
     anonymous = await hass_client_no_auth()
-    page = await anonymous.get(url.split("?", 1)[0])
+    page = await anonymous.get(custom["module_url"])
     assert page.status == 200
-    assert "Forecast accuracy" in await page.text()
+    assert 'customElements.define("hvac-horizon-accuracy"' in await page.text()
 
 
 async def test_accuracy_panel_lists_the_entries_when_several_have_it(hass, hass_client, enable_custom_integrations, config_data):
@@ -4962,12 +4968,12 @@ async def test_accuracy_panel_lists_the_entries_when_several_have_it(hass, hass_
     first.add_to_hass(hass)
     assert await hass.config_entries.async_setup(first.entry_id)
     await hass.async_block_till_done()
-    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["url"] == f"/hvac_horizon/accuracy.html?entry_id={first.entry_id}"
+    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["entry_ids"] == [first.entry_id]
     second = MockConfigEntry(domain=DOMAIN, title="Bedroom", data=dict(config_data, accuracy_panel=True), unique_id="climate.bedroom_ac")
     second.add_to_hass(hass)
     assert await hass.config_entries.async_setup(second.entry_id)
     await hass.async_block_till_done()
-    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["url"] == "/hvac_horizon/accuracy.html"
+    assert hass.data[DATA_PANELS][ACCURACY_PANEL].config["entry_ids"] == [first.entry_id, second.entry_id]
     client = await hass_client()
     listed = await (await client.get("/api/hvac_horizon/entries")).json()
     assert sorted((e["entry_id"], e["title"]) for e in listed) == sorted([(first.entry_id, "Test AC"), (second.entry_id, "Bedroom")])
@@ -7845,3 +7851,60 @@ async def test_a_pre_cool_that_cannot_meet_the_event_starts_at_once(hass, enable
     assert coordinator._precool_start(now, [26.0]) is None
     event_in(30)  # a room already at the setpoint has nothing to pre-cool
     assert coordinator._precool_start(now, [23.0]) is None
+
+
+# ---- HACS pre-submission checks -----------------------------------------------------------------------------
+
+
+async def test_diagnostics_scrubs_entity_ids_inside_values_and_keys(hass, enable_custom_integrations, config_data):
+    """Key-based redaction misses an entity id inside a text or used as a dict key. The scrub replaces both."""
+    from custom_components.hvac_horizon.diagnostics import async_get_config_entry_diagnostics
+
+    entry, _ = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator.data.update(
+        {
+            "sensors_stalled": [ROOM_A],
+            "daily_briefing": f"Next: off: {ROOM_A} stalled",
+            "nested": {"by_entity": {ROOM_B: 1.0}, "text": f"read {CLIMATE} and {OUTDOOR}"},
+        }
+    )
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = json.dumps(diag)
+    for entity_id in (ROOM_A, ROOM_B, CLIMATE, OUTDOOR, POWER, HEATER):
+        assert entity_id not in text
+    assert diag["status"]["sensors_stalled"] == "**REDACTED**"
+    assert diag["status"]["nested"]["by_entity"] == {"entity_0": 1.0}
+    assert "title" not in diag and "unique_id" not in diag
+
+
+async def test_services_that_reset_export_or_drive_the_heater_need_an_admin(hass, hass_admin_user, hass_read_only_user, enable_custom_integrations, config_data):
+    from homeassistant.core import Context
+    from homeassistant.exceptions import Unauthorized
+
+    entry, _ = await setup_heater(hass, config_data)
+    user = Context(user_id=hass_read_only_user.id)
+    for service, data, response in (
+        ("reset_learning", {}, False), ("export_samples", {}, True), ("export_csv", {}, True),
+        ("start_autotune", {"setpoint": 24.0}, False), ("respond_suggestion", {"accept": True}, False),
+        ("generate_investigation_report", {}, False),
+    ):
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(DOMAIN, service, {"entry_id": entry.entry_id, **data}, blocking=True, context=user, return_response=response)
+    # A thermostat-level service stays open to every user.
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 10}, blocking=True, context=user)
+    admin = Context(user_id=hass_admin_user.id)
+    exported = await hass.services.async_call(DOMAIN, "export_samples", {"entry_id": entry.entry_id}, blocking=True, context=admin, return_response=True)
+    assert "samples" in exported
+
+
+async def test_removing_an_entry_deletes_its_stored_data(hass, enable_custom_integrations, config_data, hass_storage):
+    entry, _ = await setup_heater(hass, config_data)
+    entry.runtime_data.save_soon()
+    await hass.async_block_till_done()
+    await entry.runtime_data._store.async_save(entry.runtime_data._save_payload())
+    key = f"hvac_horizon.{entry.entry_id}"
+    assert key in hass_storage
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert key not in hass_storage

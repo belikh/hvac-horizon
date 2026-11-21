@@ -209,7 +209,7 @@ def test_max_on_percent_caps_the_tpi_output():
         (-0.2, 24.4, 0.5, 0.3, True),  # falling, 0.4 above target, low 0.3: forced off
         (-0.2, 24.2, 0.5, 0.3, False),  # falling, inside the low threshold
         (None, 24.6, 0.5, 0.3, False),  # no previous tick: no trend, no threshold
-        (0.2, 24.6, 0.0, 0.3, False),  # high at 0 disables the rule, as in VT
+        (0.2, 24.6, 0.0, 0.3, False),  # high at 0 disables the rule
         (0.2, 24.6, 0.5, 0.0, False),  # low at 0 disables the rule too
     ],
 )

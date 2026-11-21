@@ -217,7 +217,7 @@ def _resample_states(points: list[tuple[float, float]], start: float, end: float
     """Last known value on a fixed grid. `points` are (time, value) state changes in any order.
 
     Each grid time takes the most recent state at or before it. Grid times before the first state get None.
-    Ported from the recorder history reading in Versatile Thermostat.
+
     """
     if step <= 0 or end < start:
         raise ValueError("step must be positive and end must not precede start")
@@ -270,7 +270,7 @@ def entries_from_history(
 def entries_to_csv(entries: list[Entry]) -> str:
     """CSV text of the stored readings, in the layout the backfill tool reads: time, room_c, outdoor_c, power_w.
 
-    Times are Unix seconds. Ported from the history export in Versatile Thermostat (recorder export).
+    Times are Unix seconds.
     """
     lines = ["time,room_c,outdoor_c,power_w"]
     for e in sorted(entries, key=lambda x: x.t):

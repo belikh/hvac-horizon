@@ -1,4 +1,4 @@
-"""Pure decision functions ported from the feature sets of the other projects. No Home Assistant imports.
+"""Pure decision functions. No Home Assistant imports.
 
 Each function is one decision with its own tests, so it can be wired into a control cycle later.
 """
@@ -206,7 +206,7 @@ def scheduled_preset(now_h: float, blocks: list[ScheduleBlock], default: str = "
 def heating_failed(minutes_on: float, rise_c: float, window_min: float = 60.0, min_rise_c: float = 0.5) -> bool:
     """True when the heater has been commanded on for `window_min` or longer and the room has risen less than `min_rise_c`.
 
-    Ported from the heating failure detection in Versatile Thermostat. Only meaningful while the heater is commanded on.
+ Only meaningful while the heater is commanded on.
     """
     return minutes_on >= window_min and rise_c < min_rise_c
 
@@ -263,7 +263,7 @@ def sensor_stalled(last_update_s: float | None, now_s: float, stall_s: float = S
 def safety_output(sensor_stalled_flag: bool, requested_pct: float, fallback_pct: float = 0.0, minimum_pct: float = 0.0) -> float:
     """Output to use. When the sensor has stalled, use the fallback, but never below the minimum.
 
-    Ported from the safety fallback in Versatile Thermostat.
+
     """
     if not 0.0 <= minimum_pct <= 100.0 or not 0.0 <= fallback_pct <= 100.0:
         raise ValueError("percentages must be in [0, 100]")
@@ -273,7 +273,7 @@ def safety_output(sensor_stalled_flag: bool, requested_pct: float, fallback_pct:
 
 
 def daily_briefing(day_type: str, comfort_c: float, next_action: str | None, window_close_h: float | None) -> str:
-    """One-line plan for the day. Ported from the daily briefing in ClimateAdvisor."""
+    """One-line plan for the day."""
     parts = [f"Day: {day_type}.", f"Comfort {comfort_c:.1f} C."]
     if next_action:
         parts.append(f"Next: {next_action}.")
@@ -285,7 +285,7 @@ def daily_briefing(day_type: str, comfort_c: float, next_action: str | None, win
 
 
 def night_plan(outdoor_low_c: float, indoor_c: float, comfort_c: float, cool_below_c: float = 20.0) -> str:
-    """Overnight plan from the forecast low and the room temperature. Ported from ClimateAdvisor's night strategy.
+    """Overnight plan from the forecast low and the room temperature.
 
     Returns "pre-cool", "hold" or "none". Pre-cool when the room is above comfort and the outdoor low
     is cool enough to flush heat overnight. Hold when the room is already at comfort. None otherwise.
@@ -309,7 +309,7 @@ def suggestion_visible(suggestion: str | None, dismissed_for_k: float | None, le
 def learning_suggestion(current_k: float, learned_k: float, tolerance: float = 0.2) -> str | None:
     """Suggest a change when the learned heat gain differs from the current value by more than `tolerance` (relative).
 
-    Ported from ClimateAdvisor's learning suggestions. Returns text for the user, or None when no change is needed.
+ Returns text for the user, or None when no change is needed.
     """
     if current_k <= 0:
         return None
@@ -323,7 +323,7 @@ def learning_suggestion(current_k: float, learned_k: float, tolerance: float = 0
 def vacation_target(vacation_on: bool, vacation_c: float, normal_target_c: float) -> float:
     """While vacation mode is on, hold the vacation temperature. Otherwise keep the normal target.
 
-    Ported from RoomMind's vacation mode, which holds a lower target through one switch.
+
     """
     return vacation_c if vacation_on else normal_target_c
 
@@ -340,7 +340,7 @@ def presence_sources(value: Any) -> list[str]:
 def presence_mode(home_states: list[bool], away_delay_min: float, minutes_since_last_home: float) -> str:
     """Occupancy mode from several presence sources. 'home' if any source is home. 'away' only after the delay.
 
-    Ported from RoomMind's presence and vacancy handling. An empty list means no sources, so the room is treated as home.
+ An empty list means no sources, so the room is treated as home.
     """
     if not home_states or any(home_states):
         return "home"
@@ -350,7 +350,7 @@ def presence_mode(home_states: list[bool], away_delay_min: float, minutes_since_
 def sun_heat_gain(irradiance_w_m2: float, window_area_m2: float, shgc: float = 0.6) -> float:
     """Solar heat gain through a window, in kW: irradiance times area times solar heat gain coefficient.
 
-    Ported from the solar gain estimate in RoomMind. Irradiance is the measured or modelled value on the window.
+ Irradiance is the measured or modelled value on the window.
     """
     if irradiance_w_m2 < 0 or window_area_m2 < 0 or not 0.0 <= shgc <= 1.0:
         raise ValueError("irradiance and area must be non-negative, shgc in [0, 1]")
@@ -360,7 +360,7 @@ def sun_heat_gain(irradiance_w_m2: float, window_area_m2: float, shgc: float = 0
 def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) -> str:
     """'close' when solar gain is above the threshold and the cover is open, 'open' when it is below and the cover is closed, else 'hold'.
 
-    Ported from RoomMind's cover control. Covers only cut solar gain, so the decision uses the threshold.
+ Covers only cut solar gain, so the decision uses the threshold.
     """
     if solar_gain_kw > threshold_kw and cover_open:
         return "close"
@@ -377,7 +377,7 @@ def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: f
     While `is_open` (the last advice was 'open'), each limit moves by TEMP_ADVICE_DEADBAND_K in the open direction:
     the advice stays 'open' until the room is that far below `cool_above_c`, outdoors that far above `max_outdoor_c`,
     or the gap that far below `min_delta_c`.
-    Ported from ClimateAdvisor's natural ventilation timing. The decision is for windows, not the AC.
+ The decision is for windows, not the AC.
     """
     margin = TEMP_ADVICE_DEADBAND_K if is_open else 0.0
     if cool_above_c is not None and indoor_c <= cool_above_c - margin:
@@ -421,7 +421,7 @@ def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minute
     Also 'off' when `cool_above_c` is given and the room is at or below it, because the room needs no cooling.
     Otherwise 'fan_assist' when the room is above `comfort_c` after `fan_after_min` minutes of open windows, else 'open_windows'.
     While `is_open` (the last phase was not 'off'), the 'off' limits move by TEMP_ADVICE_DEADBAND_K in the open direction.
-    Ported from ClimateAdvisor's economizer FSM. Publishes advice only.
+ Publishes advice only.
     """
     if min_delta_c < 0 or fan_after_min <= 0:
         raise ValueError("min_delta_c must be >= 0 and fan_after_min must be > 0")
@@ -438,7 +438,7 @@ def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minute
 def comfort_band(comfort_c: float, band_c: float = 1.0) -> tuple[float, float]:
     """Heat and cool edges around comfort. Heating starts below the low edge, cooling above the high edge.
 
-    Ported from ClimateAdvisor's comfort bands. The band is symmetric by default.
+ The band is symmetric by default.
     """
     if band_c < 0:
         raise ValueError("band_c must be non-negative")
@@ -459,7 +459,7 @@ def band_action(room_c: float, low_c: float, high_c: float) -> str:
 def window_open_pause(window_open_min: float, delay_min: float = 10.0) -> bool:
     """True once a window has been open for `delay_min` minutes. Brief openings do not pause the AC.
 
-    Ported from the window handling in Versatile Thermostat and RoomMind. Same rule as the decision logic,
+ Same rule as the decision logic,
     kept here as a separate pure check for the status.
     """
     return window_open_min >= delay_min
@@ -468,7 +468,7 @@ def window_open_pause(window_open_min: float, delay_min: float = 10.0) -> bool:
 def mould_target(target_c: float, mould: bool, bump_c: float = 1.0) -> float:
     """Raise `target_c` by `bump_c` when there is mould risk, so the room warms and surface humidity drops.
 
-    Ported from RoomMind's mould manager. Raises ValueError if `bump_c` is negative.
+ Raises ValueError if `bump_c` is negative.
     """
     if bump_c < 0:
         raise ValueError("bump_c must be >= 0")
@@ -478,7 +478,7 @@ def mould_target(target_c: float, mould: bool, bump_c: float = 1.0) -> float:
 def mould_risk(surface_humidity_pct: float | None, threshold_pct: float = 80.0) -> bool:
     """True when the surface humidity is at or above `threshold_pct`. Missing readings are not a risk.
 
-    Ported from RoomMind's mould risk. Surface humidity is estimated from room humidity and wall temperature.
+ Surface humidity is estimated from room humidity and wall temperature.
     """
     return surface_humidity_pct is not None and surface_humidity_pct >= threshold_pct
 
@@ -500,7 +500,7 @@ def surface_humidity(room_humidity_pct: float, room_c: float, surface_c: float) 
 def compliance_score(in_band_minutes: float, total_minutes: float) -> float | None:
     """Share of time the room was inside the comfort band, as a percentage. None when there is no time yet.
 
-    Ported from ClimateAdvisor's compliance sensor.
+
     """
     if total_minutes <= 0:
         return None
@@ -510,7 +510,7 @@ def compliance_score(in_band_minutes: float, total_minutes: float) -> float | No
 
 
 def weather_day_summary(highs_c: list[float]) -> dict[str, int]:
-    """Count of each day class across the forecast highs. Ported from ClimateAdvisor's forecast summary."""
+    """Count of each day class across the forecast highs."""
     counts: dict[str, int] = {d.value: 0 for d in DayType}
     for high in highs_c:
         counts[classify_day(high).value] += 1
@@ -538,7 +538,7 @@ def hot_streak(highs_c: list[float], threshold_c: float = 30.0, min_days: int = 
 
 
 def fan_speed_from_gap(room_c: float, target_c: float, max_gap_c: float = 3.0) -> int:
-    """Fan speed 0 to 3 from the gap between the room and the target. Ported from Versatile Thermostat's auto fan mode.
+    """Fan speed 0 to 3 from the gap between the room and the target.
 
     Gap 0 or below is speed 0. The top speed is reached at `max_gap_c`.
     """
@@ -610,7 +610,7 @@ def mpc_idle(plan: list[bool] | None, room_c: float, cool_above_c: float, deadba
 def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:
     """True when the room is above the humidity band and no cooling is needed (cool gap at or below zero).
 
-    Ported from ClimateAdvisor's humidity handling. Drying through the AC's dry mode happens only then.
+ Drying through the AC's dry mode happens only then.
     """
     return humidity_pct is not None and humidity_pct > band_high_pct and cool_gap_c <= 0.0
 
@@ -618,7 +618,7 @@ def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_
 def stale_price_fallback(price_per_kwh: float | None, last_good_per_kwh: float | None, last_good_age_min: float, max_age_min: float = 60.0) -> float | None:
     """Use the current price, or the last good price for up to `max_age_min` minutes. None after that.
 
-    Ported from the price fallback in RoomMind. A stale price is kept for a short time so a brief outage does not
+ A stale price is kept for a short time so a brief outage does not
     stop price-based decisions, but it is not used indefinitely.
     """
     if price_per_kwh is not None:
@@ -643,7 +643,7 @@ def ventilation_rate_from_co2(co2_ppm: float | None, low_ppm: float = 800.0, hig
 
 
 def inhibited(now_min: float, inhibit_until_min: float | None) -> bool:
-    """True while an inhibition period is running. Ported from Versatile Thermostat's inhibition manager.
+    """True while an inhibition period is running.
 
     After a manual change the integration stops sending commands until `inhibit_until_min`.
     """
@@ -651,7 +651,7 @@ def inhibited(now_min: float, inhibit_until_min: float | None) -> bool:
 
 
 def lock_allows_control(locked: bool) -> bool:
-    """Control commands are allowed only when the lock is off. Ported from Versatile Thermostat's lock."""
+    """Control commands are allowed only when the lock is off."""
     return not locked
 
 
@@ -663,7 +663,7 @@ def check_pin(entered: str | None, configured: str | None) -> bool:
 
 
 def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: float = 5.0) -> bool:
-    """True when a command must be re-sent to keep the device from timing out. Ported from Versatile Thermostat's keep-alive."""
+    """True when a command must be re-sent to keep the device from timing out."""
     if last_sent_min is None:
         return True
     return now_min - last_sent_min >= interval_min
@@ -672,13 +672,13 @@ def keep_alive_due(last_sent_min: float | None, now_min: float, interval_min: fl
 def valve_exercise_due(last_moved_days: float, interval_days: float = 7.0) -> bool:
     """True when an idle valve has not moved for `interval_days`, so it should be cycled to stop seizing.
 
-    Ported from RoomMind's TRV valve protection.
+
     """
     return last_moved_days >= interval_days
 
 
 def trv_offset(trv_c: list[float], room_c: list[float], max_abs_k: float = 5.0) -> float | None:
-    """Median of (TRV reading minus room reading) over paired samples. Ported from RoomMind's head offset tracker.
+    """Median of (TRV reading minus room reading) over paired samples.
 
     A TRV's own sensor sits on the radiator and reads differently from the room sensor. Differences larger than
     max_abs_k in absolute value are dropped as outliers. Returns None when no differences remain.
@@ -715,7 +715,7 @@ def whole_house_fan_allowed(
 
     With `cool_above_c` given, the room must be above it to start the fan, and a running fan stops once the room is
     TEMP_ADVICE_DEADBAND_K below it. A room that needs no cooling gets no fan.
-    Ported from ClimateAdvisor's whole-house fan safety rules.
+
     """
     if outdoor_c is None or house_sealed or hvac_running:
         return False
@@ -727,7 +727,7 @@ def whole_house_fan_allowed(
 def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) -> float:
     """Blend comfort and energy setpoints. `weight` 0 gives comfort, 1 gives the energy setpoint.
 
-    Ported from RoomMind's comfort-versus-energy weight.
+
     """
     if not 0.0 <= weight <= 1.0:
         raise ValueError("weight must be in [0, 1]")
@@ -737,7 +737,7 @@ def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) ->
 def transition_message(previous: bool, current: bool, on_text: str, off_text: str) -> str | None:
     """Return `on_text` when a state turns True, `off_text` when it turns False, None when unchanged.
 
-    Ported from ClimateAdvisor's notifications.
+
     """
     if current and not previous:
         return on_text
@@ -749,7 +749,7 @@ def transition_message(previous: bool, current: bool, on_text: str, off_text: st
 def mode_disagrees(written_mode: str | None, actual_mode: str | None, setpoint_changed: bool) -> bool:
     """True when the AC mode differs from the last mode written and the setpoint did not change.
 
-    A setpoint change is a manual change handled by inhibition. Ported from Versatile Thermostat's incorrect-state repair.
+    A setpoint change is a manual change handled by inhibition.
     """
     if written_mode is None or actual_mode is None or setpoint_changed:
         return False
@@ -774,7 +774,7 @@ def valve_opening_pct(room_c: float, target_c: float, band_c: float = VALVE_BAND
     """Valve opening in percent from how far the room is below the target.
 
     Fully open at or below target minus `band_c`, closed at or above target, proportional between.
-    Ported from RoomMind's modulating valve control and Versatile Thermostat's valve handling.
+
     """
     if band_c <= 0:
         raise ValueError("band_c must be positive")
@@ -794,7 +794,7 @@ def shed_plan(
     `loads` holds (entity_id, watts, is_on) with the lowest priority first. Loads that are off or
     have watts <= 0 are skipped. Returns [] below `max_w`. `margin_w` is validated here and is the
     hysteresis a caller applies before switching loads back on (below max_w - margin_w).
-    Ported from Versatile Thermostat's power manager and central power manager.
+
     """
     if max_w <= 0:
         raise ValueError("max_w must be positive")
@@ -866,7 +866,7 @@ def stagger_allowed(
 
     `wanting` lists the devices that want to start, earliest first. Another device that started
     less than `min_gap_min` minutes before `now_min` blocks the start, and only the first device
-    in `wanting` may start in a cycle. Ported from RoomMind's compressor group manager.
+    in `wanting` may start in a cycle.
     """
     if min_gap_min < 0:
         raise ValueError("min_gap_min must not be negative")
@@ -1058,7 +1058,7 @@ def clamp_output(pct: float, lo: float = 0.0, hi: float = 100.0) -> float:
 def boost_output(preset: str, pid_output_pct: float) -> float:
     """Heater output for the PWM pattern: 100.0 in boost, else the PID output clamped to [0, 100].
 
-    Ported from the PID thermostat's boost handling. Raises ValueError when the output is NaN.
+ Raises ValueError when the output is NaN.
     """
     if math.isnan(pid_output_pct):
         raise ValueError("pid_output_pct must not be NaN")
@@ -1068,7 +1068,7 @@ def boost_output(preset: str, pid_output_pct: float) -> float:
 
 
 def learned_solar_scale(modelled_kw: list[float], measured_kw: list[float], min_irradiance_kw: float = 0.05) -> float | None:
-    """Median of modelled/measured solar gain, clamped to [0.1, 10.0]. Ported from RoomMind's solar sensor manager.
+    """Median of modelled/measured solar gain, clamped to [0.1, 10.0].
 
     Pairs whose measured value is below min_irradiance_kw are skipped. Returns None when no pairs remain.
     """
@@ -1095,7 +1095,7 @@ def effective_home(room_home: bool, house_mode: str) -> bool:
 
 
 def coil_dry_due(was_cooling: bool, now_cooling: bool, dry_started_min: float | None, now_min: float, dry_minutes: float = 20.0) -> bool:
-    """True when the AC should run in dry mode to dry its coil after cooling. Ported from RoomMind's AC coil dry manager.
+    """True when the AC should run in dry mode to dry its coil after cooling.
 
     Starts when cooling has just stopped and no drying runs. Continues for dry_minutes after dry_started_min.
     Raises ValueError when dry_minutes is not positive.
@@ -1111,7 +1111,7 @@ def _residual_rise(peak_rise_k: float, minutes_since_off: float, tau_min: float 
     """Extra room temperature rise in kelvin still to come after a heater stops.
 
     The rise decays exponentially: peak_rise_k * exp(-minutes_since_off / tau_min).
-    Ported from RoomMind's radiator and underfloor residual heat model.
+
     Raises ValueError when minutes_since_off < 0, tau_min <= 0 or peak_rise_k < 0.
     """
     if minutes_since_off < 0:

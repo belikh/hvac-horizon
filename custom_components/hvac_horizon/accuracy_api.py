@@ -1,4 +1,8 @@
-"""Accuracy page: an authenticated JSON view of the backtest pairs, and the static page that reads it."""
+"""Accuracy panel: authenticated JSON views of the backtest pairs, and the custom panel module that reads them.
+
+The panel is a web component that Home Assistant loads into its own frontend. It calls the views through
+hass.callApi, so it never handles a token itself. The static path serves the module only: one JavaScript file
+with no data in it."""
 
 from __future__ import annotations
 
@@ -13,7 +17,8 @@ from homeassistant.core import HomeAssistant
 from .const import ACCURACY_PANEL_PATH, CONF_ACCURACY_PANEL, DOMAIN
 
 ACCURACY_URL = "/api/hvac_horizon/accuracy/{entry_id}"
-PAGE_URL = "/hvac_horizon"  # the page is served at /hvac_horizon/accuracy.html
+PAGE_URL = "/hvac_horizon"  # the panel module is served at /hvac_horizon/accuracy-panel.js
+PANEL_ELEMENT = "hvac-horizon-accuracy"  # the custom element the module defines
 REGISTERED_KEY = "accuracy_page_registered"  # set in hass.data[DOMAIN] once the view and page are registered
 
 
@@ -65,31 +70,32 @@ def _loaded_entries(hass: HomeAssistant, exclude_entry_id: str | None = None):
     ]
 
 
-def _accuracy_panel_url(entry_ids: list[str]) -> str:
-    """The page with the first entry id when one entry has the panel, or the entry list when several do."""
-    page = f"{PAGE_URL}/accuracy.html"
-    if len(entry_ids) == 1:
-        return f"{page}?entry_id={entry_ids[0]}"
-    return page
-
-
 def sync_accuracy_panel(hass: HomeAssistant, exclude_entry_id: str | None = None) -> None:
     """Register the sidebar panel for the entries with accuracy_panel on, or remove it when none has it on.
 
-    Runs at setup and unload. Registration replaces the panel's URL, so a second entry changes it to the list.
+    Runs at setup and unload. Registration replaces the panel's config, so a second entry changes it to the list.
     """
     flagged = [e.entry_id for e in _loaded_entries(hass, exclude_entry_id) if e.data.get(CONF_ACCURACY_PANEL, False)]
     if not flagged:
         async_remove_panel(hass, ACCURACY_PANEL_PATH, warn_if_unknown=False)
         return
+    # A "custom" panel is Home Assistant's own loader for a web component. It passes `hass` and this config to the element.
     async_register_built_in_panel(
         hass,
-        "iframe",
+        "custom",
         sidebar_title="HVAC Accuracy",
         sidebar_icon="mdi:chart-line",
         frontend_url_path=ACCURACY_PANEL_PATH,
         require_admin=False,
-        config={"url": _accuracy_panel_url(flagged)},
+        config={
+            "_panel_custom": {
+                "name": PANEL_ELEMENT,
+                "embed_iframe": False,
+                "trust_external": False,
+                "module_url": f"{PAGE_URL}/accuracy-panel.js",
+            },
+            "entry_ids": flagged,
+        },
         update=True,
     )
 

@@ -18,11 +18,13 @@ PACKAGE = ROOT / "custom_components" / "hvac_horizon"
 # when it is an async function whose first two arguments are the ones Home Assistant passes.
 # async_setup_entry: called for each config entry (a platform adds async_add_entities as a third argument).
 # async_unload_entry: called when an entry unloads.
+# async_remove_entry: called when an entry is deleted. It removes the entry's stored data.
 # async_get_config_entry_diagnostics: called for the diagnostics download.
 # async_migrate_entry: called when a stored entry has an older VERSION than the config flow.
 HA_HOOKS = {
     "async_setup_entry": ["hass", "entry"],
     "async_unload_entry": ["hass", "entry"],
+    "async_remove_entry": ["hass", "entry"],
     "async_migrate_entry": ["hass", "entry"],
     "async_get_config_entry_diagnostics": ["hass", "entry"],
 }

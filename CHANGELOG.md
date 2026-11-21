@@ -4,6 +4,14 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
+HACS pre-submission audit:
+
+- The accuracy panel is now a web component that calls the API through Home Assistant. The old page read the browser's sign-in token from local storage.
+- `reset_learning`, `export_samples`, `export_csv`, `start_autotune`, `respond_suggestion` and `generate_investigation_report` need an administrator.
+- The diagnostics download also removes entity IDs inside text values and dict keys, and the keys `heatwave_warning`, `compressor_group`, `sensors_stalled`, `shed`, `restored`, `dispatch` and the investigation texts.
+- Removing an entry deletes its stored readings. Unloading cancels the heater's window timers.
+- Brand icon added in `brand/`. README has a privacy section.
+
 Documentation rewritten for the room thermostat and the current control rules. New page `guides/use-the-room-thermostat`. The settings and sensor references are built from the code: 86 settings by form section with their effects, and 75 sensors by group with their meanings.
 
 Faults found by an audit of all 86 settings (`tests/ha/test_settings_effect.py` runs each setting at two values over a scripted day and compares device commands and published data).
@@ -97,4 +105,4 @@ Changes since 0.3.0.
 - Rule-based AC investigator with an optional conversation agent and a daily call budget.
 - Accuracy sidebar panel behind the `accuracy_panel` field.
 - Diagnostics export with redaction.
-- User and developer guides as `docs-src` pages, and a feature matrix against four competitors.
+- User and developer guides as `docs-src` pages, and a feature matrix.

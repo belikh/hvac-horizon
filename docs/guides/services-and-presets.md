@@ -63,20 +63,20 @@ data:
 
 ## Services
 
-Every service except `set_house_mode` takes `entry_id`. The services marked response only return data and change nothing.
+Every service except `set_house_mode` takes `entry_id`. The services marked response only return data and change nothing. The services marked admin need an administrator: a call from another user fails with `Unauthorized`.
 
 | Service | Fields | What it does |
 | :--- | :--- | :--- |
 | `hvac_horizon.start_timed_preset` | `preset`, `minutes` | Runs the preset for `minutes`. |
 | `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint and heat to 16 °C. |
 | `hvac_horizon.set_lock` | `locked`, `pin` | Locks or unlocks control. |
-| `hvac_horizon.start_autotune` | `setpoint` | Starts a relay test of the heater and stores PID gains from it. |
+| `hvac_horizon.start_autotune` | `setpoint` | Starts a relay test of the heater and stores PID gains from it. Admin. |
 | `hvac_horizon.cancel_autotune` | none | Ends a running relay test and turns the heater off. |
-| `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current heat-gain rate as the baseline. `false` hides the suggestion until the rate changes. |
-| `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report on the Status sensor. |
-| `hvac_horizon.reset_learning` | none | Clears the stored readings, the room model, the backtest and the outdoor bias. Settings stay. |
-| `hvac_horizon.export_samples` | none | Response only. Returns `samples`, the stored readings. |
-| `hvac_horizon.export_csv` | none | Response only. Returns `csv`, the stored readings as CSV text. |
+| `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current heat-gain rate as the baseline. `false` hides the suggestion until the rate changes. Admin. |
+| `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report on the Status sensor. Admin. |
+| `hvac_horizon.reset_learning` | none | Clears the stored readings, the room model, the backtest and the outdoor bias. Settings stay. Admin. |
+| `hvac_horizon.export_samples` | none | Response only. Returns `samples`, the stored readings. Admin. |
+| `hvac_horizon.export_csv` | none | Response only. Returns `csv`, the stored readings as CSV text. Admin. |
 | `hvac_horizon.what_if` | `room_c`, `target_c`, `outdoor_c`, `power_kw` | Response only. Returns `status`, `minutes`, `energy_kwh`, `cost` and `reason` for the values you give. |
 
 `what_if` accepts 0 to 50 °C for `room_c` and `target_c`, -20 to 60 °C for `outdoor_c`, and 0 to 10 kW for `power_kw`.

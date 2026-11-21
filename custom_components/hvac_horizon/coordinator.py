@@ -276,7 +276,9 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._forecast_error_min: float | None = None
 
     async def async_shutdown(self) -> None:
+        # Timers scheduled by this entry must not fire after it unloads.
         self._cancel_recheck()
+        self._cancel_pwm_timers()
         await super().async_shutdown()
 
     async def _async_update_data(self) -> dict[str, Any]:

@@ -91,17 +91,25 @@ def _register_services(hass: HomeAssistant) -> None:
 
     from homeassistant.core import SupportsResponse
 
-    hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
-    hass.services.async_register(DOMAIN, SERVICE_EXPORT, export, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
+    from homeassistant.helpers.service import async_register_admin_service
+
+    # Admin only: these clear or export the stored history, drive the heater outside normal control, change the
+    # learned baseline or spend the model-call budget.
+    import voluptuous as vol
+
+    fields = vol.Schema({}, extra=vol.ALLOW_EXTRA)  # each handler reads and checks its own fields
+    async_register_admin_service(hass, DOMAIN, SERVICE_RESET, reset, schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT, export, schema=fields, supports_response=SupportsResponse.ONLY)
+    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT_CSV, export_csv, schema=fields, supports_response=SupportsResponse.ONLY)
+    async_register_admin_service(hass, DOMAIN, SERVICE_AUTOTUNE, autotune, schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_RESPOND, respond, schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_INVESTIGATION_REPORT, investigation_report, schema=fields)
+    # Any user: what a wall thermostat offers. Cancelling a relay test only turns the heater off. Unlocking needs the PIN.
     hass.services.async_register(DOMAIN, SERVICE_CANCEL_AUTOTUNE, cancel_autotune)
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
-    hass.services.async_register(DOMAIN, SERVICE_RESPOND, respond)
     hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
-    hass.services.async_register(DOMAIN, SERVICE_INVESTIGATION_REPORT, investigation_report)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -136,6 +144,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     sync_accuracy_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete the entry's stored readings and state when the entry is removed."""
+    from homeassistant.helpers.storage import Store
+
+    from .const import STORE_VERSION
+
+    await Store(hass, STORE_VERSION, f"{DOMAIN}.{entry.entry_id}").async_remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
