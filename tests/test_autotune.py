@@ -51,6 +51,13 @@ class RelayTunerTests(unittest.TestCase):
         self.assertIsNotNone(g)
         self.assertGreater(g.kp, 0.0)
 
+    def test_time_limit_and_range_constants(self):
+        from custom_components.hvac_horizon import const
+
+        self.assertEqual(const.AUTOTUNE_TIME_LIMIT_MIN, 120.0)
+        self.assertLess(const.AUTOTUNE_MIN_SETPOINT_C, const.AUTOTUNE_MAX_SETPOINT_C)
+        self.assertEqual(const.AUTOTUNE_MIN_RISE_K, 2.0)
+
     def test_no_result_before_enough_peaks(self):
         from custom_components.hvac_horizon.autotune import RelayTuner
 

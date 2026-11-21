@@ -63,7 +63,7 @@ export_samples:
           integration: hvac_horizon
 start_autotune:
   name: Start auto-tune
-  description: Start a relay test at a setpoint. It switches the heater plug on and off. Do not use while the AC is under test.
+  description: Start a relay test at a setpoint. It switches the heater plug on and off, obeys the heat-on threshold and the AC cooling cutoff, and ends after 120 minutes. The setpoint must be at least 2 K above the room. Do not use while the AC is under test.
   fields:
     entry_id:
       name: Entry
@@ -76,10 +76,20 @@ start_autotune:
       required: true
       selector:
         number:
-          min: 10
-          max: 30
+          min: 15
+          max: 26
           step: 0.5
           unit_of_measurement: "°C"
+cancel_autotune:
+  name: Cancel auto-tune
+  description: End a running relay test and turn the heater off.
+  fields:
+    entry_id:
+      name: Entry
+      required: true
+      selector:
+        config_entry:
+          integration: hvac_horizon
 what_if:
   name: What-if forecast
   description: Forecast minutes, energy and cost to a target for given conditions, using the current model and price slots.

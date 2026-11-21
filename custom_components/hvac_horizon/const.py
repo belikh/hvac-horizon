@@ -11,6 +11,10 @@ CONF_OUTDOOR = "outdoor"
 CONF_PRICE = "price"
 
 SAMPLE_INTERVAL_S = 300
+AUTOTUNE_TIME_LIMIT_MIN = 120.0  # a relay test that has not finished by then ends and the heater goes off
+AUTOTUNE_MIN_RISE_K = 2.0  # the setpoint must be at least this far above the room
+AUTOTUNE_MIN_SETPOINT_C = 15.0
+AUTOTUNE_MAX_SETPOINT_C = 26.0
 KEEP_DAYS = 30
 MAX_ENTRIES = KEEP_DAYS * 24 * 60 * 60 // SAMPLE_INTERVAL_S  # 8640 readings
 FIT_EVERY_N_SAMPLES = 12  # refit about hourly

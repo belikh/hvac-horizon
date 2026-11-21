@@ -97,6 +97,10 @@ from custom_components.hvac_horizon.investigator import REPORT_INSTRUCTION, REPO
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 from .const import (
+    AUTOTUNE_MAX_SETPOINT_C,
+    AUTOTUNE_MIN_RISE_K,
+    AUTOTUNE_MIN_SETPOINT_C,
+    AUTOTUNE_TIME_LIMIT_MIN,
     CONF_DRY_FOR_HUMIDITY,
     CONF_AC_HEAT,
     CONF_MPC_HEAT_PLAN,
@@ -288,6 +292,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._outdoor_history: list[float] = []
         self._last_good_price: float | None = None
         self._tuner: RelayTuner | None = None
+        self._tuner_started_s: float = 0.0
+        self._autotune_status: str | None = None  # running, done, timed_out, cancelled, reached_cutoff; None before any test
         self._stall_reported = False
         # Time of the last cycle with a valid room reading. Starts at the first cycle, so a setup with no room data counts from then.
         self._last_room_data_s: float | None = None
@@ -583,9 +589,33 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return [asdict(e) for e in self._entries]
 
     def start_autotune(self, setpoint_c: float) -> None:
-        """Begin a relay test at `setpoint_c`. The heater follows the test only while control is on and no gate is closed."""
+        """Begin a relay test at `setpoint_c`. The heater follows the test only while control is on and no gate is closed.
+
+        Raises ValueError when the setpoint is outside AUTOTUNE_MIN_SETPOINT_C to AUTOTUNE_MAX_SETPOINT_C, when no
+        room reading exists, or when the setpoint is less than AUTOTUNE_MIN_RISE_K above the room.
+        """
+        if not AUTOTUNE_MIN_SETPOINT_C <= setpoint_c <= AUTOTUNE_MAX_SETPOINT_C:
+            raise ValueError(f"auto-tune setpoint must be {AUTOTUNE_MIN_SETPOINT_C:g} to {AUTOTUNE_MAX_SETPOINT_C:g} C")
+        rooms = self._rooms()
+        if not rooms:
+            raise ValueError("auto-tune needs a room temperature reading")
+        room_c = statistics.median(rooms)
+        if setpoint_c < room_c + AUTOTUNE_MIN_RISE_K:
+            raise ValueError(
+                f"auto-tune setpoint {setpoint_c:g} C must be at least {AUTOTUNE_MIN_RISE_K:g} K above the room ({room_c:.1f} C)"
+            )
         self._tuner = RelayTuner(setpoint_c=setpoint_c)
+        self._tuner_started_s = dt_util.utcnow().timestamp()
         self._autotune_result = None
+        self._autotune_status = "running"
+
+    async def async_cancel_autotune(self) -> None:
+        """End a running relay test and turn the heater off. Does nothing when no test runs."""
+        if self._tuner is None:
+            return
+        self._tuner = None
+        self._autotune_status = "cancelled"
+        await self.async_heater_off()
 
     def _relay_tick(self, now: float, room_c: float | None, may_drive: bool) -> bool:
         """One relay test step. Returns the heater state to command.
@@ -606,6 +636,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result = self._tuner.result()
         self._tuner = None
         self._autotune_result = result
+        self._autotune_status = "done"
         if result is not None:
             self._heater_gains = {"kp": result.kp, "ki": result.ki, "kd": result.kd}
             if self._heater_pid is not None:
@@ -854,8 +885,22 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         relay_running = self._tuner is not None
         if relay_running:
             # The relay test replaces the PWM output. The PWM timers stay cancelled until the test ends.
+            # It obeys the cutoffs of normal heating and a time limit; reaching either ends the test with the heater off.
             self._cancel_pwm_timers()
-            self._pwm_on_now = self._relay_tick(now, room_c, driving and not self._heater_gated)
+            ended = None
+            if now - self._tuner_started_s >= AUTOTUNE_TIME_LIMIT_MIN * 60.0:
+                ended = "timed_out"
+            elif driving and (self._ac_cooling_tick or (gate_c is not None and gate_c >= self._heat_on_below_c)):
+                ended = "reached_cutoff"
+            if ended is not None:
+                self._tuner = None
+                self._autotune_status = ended
+                relay_running = False
+                self._pwm_on_now = False
+                self._pwm_pct_now = 0.0
+                self._pwm_window_start_s = None
+            else:
+                self._pwm_on_now = self._relay_tick(now, room_c, driving and not self._heater_gated)
         else:
             self._pwm_pct_now = pct
             self._pwm_step(now)
@@ -866,7 +911,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._heater_stopped_min = now / 60.0
         self._heater_was_on = heater_on
         result["heater_pwm_on"] = heater_on
-        failed = self._heating_check(now, driving and pct > 0 and not relay_running, heater_on, room_c)
+        # During a relay test the demand is the relay output, so the check sees a heater that stays on without warming the room.
+        demand = heater_on if relay_running else pct > 0
+        failed = self._heating_check(now, driving and demand, heater_on, room_c)
         result["heating_failure"] = failed
         self._report_heating_failure(failed)
         if driving:
@@ -1455,6 +1502,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             heater_state.state if heater_state is not None else None,
         )
         result["safety_output_pct"] = safety_output(self._stall_blocks(result), 100.0, fallback_pct=SAFETY_FALLBACK_PCT)
+        result["autotune_status"] = self._autotune_status
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         if valve_opening is not None:
             await self._drive_valve(valve_opening)

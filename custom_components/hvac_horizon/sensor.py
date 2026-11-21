@@ -130,6 +130,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "k_per_h": d.get("k"),
             "c_k_per_kw": d.get("c"),
             "g_k_per_h": d.get("g"),
+            "autotune_status": d.get("autotune_status"),
             "autotune": d.get("autotune"),  # kp, ki, kd after a relay test; None before
             "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed
             "investigation": d.get("investigation"),  # rule-based answer to why the AC runs or not, and recent actions

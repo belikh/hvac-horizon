@@ -21,6 +21,7 @@ PLATFORMS = [Platform.SENSOR, Platform.CLIMATE]
 SERVICE_RESET = "reset_learning"
 SERVICE_EXPORT = "export_samples"
 SERVICE_AUTOTUNE = "start_autotune"
+SERVICE_CANCEL_AUTOTUNE = "cancel_autotune"
 SERVICE_WHAT_IF = "what_if"
 SERVICE_EXPORT_CSV = "export_csv"
 SERVICE_LOCK = "set_lock"
@@ -59,6 +60,9 @@ def _register_services(hass: HomeAssistant) -> None:
     async def autotune(call):
         _coordinator(call).start_autotune(float(call.data["setpoint"]))
 
+    async def cancel_autotune(call):
+        await _coordinator(call).async_cancel_autotune()
+
     async def set_lock(call):
         changed = _coordinator(call).set_lock(bool(call.data["locked"]), call.data.get("pin"))
         if not changed:
@@ -90,6 +94,7 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, SERVICE_RESET, reset)
     hass.services.async_register(DOMAIN, SERVICE_EXPORT, export, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_AUTOTUNE, autotune)
+    hass.services.async_register(DOMAIN, SERVICE_CANCEL_AUTOTUNE, cancel_autotune)
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_EXPORT_CSV, export_csv, supports_response=SupportsResponse.ONLY)
     hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)

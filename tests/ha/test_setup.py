@@ -2487,14 +2487,15 @@ async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, e
     import math
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
-    entry, _ = await setup_heater(hass, config_data)
+    # The relay obeys the heat-on threshold, so the comfort setpoint sits above the 23 to 25 C swing.
+    entry, _ = await setup_heater(hass, config_data, extra={"comfort_c": 28.0})
     coordinator = entry.runtime_data
     coordinator.start_autotune(24.0)
-    # One reading per 5 minute cycle, a 1 K swing with a one hour period. The test completes after about five hours.
+    # One reading per 5 minute cycle, a 1 K swing with a 30 minute period. The test completes inside the 120 minute limit.
     # The outdoor sensor is refreshed too: a sensor that stops updating for 15 minutes closes the heater gate.
     # Home Assistant keeps last_updated when neither the state nor an attribute changes, so the tick is an attribute.
     for tick in range(120):
-        set_room(hass, f"{24.0 + math.sin(2 * math.pi * tick / 12):.3f}")
+        set_room(hass, f"{24.0 + math.sin(2 * math.pi * tick / 6):.3f}")
         hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature", "tick": tick})
         freezer.tick(timedelta(minutes=5))
         await refresh(hass, entry)
@@ -2514,6 +2515,113 @@ async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, e
     assert restarted.kp == pytest.approx(tuned.kp)
     assert restarted.ki == pytest.approx(tuned.ki)
     assert restarted.kd == pytest.approx(tuned.kd)
+
+
+async def run_relay_ticks(hass, entry, freezer, minutes: int, room: str = "20.0") -> None:
+    """Advance in 5 minute steps with fresh sensor reports, so no stall gate closes."""
+    for tick in range(minutes // 5):
+        set_room(hass, room)
+        hass.states.async_set(OUTDOOR, "10.0", {"unit_of_measurement": "°C", "device_class": "temperature", "tick": tick})
+        freezer.tick(timedelta(minutes=5))
+        await refresh(hass, entry)
+
+
+async def start_autotune_service(hass, entry, setpoint: float) -> None:
+    await hass.services.async_call(DOMAIN, "start_autotune", {"entry_id": entry.entry_id, "setpoint": setpoint}, blocking=True)
+
+
+async def test_relay_test_ends_at_the_time_limit_with_the_heater_off(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    await start_autotune_service(hass, entry, 22.0)
+    await run_relay_ticks(hass, entry, freezer, 60)
+    assert coordinator._tuner is not None
+    assert "turn_on" in calls
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    for _ in range(13):
+        await run_relay_ticks(hass, entry, freezer, 5)
+        if coordinator._tuner is None:
+            break
+    assert coordinator.data["autotune_status"] == "timed_out"
+    assert calls[-1] == "turn_off"
+
+
+async def test_cancel_autotune_turns_the_heater_off_and_clears_the_test(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    await start_autotune_service(hass, entry, 22.0)
+    await run_relay_ticks(hass, entry, freezer, 10)
+    assert "turn_on" in calls
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    await hass.services.async_call(DOMAIN, "cancel_autotune", {"entry_id": entry.entry_id}, blocking=True)
+    await hass.async_block_till_done()
+    assert coordinator._tuner is None
+    assert coordinator._autotune_status == "cancelled"
+    assert calls == ["turn_off"]
+
+
+async def test_heating_failure_repair_fires_during_a_relay_test(hass, enable_custom_integrations, config_data, freezer):
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    await start_autotune_service(hass, entry, 22.0)
+    await run_relay_ticks(hass, entry, freezer, 75)
+    assert entry.runtime_data._tuner is not None
+    assert entry.runtime_data.data["heating_failure"] is True
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_heating_failure") is not None
+
+
+async def test_start_autotune_rejects_a_setpoint_1_k_above_the_room(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    with pytest.raises(ValueError, match="at least 2 K above the room"):
+        await start_autotune_service(hass, entry, 21.0)
+    assert entry.runtime_data._tuner is None
+
+
+@pytest.mark.parametrize("setpoint", [14.0, 30.0])
+async def test_start_autotune_rejects_a_setpoint_outside_the_range(hass, enable_custom_integrations, config_data, setpoint):
+    entry, _ = await setup_heater(hass, config_data, room="10.0")
+    await refresh(hass, entry)
+    with pytest.raises(ValueError, match="15 to 26"):
+        await start_autotune_service(hass, entry, setpoint)
+    assert entry.runtime_data._tuner is None
+
+
+async def test_relay_does_not_heat_at_the_heat_on_threshold_and_the_test_ends(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    threshold = coordinator._heat_on_below_c
+    set_room(hass, f"{threshold:.2f}")
+    await refresh(hass, entry)
+    await start_autotune_service(hass, entry, threshold + 2.0)
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert coordinator._tuner is None
+    assert coordinator.data["autotune_status"] == "reached_cutoff"
+
+
+async def test_relay_does_not_heat_while_the_ac_cools_and_the_test_ends(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    await refresh(hass, entry)
+    await start_autotune_service(hass, entry, 22.0)
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_on" not in calls
+    assert coordinator._tuner is None
+    assert coordinator.data["autotune_status"] == "reached_cutoff"
 
 
 async def test_tuned_gains_apply_when_the_gain_fields_are_at_defaults(hass, enable_custom_integrations, config_data, freezer):

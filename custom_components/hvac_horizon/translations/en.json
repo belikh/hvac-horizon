@@ -199,6 +199,23 @@
       }
     }
   },
+  "services": {
+    "start_autotune": {
+      "name": "Start auto-tune",
+      "description": "Start a relay test at a setpoint. It switches the heater plug on and off, obeys the heat-on threshold and the AC cooling cutoff, and ends after 120 minutes. The setpoint must be at least 2 K above the room.",
+      "fields": {
+        "entry_id": {"name": "Entry", "description": "The HVAC Horizon entry to tune."},
+        "setpoint": {"name": "Setpoint", "description": "Relay setpoint, 15 to 26 °C."}
+      }
+    },
+    "cancel_autotune": {
+      "name": "Cancel auto-tune",
+      "description": "End a running relay test and turn the heater off.",
+      "fields": {
+        "entry_id": {"name": "Entry", "description": "The HVAC Horizon entry whose test to cancel."}
+      }
+    }
+  },
   "issues": {
     "sensors_stalled": {
       "title": "HVAC Horizon sensors not updating",
