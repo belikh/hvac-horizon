@@ -77,6 +77,8 @@ STATUS_KEYS: dict[str, str] = {
     "forecast_days": "Forecast day counts",
     "dispatch": "Room dispatch",
     "pending": "Pending action",
+    "ac_setpoint_sent_c": "Setpoint sent",
+    "ac_sensor_offset_k": "Sensor offset",
     "minutes_low": "Minutes to setpoint, low",
     "minutes_high": "Minutes to setpoint, high",
 }
@@ -94,7 +96,7 @@ DIAGNOSTIC_ENABLED_KEYS = frozenset(
         "sensors_stalled", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
         "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
         "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
-        "learning_suggestion", "external_change", "pending",
+        "learning_suggestion", "external_change", "pending", "ac_setpoint_sent_c", "ac_sensor_offset_k",
     }
 )
 # Diagnostic sensors that are internal detail. They are created disabled; enable one in the entity settings.
@@ -123,6 +125,8 @@ STATUS_UNITS = {
     "rooms_max_age_s": "s",
     "solar_gain_kw": "kW",
     "trv_offset_k": "K",
+    "ac_setpoint_sent_c": "°C",
+    "ac_sensor_offset_k": "K",
     "price_used_per_kwh": None,
 }
 

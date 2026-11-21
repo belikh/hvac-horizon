@@ -129,6 +129,7 @@
           "accuracy_panel": "Show this entry in the HVAC Accuracy sidebar panel (one panel for all entries)",
           "peer_entry": "Peer entry, the entry_id or title of another HVAC Horizon entry (optional): its valve opens when this room is 2 K warmer",
           "peer_setpoint_mode": "Peer setpoint mode: with a peer entry, a room 2 K warmer lowers the peer cool setpoint by 1 K instead of opening its valve",
+          "setpoint_regulation": "Setpoint regulation: move the AC setpoint by the gap between the room median and the AC's own temperature reading (default on)",
           "ai_conversation": "AI conversation agent for the investigator (optional)",
           "ai_budget_per_day": "Model calls per day for the investigator (0 or empty is off)"
         }

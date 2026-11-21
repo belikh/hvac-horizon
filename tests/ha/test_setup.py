@@ -16,6 +16,7 @@ import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.components import sensor
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
+from homeassistant.const import EntityCategory
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -1889,9 +1890,9 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
     assert primary == PRIMARY_KEYS and len(primary) == 11
-    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 24
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 26
     assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 32
-    assert len(sensors) == 67
+    assert len(sensors) == 69
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -6739,3 +6740,133 @@ async def test_a_held_room_starts_again_only_after_the_user_sets_a_mode(hass, en
     await hass.async_block_till_done()
     assert entry.runtime_data.user_off is False
     assert ("set_hvac_mode", CLIMATE, "cool") in calls
+
+
+# ---- setpoint regulation against the AC's own sensor --------------------------------------------------------
+
+
+def _ac_attrs(**extra):
+    return {"temperature": 28.0, "target_temp_step": 1.0, "min_temp": 16.0, "max_temp": 30.0, **extra}
+
+
+async def _tick(hass, entry, freezer, minutes=5, room="25.5", power=None):
+    freezer.tick(timedelta(minutes=minutes))
+    set_room(hass, room)
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    if power is not None:
+        hass.states.async_set(POWER, power, {"unit_of_measurement": "W", "device_class": "power"})
+    await refresh(hass, entry)
+
+
+def _setpoints(calls, entity=CLIMATE):
+    return [c[2] for c in calls if c[0] == "set_temperature" and c[1] == entity]
+
+
+async def test_cool_setpoint_is_lowered_by_the_offset_of_the_ac_sensor(hass, enable_custom_integrations, config_data, freezer):
+    # Room 25.5 C, the AC reads 23 C: the offset is 2.5 K. Target about 23.9 minus 2.5 is 21.4, and the 1 K step gives 21.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(current_temperature=23.0))}, extra={"comfort_c": 23.9}
+    )
+    assert _setpoints(calls) == [21.0]
+    data = entry.runtime_data.data
+    assert data["ac_setpoint_sent_c"] == 21.0
+    assert data["ac_sensor_offset_k"] == 2.5
+    # The next tick sees its own setpoint on the device. It is not a manual change.
+    await _tick(hass, entry, freezer)
+    assert data is not entry.runtime_data.data
+    assert entry.runtime_data.data["external_change"] is False
+    assert entry.runtime_data._inhibit_until_min is None
+    assert entry.runtime_data.data["action"].startswith("cool")
+    assert _setpoints(calls) == [21.0]
+    sensor_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_ac_setpoint_sent_c")
+    assert float(hass.states.get(sensor_id).state) == 21.0
+    assert er.async_get(hass).async_get(sensor_id).entity_category is EntityCategory.DIAGNOSTIC and not er.async_get(hass).async_get(sensor_id).disabled
+
+
+async def test_no_offset_when_the_ac_reads_the_room_temperature(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(current_temperature=25.5))}, extra={"comfort_c": 23.9}
+    )
+    assert _setpoints(calls) == [24.0]
+    assert entry.runtime_data.data["ac_sensor_offset_k"] == 0.0
+
+
+async def test_ac_reading_warmer_than_the_room_gives_no_cool_offset(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(current_temperature=27.0))}, extra={"comfort_c": 23.9}
+    )
+    assert _setpoints(calls) == [24.0]
+    assert entry.runtime_data.data["ac_sensor_offset_k"] == 0.0
+
+
+async def test_regulated_setpoint_is_clamped_at_the_device_min_temp(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(current_temperature=15.0, min_temp=17.0))}, extra={"comfort_c": 23.9}
+    )
+    assert _setpoints(calls) == [17.0]
+    assert entry.runtime_data.data["ac_setpoint_sent_c"] == 17.0
+
+
+async def test_setpoint_regulation_can_be_turned_off(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(current_temperature=23.0))},
+        extra={"comfort_c": 23.9, "setpoint_regulation": False},
+    )
+    assert _setpoints(calls) == [24.0]
+    assert entry.runtime_data.data["ac_sensor_offset_k"] is None
+
+
+async def test_power_fallback_steps_the_setpoint_down_then_back_up(hass, enable_custom_integrations, config_data, freezer):
+    # The AC reports no temperature. It runs the fan only (50 W), so the setpoint steps down one device step per tick.
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs()), POWER: ("50", {"unit_of_measurement": "W", "device_class": "power"})},
+        extra={"comfort_c": 23.9},
+    )
+    assert _setpoints(calls) == [24.0]
+    # Under 10 minutes in cool: no move yet.
+    await _tick(hass, entry, freezer, power="50")
+    assert _setpoints(calls) == [24.0]
+    for expected in (23.0, 22.0, 21.0):
+        await _tick(hass, entry, freezer, power="50")
+        assert _setpoints(calls)[-1] == expected
+        assert entry.runtime_data.data["ac_setpoint_sent_c"] == expected
+    assert entry.runtime_data.data["ac_sensor_offset_k"] == 3.0
+    assert entry.runtime_data.data["external_change"] is False and entry.runtime_data._inhibit_until_min is None
+    # The compressor runs: the setpoint comes back toward the target one step per tick.
+    for expected in (22.0, 23.0, 24.0):
+        await _tick(hass, entry, freezer, power="1100")
+        assert _setpoints(calls)[-1] == expected
+    assert entry.runtime_data.data["ac_sensor_offset_k"] == 0.0
+    # Fan only again, but the room has reached the threshold: no new drop.
+    await _tick(hass, entry, freezer, room="23.0", power="50")
+    assert _setpoints(calls)[-1] == 24.0
+
+
+async def test_power_fallback_stops_at_the_device_min_temp(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="25.5", states={CLIMATE: ("off", _ac_attrs(min_temp=22.0)), POWER: ("50", {"unit_of_measurement": "W", "device_class": "power"})},
+        extra={"comfort_c": 23.9},
+    )
+    for _ in range(8):
+        await _tick(hass, entry, freezer, power="50")
+    assert min(_setpoints(calls)) == 22.0
+    assert entry.runtime_data.data["ac_setpoint_sent_c"] == 22.0
+
+
+async def test_ac_heat_setpoint_is_raised_by_the_offset_when_the_ac_reads_warmer(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, calls = await _setup_with_devices(
+        hass, config_data, room="20.0", outdoor="10.0", states={CLIMATE: ("off", _ac_attrs(current_temperature=22.0, hvac_modes=["off", "cool", "heat"]))},
+        extra={"ac_heat": True},
+    )
+    assert ("set_hvac_mode", CLIMATE, "heat") in calls
+    heat_target = entry.runtime_data._heat_on_below_c
+    assert _setpoints(calls) == [round(heat_target + 2.0)]
+    assert entry.runtime_data.data["ac_sensor_offset_k"] == 2.0

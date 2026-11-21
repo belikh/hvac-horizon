@@ -44,7 +44,7 @@ The first form has the four required fields only. Every other field sits in one 
 | Occupancy and windows | `occupancy` | `presence`, `motion`, `motion_away_min`, `window`, `window_delay_min`, `window_actuator`, `cover`, `window_azimuth`, `window_area_m2`, `irradiance`, `weather` |
 | Air quality and humidity | `air_quality` | `humidity`, `room_humidity`, `co2`, `pm25`, `fan`, `auto_fan`, `dehumidifier`, `humidifier`, `coil_dry`, `dry_for_humidity`, `house_sealed`, `economizer_fan`, `whole_house_fan` |
 | Devices and power limits | `devices` | `climate_2`, `power_2`, `fleet`, `dispatch_mode`, `whole_house_power`, `shed_max_w`, `shed_loads`, `compressor_group`, `min_on_min`, `min_off_min` |
-| Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `ai_conversation`, `ai_budget_per_day` |
+| Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `setpoint_regulation`, `ai_conversation`, `ai_budget_per_day` |
 
 The tables below group the same fields by topic.
 

@@ -22,6 +22,7 @@ from .const import (
     CONF_AC_HEAT,
     CONF_MPC_HEAT_PLAN,
     CONF_AUTO_FAN,
+    CONF_SETPOINT_REGULATION,
     CONF_HEATER_ALGORITHM,
     CONF_HEATER_KD,
     CONF_HEATER_KI,
@@ -301,6 +302,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             key(CONF_PEER_ENTRY): selector.TextSelector(),
             key(CONF_PEER_SETPOINT_MODE, default=defaults.get(CONF_PEER_SETPOINT_MODE, False)): selector.BooleanSelector(),
             key(CONF_AUTO_FAN, default=defaults.get(CONF_AUTO_FAN, False)): selector.BooleanSelector(),
+            key(CONF_SETPOINT_REGULATION, default=defaults.get(CONF_SETPOINT_REGULATION, True)): selector.BooleanSelector(),
             key(CONF_HOUSE_SEALED, default=defaults.get(CONF_HOUSE_SEALED, False)): selector.BooleanSelector(),
             key(CONF_PRICE_CHEAP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
             key(CONF_PRICE_EXPENSIVE): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=10, step=0.01, mode="box")),
@@ -409,7 +411,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     ),
     "advanced": (
         CONF_CONTROL, CONF_LOCK_PIN, CONF_STALL_WINDOW_S, CONF_NIGHT_PLAN_ACT, CONF_ACCURACY_PANEL, CONF_PEER_ENTRY,
-        CONF_PEER_SETPOINT_MODE, CONF_AI_CONVERSATION, CONF_AI_BUDGET,
+        CONF_PEER_SETPOINT_MODE, CONF_AI_CONVERSATION, CONF_AI_BUDGET, CONF_SETPOINT_REGULATION,
     ),
 }
 OPTIONAL_SECTIONS = [name for name in SECTIONS if name != "room"]

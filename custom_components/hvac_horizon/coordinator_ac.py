@@ -34,7 +34,9 @@ from .const import (
     CONF_NIGHT_PLAN_ACT,
     CONF_OUTDOOR,
     CONF_PM25,
+    CONF_POWER,
     CONF_ROOM_HUMIDITY,
+    CONF_SETPOINT_REGULATION,
     CONF_WHOLE_HOUSE_FAN,
     CONF_WINDOW,
     CONF_WINDOW_DELAY_MIN,
@@ -44,7 +46,11 @@ from .const import (
     INHIBIT_MIN,
     KEEP_ALIVE_MIN,
     PEER_SETPOINT_STEP_K,
+    REGULATION_MAX_DROP_K,
+    REGULATION_MIN_HOLD_MIN,
+    SAMPLE_INTERVAL_S,
 )
+from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
 from custom_components.hvac_horizon.features import (
     air_quality_ventilation,
     coil_dry_due,
@@ -70,6 +76,15 @@ from custom_components.hvac_horizon.features import (
 from custom_components.hvac_horizon.coordinator_common import _float
 
 
+def _attr_float(state: State, name: str) -> float | None:
+    """A numeric attribute of a state, or None when it is missing or not a number."""
+    try:
+        value = state.attributes.get(name)
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class AcMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _ac_cooling_tick: bool
@@ -88,6 +103,11 @@ class AcMixin:
     _peer_setpoint_original: float | None
     _pending_waits: list[tuple[float, str | None]]
     _recheck_cancel: Callable[[], None] | None
+    _regulation_drop_k: float
+    _regulation_mode: str | None
+    _regulation_offset_k: float | None
+    _regulation_sent_c: float | None
+    _regulation_stepped_s: float | None
     _precool_status: str | None
     _second_ac_commanded_on: bool
     _second_changed_at: float | None
@@ -109,10 +129,14 @@ class AcMixin:
         """
         self._cancel_recheck()
         self._pending_waits = []
+        self._regulation_sent_c = None
+        self._regulation_offset_k = None
         try:
             await self._async_control_cycle(now, result)
         finally:
             self._publish_pending(result)
+            result["ac_setpoint_sent_c"] = self._regulation_sent_c
+            result["ac_sensor_offset_k"] = self._regulation_offset_k
 
     async def _async_control_cycle(self, now: float, result: dict[str, Any]) -> None:
         climate_id = self.entry.data[CONF_CLIMATE]
@@ -311,6 +335,7 @@ class AcMixin:
             await self._write_setpoint(climate_id, climate, self._peer_setpoint_original, now)
             self._peer_setpoint_original = None
         if action.mode is Mode.OFF:
+            self._regulation_drop_k = 0.0
             # A stall means the AC goes off. Dry mode would keep it running, so it is skipped then.
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
@@ -361,22 +386,26 @@ class AcMixin:
             # A cool setpoint from decide() replaces any lowered one, so there is nothing to put back later.
             cool_setpoint = action.setpoint_c
             self._peer_setpoint_original = None
+        cool_setpoint = self._regulated_setpoint(climate, cool_setpoint, statistics.median(rooms) if rooms else None, now, heat=False)
         await self._write_setpoint(climate_id, climate, cool_setpoint, now)
         if climate.state == "cool" and rooms:
             # The fan follows the room gap while the AC was already cooling before this cycle.
             if self.entry.data.get(CONF_AUTO_FAN, False):
                 await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
 
-    async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> None:
-        """Send `target_c` to the AC when it differs from the device setpoint. Rounds to the device's step when it reports one."""
+    async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> float:
+        """Send `target_c` to the AC when it differs from the device setpoint. Returns the setpoint after rounding and clamping.
+
+        Rounds to the device's step when it reports one and keeps the value inside the device's min_temp and max_temp.
+        """
         current = climate.attributes.get("temperature")
-        # Round to the device's own step only when it reports one. A device without a step gets the raw setpoint.
-        raw_step = climate.attributes.get("target_temp_step")
-        try:
-            step = float(raw_step) if raw_step is not None else 0.0
-        except (TypeError, ValueError):
-            step = 0.0
+        step = self._device_step(climate)
         setpoint = round_to_step(target_c, step) if step > 0 else float(target_c)
+        low, high = _attr_float(climate, "min_temp"), _attr_float(climate, "max_temp")
+        if low is not None:
+            setpoint = max(setpoint, low)
+        if high is not None:
+            setpoint = min(setpoint, high)
         if current is None or float(current) != setpoint:
             await self.hass.services.async_call(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": setpoint}, blocking=True
@@ -384,6 +413,73 @@ class AcMixin:
             self._last_written_setpoint = setpoint
             self._last_sent_min = now / 60.0
             self._inhibited_for_setpoint = None  # our write answers the manual change
+        self._regulation_sent_c = setpoint
+        return setpoint
+
+    @staticmethod
+    def _device_step(climate: State) -> float:
+        """The device's own setpoint step, or 0 when it reports none."""
+        try:
+            raw = climate.attributes.get("target_temp_step")
+            return float(raw) if raw is not None else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _rooms_median(self) -> float | None:
+        rooms = self._rooms()
+        return statistics.median(rooms) if rooms else None
+
+    def _regulated_setpoint(self, climate: State, target_c: float, room_c: float | None, now: float, *, heat: bool) -> float:
+        """The setpoint to send so the room, not the AC's own sensor, reaches `target_c`.
+
+        The AC's thermostat compares its own temperature reading with the setpoint. When that reading is cooler than the
+        room (warmer for heat), the thermostat is satisfied while the room is not. With the `current_temperature` attribute
+        the setpoint moves by the offset: target - (room - ac) for cool, target + (ac - room) for heat, only when the offset
+        is positive. Without the attribute the measured power decides (see _power_fallback_offset).
+        The result is rounded and clamped by _write_setpoint.
+        """
+        mode = "heat" if heat else "cool"
+        if self._regulation_mode != mode:
+            self._regulation_mode, self._regulation_drop_k = mode, 0.0
+        if room_c is None or not self.entry.data.get(CONF_SETPOINT_REGULATION, True):
+            self._regulation_drop_k = 0.0
+            return target_c
+        ac_c = _attr_float(climate, "current_temperature")
+        if ac_c is not None:
+            self._regulation_drop_k = 0.0
+            offset = max((ac_c - room_c) if heat else (room_c - ac_c), 0.0)
+        else:
+            offset = self._power_fallback_offset(climate, target_c, room_c, now, heat=heat)
+        self._regulation_offset_k = round(offset, 2)
+        return target_c + offset if heat else target_c - offset
+
+    def _power_fallback_offset(self, climate: State, target_c: float, room_c: float, now: float, *, heat: bool) -> float:
+        """Setpoint offset in K for an AC that reports no temperature, from the power sensor.
+
+        After the AC has been in the mode for REGULATION_MIN_HOLD_MIN, with the room still beyond its threshold and the
+        power below RUNNING_MIN_KW (fan only), the offset grows by one device step per tick, up to the device limit.
+        When the compressor runs, or the room reaches the threshold, it shrinks by one step per tick.
+        """
+        mode = "heat" if heat else "cool"
+        step = self._device_step(climate) or 1.0
+        limit = _attr_float(climate, "max_temp" if heat else "min_temp")
+        max_drop = abs(limit - target_c) if limit is not None else REGULATION_MAX_DROP_K
+        threshold = self._heat_on_below_c if heat else self._cool_above_c
+        needs_more = room_c < threshold if heat else room_c > threshold
+        power = _float(self.hass.states.get(self.entry.data[CONF_POWER]))
+        if power is None:
+            return self._regulation_drop_k
+        compressor_runs = power / 1000.0 >= RUNNING_MIN_KW
+        fresh = self._regulation_stepped_s is None or now - self._regulation_stepped_s >= 0.9 * SAMPLE_INTERVAL_S
+        if fresh:
+            held_min = self._since_min(climate, self._state_changed_at, now) if climate.state == mode else 0.0
+            if climate.state == mode and held_min >= REGULATION_MIN_HOLD_MIN and needs_more and not compressor_runs:
+                self._regulation_drop_k = min(self._regulation_drop_k + step, max_drop)
+                self._regulation_stepped_s = now
+            elif self._regulation_drop_k > 0.0 and (compressor_runs or not needs_more):
+                self._regulation_drop_k = max(self._regulation_drop_k - step, 0.0)
+                self._regulation_stepped_s = now
+        return self._regulation_drop_k
 
     def _ac_heat_wanted(self, action: Action, result: dict[str, Any], room_c: float, window_paused: bool) -> bool:
         """True when the AC heats this tick.
@@ -429,7 +525,8 @@ class AcMixin:
             self._state_changed_at = now
             self._last_sent_min = now / 60.0
             self._last_written_mode = "heat"
-        await self._write_setpoint(climate_id, climate, self._heat_on_below_c, now)
+        heat_setpoint = self._regulated_setpoint(climate, self._heat_on_below_c, self._rooms_median(), now, heat=True)
+        await self._write_setpoint(climate_id, climate, heat_setpoint, now)
         return False
 
     async def _drive_coil_dry(self, climate_id: str, climate: State, now: float) -> bool:

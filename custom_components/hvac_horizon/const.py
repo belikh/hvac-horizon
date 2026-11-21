@@ -116,6 +116,9 @@ HEAT_BOOST_OFFSET_C = 1.0  # default boost heat setpoint: comfort plus this
 CONF_WHOLE_HOUSE_FAN = "whole_house_fan"  # optional switch for a whole-house fan
 CONF_AC_HEAT = "ac_heat"  # bool, default False; let the AC heat when the heat source is the AC
 CONF_MPC_HEAT_PLAN = "mpc_heat_plan"  # bool, default False; the heat plan (step 0 = heat) starts an AC heat when the heat path is otherwise closed
+CONF_SETPOINT_REGULATION = "setpoint_regulation"  # bool, default True; lower the cool setpoint (raise the heat setpoint) by the AC's own sensor offset
+REGULATION_MIN_HOLD_MIN = 10.0  # the AC must have run in the mode this long before the power fallback moves the setpoint
+REGULATION_MAX_DROP_K = 10.0  # most the power fallback moves the setpoint when the device reports no min_temp or max_temp
 CONF_AUTO_FAN = "auto_fan"  # bool, default False; set the AC fan mode from the room gap while cooling
 CONF_DRY_FOR_HUMIDITY = "dry_for_humidity"  # bool, default False; run the AC in dry mode when humid and no dehumidifier is set. Dry mode makes a lot of water.
 CONF_COIL_DRY = "coil_dry"  # bool, default False; run the AC in dry mode after cooling to dry the coil

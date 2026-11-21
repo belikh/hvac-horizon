@@ -246,6 +246,11 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._inhibit_until_min: float | None = None
         self._inhibited_for_setpoint: float | None = None  # the manual value that last armed the inhibition
         self._last_written_setpoint: float | None = None
+        self._regulation_drop_k = 0.0  # power fallback: how far the setpoint is moved from the target, K
+        self._regulation_mode: str | None = None  # the mode that drop belongs to
+        self._regulation_offset_k: float | None = None  # the offset used this cycle, published as ac_sensor_offset_k
+        self._regulation_sent_c: float | None = None  # the setpoint sent this cycle, published as ac_setpoint_sent_c
+        self._regulation_stepped_s: float | None = None  # when the power fallback last moved the setpoint
         self._pending_waits: list[tuple[float, str | None]] = []  # starts the restart delay holds this cycle, for `pending`
         self._recheck_cancel: Callable[[], None] | None = None  # cancels the re-check set for the end of a restart delay
         self._store_loaded = False  # the store has been read; no tick runs before it

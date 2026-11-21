@@ -68,6 +68,7 @@ A heater gain from a relay test replaces the unset or default value of `heater_k
 | `peer_entry` | optional | unset | Peer entry, the entry_id or title of another HVAC Horizon entry (optional): its valve opens when this room is 2 K warmer |
 | `peer_setpoint_mode` | optional | `False` | Peer setpoint mode: with a peer entry, a room 2 K warmer lowers the peer cool setpoint by 1 K instead of opening its valve |
 | `auto_fan` | optional | `False` | Set the AC fan mode from the room gap while cooling |
+| `setpoint_regulation` | optional | `True` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none |
 | `house_sealed` | optional | `False` | House is sealed (never run the whole-house fan) |
 | `price_cheap` | optional | unset (code uses `0.15`) | Cheap price threshold |
 | `price_expensive` | optional | unset (code uses `0.4`) | Expensive price threshold |
