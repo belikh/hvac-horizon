@@ -876,21 +876,45 @@ async def test_timed_preset_overrides_then_reverts(hass, enable_custom_integrati
     assert coordinator.data["preset"] == "comfort"
 
 
-async def test_respond_suggestion_dismiss_records_gain(hass, enable_custom_integrations, config_data):
+async def _setup_with_gain_suggestion(hass, config_data):
+    """Set up an entry whose learned heat gain (0.3) sits 50 % above the baseline (0.2), so a suggestion is published."""
+    from custom_components.hvac_horizon import Fit
+
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
-    if coordinator._fit is None:
-        from custom_components.hvac_horizon import Fit
+    coordinator._fit = Fit(k=0.3, c=1.5, g=0.0)
+    coordinator._baseline_k = 0.2
+    await refresh(hass, entry)
+    assert "50 % more" in coordinator.data["learning_suggestion"]
+    return entry
 
-        coordinator._fit = Fit(k=0.3, c=1.5, g=0.0)
-    coordinator.respond_suggestion(False)
-    assert coordinator._dismissed_for_k == coordinator._fit.k
-    coordinator.respond_suggestion(True)
-    assert coordinator._dismissed_for_k is None
+
+async def test_respond_suggestion_service_dismiss_hides_it_until_the_gain_drifts(hass, enable_custom_integrations, config_data):
+    from custom_components.hvac_horizon import Fit
+
+    entry = await _setup_with_gain_suggestion(hass, config_data)
+    await hass.services.async_call(DOMAIN, "respond_suggestion", {"entry_id": entry.entry_id, "accept": False}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["learning_suggestion"] is None
+    entry.runtime_data._fit = Fit(k=0.4, c=1.5, g=0.0)  # the gain drifts more than 1 % from the dismissed value
+    await refresh(hass, entry)
+    assert "100 % more" in entry.runtime_data.data["learning_suggestion"]
+
+
+async def test_respond_suggestion_service_accept_adopts_the_learned_gain(hass, enable_custom_integrations, config_data):
+    from custom_components.hvac_horizon import Fit
+
+    entry = await _setup_with_gain_suggestion(hass, config_data)
+    await hass.services.async_call(DOMAIN, "respond_suggestion", {"entry_id": entry.entry_id, "accept": True}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["learning_suggestion"] is None
+    entry.runtime_data._fit = Fit(k=0.33, c=1.5, g=0.0)  # 10 % above the adopted 0.3, inside the 20 % tolerance
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["learning_suggestion"] is None
 
 
 async def test_heater_feedback_is_published(hass, enable_custom_integrations, config_data):
@@ -1181,7 +1205,7 @@ async def test_tpi_duty_drives_the_heater_switch(hass, enable_custom_integration
     await refresh(hass, entry)
     expected = 100.0 * (0.1 * (24.0 - 20.0) + 0.01 * (24.0 - 5.0))
     assert coordinator.data["tpi_output_pct"] == pytest.approx(expected, abs=1.0)
-    assert coordinator._pwm_output_pct == pytest.approx(expected, abs=1.0)
+    assert coordinator.data["heater_output_pct"] == pytest.approx(expected, abs=1.0)
     assert "heater_pid_output" not in coordinator.data
     assert "turn_on" in calls
     # The fake switch service does not change state, so mark the switch on to match the turn_on it received.
@@ -1573,7 +1597,7 @@ async def test_pid_algorithm_publishes_no_tpi_output(hass, enable_custom_integra
     await refresh(hass, entry)
     assert "tpi_output_pct" not in coordinator.data
     assert 0.0 <= coordinator.data["heater_pid_output"] <= 100.0
-    assert coordinator._pwm_output_pct == pytest.approx(coordinator.data["heater_pid_output"], abs=0.01)
+    assert coordinator.data["heater_output_pct"] == pytest.approx(coordinator.data["heater_pid_output"], abs=0.01)
 
 
 async def test_accuracy_pairs_and_forecast_error_follow_the_backtest(hass, enable_custom_integrations, config_data, monkeypatch):
@@ -2160,7 +2184,7 @@ async def test_heater_output_is_held_during_inhibit(hass, enable_custom_integrat
     coordinator.set_heater_output(40.0)
     coordinator._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 60.0
     await refresh(hass, entry)
-    assert coordinator._pwm_output_pct == 40.0
+    assert coordinator.data["heater_output_pct"] == 40.0
 
 
 async def test_inhibit_window_keeps_the_heater_switch_off(hass, enable_custom_integrations, config_data, freezer):
@@ -2201,7 +2225,7 @@ async def test_manual_change_inhibit_blocks_heat_on_but_not_the_room_cutoff(hass
     calls.clear()
     await refresh(hass, entry)
     assert coordinator.data["action"] == "inhibited after a manual change"
-    assert coordinator._pwm_on_now is True
+    assert coordinator.data["heater_pwm_on"] is True
     assert "turn_on" not in calls, "heat on must wait out the inhibit window"
 
     # The heater runs. The room passes the heat threshold inside the window, so the output drops to 0.
@@ -2210,7 +2234,7 @@ async def test_manual_change_inhibit_blocks_heat_on_but_not_the_room_cutoff(hass
     hass.states.async_set(ROOM_B, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     calls.clear()
     await refresh(hass, entry)
-    assert coordinator._pwm_on_now is False
+    assert coordinator.data["heater_pwm_on"] is False
     assert "turn_off" in calls
     assert "turn_on" not in calls
 
@@ -2636,6 +2660,7 @@ async def test_relay_test_gains_reach_the_heater_pid_and_survive_restart(hass, e
             break
     tuned = coordinator._autotune_result
     assert tuned is not None
+    assert coordinator.data["autotune"] == {"kp": pytest.approx(tuned.kp, abs=1e-3), "ki": pytest.approx(tuned.ki, abs=1e-3), "kd": pytest.approx(tuned.kd, abs=1e-3)}
     assert coordinator._heater_pid.kp == pytest.approx(tuned.kp)
     assert coordinator._heater_pid.ki == pytest.approx(tuned.ki)
     assert coordinator._heater_pid.kd == pytest.approx(tuned.kd)
@@ -2670,13 +2695,13 @@ async def test_relay_test_ends_at_the_time_limit_with_the_heater_off(hass, enabl
     await refresh(hass, entry)
     await start_autotune_service(hass, entry, 22.0)
     await run_relay_ticks(hass, entry, freezer, 60)
-    assert coordinator._tuner is not None
+    assert coordinator.data["autotune_status"] == "running"
     assert "turn_on" in calls
     hass.states.async_set(HEATER, "on")
     calls.clear()
     for _ in range(13):
         await run_relay_ticks(hass, entry, freezer, 5)
-        if coordinator._tuner is None:
+        if coordinator.data["autotune_status"] != "running":
             break
     assert coordinator.data["autotune_status"] == "timed_out"
     assert calls[-1] == "turn_off"
@@ -2694,9 +2719,9 @@ async def test_cancel_autotune_turns_the_heater_off_and_clears_the_test(hass, en
     calls.clear()
     await hass.services.async_call(DOMAIN, "cancel_autotune", {"entry_id": entry.entry_id}, blocking=True)
     await hass.async_block_till_done()
-    assert coordinator._tuner is None
-    assert coordinator._autotune_status == "cancelled"
     assert calls == ["turn_off"]
+    await refresh(hass, entry)
+    assert coordinator.data["autotune_status"] == "cancelled"
 
 
 async def test_heating_failure_repair_fires_during_a_relay_test(hass, enable_custom_integrations, config_data, freezer):
@@ -2707,7 +2732,7 @@ async def test_heating_failure_repair_fires_during_a_relay_test(hass, enable_cus
     await refresh(hass, entry)
     await start_autotune_service(hass, entry, 22.0)
     await run_relay_ticks(hass, entry, freezer, 75)
-    assert entry.runtime_data._tuner is not None
+    assert entry.runtime_data.data["autotune_status"] == "running"
     assert entry.runtime_data.data["heating_failure"] is True
     assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_heating_failure") is not None
 
@@ -2717,7 +2742,7 @@ async def test_start_autotune_rejects_a_setpoint_1_k_above_the_room(hass, enable
     await refresh(hass, entry)
     with pytest.raises(ValueError, match="at least 2 K above the room"):
         await start_autotune_service(hass, entry, 21.0)
-    assert entry.runtime_data._tuner is None
+    assert entry.runtime_data.data["autotune_status"] != "running"
 
 
 @pytest.mark.parametrize("setpoint", [14.0, 30.0])
@@ -2726,7 +2751,7 @@ async def test_start_autotune_rejects_a_setpoint_outside_the_range(hass, enable_
     await refresh(hass, entry)
     with pytest.raises(ValueError, match="15 to 26"):
         await start_autotune_service(hass, entry, setpoint)
-    assert entry.runtime_data._tuner is None
+    assert entry.runtime_data.data["autotune_status"] != "running"
 
 
 async def test_relay_does_not_heat_at_the_heat_on_threshold_and_the_test_ends(hass, enable_custom_integrations, config_data):
@@ -2740,7 +2765,6 @@ async def test_relay_does_not_heat_at_the_heat_on_threshold_and_the_test_ends(ha
     calls.clear()
     await refresh(hass, entry)
     assert "turn_on" not in calls
-    assert coordinator._tuner is None
     assert coordinator.data["autotune_status"] == "reached_cutoff"
 
 
@@ -2753,7 +2777,6 @@ async def test_relay_does_not_heat_while_the_ac_cools_and_the_test_ends(hass, en
     calls.clear()
     await refresh(hass, entry)
     assert "turn_on" not in calls
-    assert coordinator._tuner is None
     assert coordinator.data["autotune_status"] == "reached_cutoff"
 
 
@@ -4433,8 +4456,6 @@ async def test_forecast_uses_the_two_device_fit_when_a_second_ac_is_set(hass, en
         temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac1 - 0.8 * ac2) * (5 / 60)
     coordinator._entries = readings
     coordinator._refit()
-    assert coordinator._room_model is not None
-    assert coordinator._room_fit["ac_2_k_per_h_per_kw"] > 0
 
     for entity in (ROOM_A, ROOM_B):
         hass.states.async_set(entity, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
@@ -5085,12 +5106,20 @@ async def _restart(hass, entry):
     await hass.async_block_till_done()
 
 
+async def _stored_payload(hass, entry, hass_storage):
+    """Queue a store write, unload the entry so the write lands, and return the stored data. The entry stays unloaded."""
+    entry.runtime_data.save_soon()
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    return hass_storage[f"hvac_horizon.{entry.entry_id}"]["data"]
+
+
 async def test_lock_survives_a_reload(hass, enable_custom_integrations, config_data):
     entry, _ = await setup_heater(hass, config_data, extra={"lock_pin": "1234"})
     await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
     await _restart(hass, entry)
     coordinator = entry.runtime_data
-    assert coordinator._locked is True
     await refresh(hass, entry)
     assert coordinator.data["action"] == "locked"
 
@@ -5106,29 +5135,32 @@ async def test_house_mode_away_survives_a_reload(hass, enable_custom_integration
 async def test_timed_preset_survives_a_reload_with_the_same_end(hass, enable_custom_integrations, config_data, freezer):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data)
-    now_min = dt_util.utcnow().timestamp() / 60.0
-    entry.runtime_data.start_timed_preset("away", 120.0, now_min)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "away", "minutes": 120}, blocking=True)
     await hass.async_block_till_done()
     freezer.tick(timedelta(minutes=30))
     await _restart(hass, entry)
-    coordinator = entry.runtime_data
-    assert coordinator._timed_preset == "away"
-    assert coordinator._timed_started_min + coordinator._timed_duration_min == now_min + 120.0
-    later = dt_util.utcnow().timestamp() / 60.0
-    assert coordinator._effective_preset(later, "comfort") == "away"
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "away"
+    freezer.tick(timedelta(minutes=85))  # 115 minutes after the start: still inside the 120 minute window
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "away"
+    freezer.tick(timedelta(minutes=10))  # 125 minutes after the start
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "comfort"
 
 
 async def test_expired_timed_preset_does_not_return_after_a_reload(hass, enable_custom_integrations, config_data, freezer):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data)
-    entry.runtime_data.start_timed_preset("away", 20.0, dt_util.utcnow().timestamp() / 60.0)
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "away", "minutes": 20}, blocking=True)
     await hass.async_block_till_done()
     freezer.tick(timedelta(minutes=30))
     await _restart(hass, entry)
-    assert entry.runtime_data._timed_preset is None
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "comfort"
 
 
-async def test_expired_inhibit_is_dropped_and_a_running_one_is_kept(hass, enable_custom_integrations, config_data, freezer):
+async def test_expired_inhibit_is_dropped_and_a_running_one_is_kept(hass, enable_custom_integrations, config_data, freezer, hass_storage):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data)
     end = dt_util.utcnow().timestamp() / 60.0 + 30.0
@@ -5137,12 +5169,12 @@ async def test_expired_inhibit_is_dropped_and_a_running_one_is_kept(hass, enable
     await hass.async_block_till_done()
     freezer.tick(timedelta(minutes=10))
     await _restart(hass, entry)
-    assert entry.runtime_data._inhibit_until_min == end
-    entry.runtime_data.save_soon()
+    assert (await _stored_payload(hass, entry, hass_storage))["inhibit_until_min"] == end
+    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     freezer.tick(timedelta(minutes=30))
     await _restart(hass, entry)
-    assert entry.runtime_data._inhibit_until_min is None
+    assert (await _stored_payload(hass, entry, hass_storage))["inhibit_until_min"] is None
 
 
 async def test_window_opened_by_us_is_closed_after_a_reload(hass, enable_custom_integrations, config_data, freezer):
@@ -5151,19 +5183,18 @@ async def test_window_opened_by_us_is_closed_after_a_reload(hass, enable_custom_
     entry, _ = await setup_heater(hass, config_data, outdoor="18.0", room="26.0", extra={"window_actuator": "cover.test_window"})
     assert calls == [("open", "cover.test_window")]
     await _restart(hass, entry)
-    assert entry.runtime_data._actuator_opened_by_us is True
     hass.states.async_set(OUTDOOR, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
     assert calls == [("open", "cover.test_window"), ("close", "cover.test_window")]
 
 
-async def test_shed_loads_survive_a_reload(hass, enable_custom_integrations, config_data):
+async def test_shed_loads_survive_a_reload(hass, enable_custom_integrations, config_data, hass_storage):
     entry, _ = await setup_heater(hass, config_data)
     entry.runtime_data._shed_loads.add("switch.test_load")
     entry.runtime_data.save_soon()
     await hass.async_block_till_done()
     await _restart(hass, entry)
-    assert entry.runtime_data._shed_loads == {"switch.test_load"}
+    assert (await _stored_payload(hass, entry, hass_storage))["shed_loads"] == ["switch.test_load"]
 
 
 async def test_store_payload_holds_no_pin_and_old_payloads_load(hass, enable_custom_integrations, config_data, hass_storage):
@@ -5180,10 +5211,12 @@ async def test_store_payload_holds_no_pin_and_old_payloads_load(hass, enable_cus
     hass_storage[f"hvac_horizon.{entry.entry_id}"] = {"version": 2, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}", "data": {"entries": []}}
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    coordinator = entry.runtime_data
-    assert coordinator._locked is False
-    assert coordinator._shed_loads == set()
-    assert coordinator._timed_preset is None
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["action"] != "locked"
+    payload = await _stored_payload(hass, entry, hass_storage)
+    assert payload["locked"] is False
+    assert payload["shed_loads"] == []
+    assert payload["timed_preset"] is None
 
 
 _SOON = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)  # 60 minutes after the frozen 08:00 UTC clock
@@ -5420,7 +5453,7 @@ async def test_target_sensor_matches_what_decide_cools_to(hass, enable_custom_in
     await refresh(hass, entry)
     coordinator = entry.runtime_data
     assert coordinator.data["target_c"] == cool_above_c(coordinator._settings, True) == 26.0
-    assert coordinator._settings.preset is Preset.ECO
+    assert coordinator.data["preset"] == "eco"
 
 
 async def test_target_sensor_shows_the_user_target_from_the_room_climate(hass, enable_custom_integrations, config_data):
@@ -5431,3 +5464,132 @@ async def test_target_sensor_shows_the_user_target_from_the_room_climate(hass, e
     assert entry.runtime_data.data["target_c"] == pytest.approx(22.5)
     assert _target_sensor_state(hass, entry) == pytest.approx(22.5)
     assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(22.5)
+
+
+async def test_start_autotune_service_runs_the_relay_and_switches_the_heater(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["autotune_status"] != "running"
+    calls.clear()
+    await start_autotune_service(hass, entry, 22.0)
+    await run_relay_ticks(hass, entry, freezer, 10)
+    assert entry.runtime_data.data["autotune_status"] == "running"
+    assert "turn_on" in calls
+
+
+async def test_start_autotune_service_rejects_a_setpoint_below_the_room_rise(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    calls.clear()
+    with pytest.raises(ValueError, match="at least 2 K above the room"):
+        await start_autotune_service(hass, entry, 21.0)
+    await run_relay_ticks(hass, entry, freezer, 10)
+    assert entry.runtime_data.data["autotune_status"] != "running"
+    assert entry.runtime_data.data["autotune"] is None
+
+
+async def test_cancel_autotune_service_without_a_test_sends_no_device_call(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    calls.clear()
+    await hass.services.async_call(DOMAIN, "cancel_autotune", {"entry_id": entry.entry_id}, blocking=True)
+    await hass.async_block_till_done()
+    assert calls == []
+    assert entry.runtime_data.data["autotune_status"] != "cancelled"
+
+
+async def test_set_house_mode_service_away_turns_the_heater_off_and_rejects_other_modes(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await setup_heater(hass, config_data, heater_state="on")
+    await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
+    calls.clear()
+    await refresh(hass, entry)
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+    with pytest.raises(ValueError, match="home or away"):
+        await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "party"}, blocking=True)
+
+
+async def test_set_lock_service_needs_the_pin_and_stops_control(hass, enable_custom_integrations, config_data):
+    writes = _record_climate_writes(hass)
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, lock_pin="1234", control=True), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(DOMAIN, "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    writes.clear()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["action"] == "locked"
+    with pytest.raises(ValueError, match="lock not changed"):
+        await hass.services.async_call(DOMAIN, "set_lock", {"entry_id": entry.entry_id, "locked": False, "pin": "0000"}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["action"] == "locked"
+    await hass.services.async_call(DOMAIN, "set_lock", {"entry_id": entry.entry_id, "locked": False, "pin": "1234"}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["action"] != "locked"
+
+
+async def test_export_services_return_the_stored_readings(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    published = entry.runtime_data.data["samples"]
+    assert published >= 1
+    call = {"entry_id": entry.entry_id}
+    samples = (await hass.services.async_call(DOMAIN, "export_samples", call, blocking=True, return_response=True))["samples"]
+    rows = (await hass.services.async_call(DOMAIN, "export_csv", call, blocking=True, return_response=True))["csv"].splitlines()
+    assert len(samples) == published
+    assert len(rows) == published + 1
+    assert samples[-1]["room_c"] == pytest.approx(26.1)
+    assert float(rows[-1].split(",")[1]) == pytest.approx(26.1)
+
+
+async def test_what_if_service_is_faster_with_a_higher_power(hass, enable_custom_integrations, config_data, freezer):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    from custom_components.hvac_horizon import Fit
+
+    entry.runtime_data._fit = Fit(k=0.3, c=1.5, g=0.0)
+    base = {"entry_id": entry.entry_id, "room_c": 26.0, "target_c": 24.0, "outdoor_c": 30.0}
+    low = await hass.services.async_call(DOMAIN, "what_if", {**base, "power_kw": 2.0}, blocking=True, return_response=True)
+    high = await hass.services.async_call(DOMAIN, "what_if", {**base, "power_kw": 4.0}, blocking=True, return_response=True)
+    assert set(low) >= {"status", "minutes", "energy_kwh", "cost"}
+    assert low["status"] == high["status"] == "reachable"
+    assert high["minutes"] < low["minutes"]
+
+
+async def test_reset_learning_service_empties_the_exports(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    call = {"entry_id": entry.entry_id}
+    assert (await hass.services.async_call(DOMAIN, "export_samples", call, blocking=True, return_response=True))["samples"]
+    await hass.services.async_call(DOMAIN, "reset_learning", call, blocking=True)
+    exported = await hass.services.async_call(DOMAIN, "export_samples", call, blocking=True, return_response=True)
+    assert exported["samples"] == []
+    assert entry.runtime_data.data["status"] == "learning"
+
+
+async def test_start_timed_preset_service_publishes_the_preset_and_drives_the_ac(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "comfort"
+    await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "eco", "minutes": 30}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "eco"
+    freezer.tick(timedelta(minutes=31))
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["preset"] == "comfort"
