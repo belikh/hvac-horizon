@@ -7303,3 +7303,23 @@ async def test_learned_bias_survives_a_reload_and_reset_learning_clears_it(hass,
     assert entry.runtime_data._outdoor_bias.total == 0
     await refresh(hass, entry)
     assert entry.runtime_data.data["outdoor_bias_pairs"] <= 1
+
+
+async def test_no_learning_sample_is_recorded_while_the_outdoor_sensor_is_stalled(hass, enable_custom_integrations, config_data, freezer):
+    """A stalled outdoor sensor keeps its old value in the state machine. That value must not enter the samples."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    before = entry.runtime_data.data["samples"]
+    # Rooms keep reporting. The outdoor sensor goes silent for longer than the stall window.
+    for _ in range(4):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "20.0")
+        await refresh(hass, entry)
+    assert OUTDOOR in entry.runtime_data.data["sensors_stalled"]
+    stalled_count = entry.runtime_data.data["samples"]
+    freezer.tick(timedelta(minutes=5))
+    set_room(hass, "20.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["samples"] == stalled_count
+    assert stalled_count <= before + 3

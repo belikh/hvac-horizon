@@ -44,7 +44,8 @@ The mixins hold methods that use `self` of `HorizonCoordinator`. Each lists the 
 | `autotune.py` | `RelayTuner`, the relay test and the Ziegler-Nichols gains. |
 | `backfill.py` | `backtest()` replays cool-downs. `accuracy_pairs()` and `median_abs_error()` summarise the runs. |
 | `investigator.py` | `investigate()` gives the rule-based answer. `CallBudget` limits model calls per day. |
-| `solar_model.py` | Sun position and irradiance on a vertical window, for solar gain. |
+| `solar_model.py` | Sun position and irradiance on a vertical window, for solar gain. The forecast condition scales the clear-sky value. |
+| `outdoor.py` | Outdoor temperature series from the hourly forecast, the nightly low, and the learned sensor-to-forecast bias. |
 | `sensor.py` | `STATUS_KEYS` and the sensor entities that show the result. |
 | `accuracy_api.py` | The JSON view and the sidebar panel for the accuracy page. |
 | `diagnostics.py` | The diagnostics download. Entity IDs are redacted. |

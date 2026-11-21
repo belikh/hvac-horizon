@@ -36,7 +36,7 @@ The first form has the four required fields only. Every other field sits in one 
 | Comfort and presets | `comfort` | `comfort_c`, `eco_c`, `boost_c`, `away_c`, `heat_eco_c`, `heat_boost_c`, `comfort_energy_weight`, `schedule`, `schedule_blocks`, `vacation`, `vacation_c`, `away_delay_min` |
 | Price | `price` | `price`, `price_cheap`, `price_expensive`, `energy` |
 | Heater | `heater` | `heater_switch`, `heater_inverted`, `radiators`, `heater_algorithm`, `heater_kp`, `heater_ki`, `heater_kd`, `tpi_coef_int`, `tpi_coef_ext`, `tpi_threshold_high`, `tpi_threshold_low`, `max_on_percent`, `output_min`, `output_max`, `output_min_entity`, `output_max_entity`, `valve`, `trv_temperature`, `boiler`, `ac_heat`, `mpc_heat_plan` |
-| Occupancy and windows | `occupancy` | `presence`, `motion`, `motion_away_min`, `window`, `window_delay_min`, `window_actuator`, `cover`, `window_azimuth`, `window_area_m2`, `irradiance`, `weather` |
+| Occupancy and windows | `occupancy` | `presence`, `motion`, `motion_away_min`, `window`, `window_delay_min`, `window_actuator`, `cover`, `window_azimuth`, `window_area_m2`, `irradiance`, `weather`, `heatwave_warning` |
 | Air quality and humidity | `air_quality` | `humidity`, `room_humidity`, `co2`, `pm25`, `fan`, `auto_fan`, `dehumidifier`, `humidifier`, `coil_dry`, `dry_for_humidity`, `house_sealed`, `economizer_fan`, `whole_house_fan` |
 | Devices and power limits | `devices` | `climate_2`, `power_2`, `fleet`, `dispatch_mode`, `whole_house_power`, `shed_max_w`, `shed_loads`, `compressor_group`, `min_on_min`, `min_off_min` |
 | Advanced | `advanced` | `control`, `lock_pin`, `stall_window_s`, `night_plan_act`, `accuracy_panel`, `peer_entry`, `peer_setpoint_mode`, `setpoint_regulation`, `ai_conversation`, `ai_budget_per_day` |
@@ -125,7 +125,8 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | :--- | :--- | :--- | :--- |
 | `climate_2` | Second AC in the same room (optional) | none | Adds a second cooling device to the room model. |
 | `power_2` | Second AC power sensor, W (optional) | none | Power of the second AC. With `climate_2` and this field, the two-device fit runs. |
-| `weather` | Weather entity for the forecast (optional) | none | Supplies the daily highs. The day type and the heatwave status use them. |
+| `weather` | Weather entity for the forecast (optional) | none | Supplies the daily and hourly forecast. The day type, the night plan, the outdoor temperature series and the outdoor fallback use it. See [Read the forecast](read-the-forecast.md). |
+| `heatwave_warning` | Heatwave warning sensor (optional) | none | A binary sensor. While it is on, the heatwave status is on. |
 | `whole_house_power` | Whole-house power sensor (optional) | none | Total house power, W. Used with `shed_max_w`. |
 | `shed_max_w` | Power limit in watts (optional) | none | House limit, W. Above it, the loads in `shed_loads` switch off. |
 | `shed_loads` | Loads to shed, as entity_id\|watts, lowest priority first (optional) | none | One `entity_id\|watts` entry per load. The first entry sheds first. |

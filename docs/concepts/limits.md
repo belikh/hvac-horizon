@@ -27,7 +27,8 @@ dT/dt = k (T_out - T) - c P + g
 `forecast()` steps the model forward in 1-minute steps.
 
 - The AC runs at a constant power for the whole forecast. A unit that cycles uses less energy, so the energy figure is an upper bound.
-- The outdoor temperature stays at its current value. A room that is cooling toward evening is forecast as if the outdoor temperature did not fall.
+- Without a weather entity, the outdoor temperature stays at its current value. A room that is cooling toward evening is forecast as if the outdoor temperature did not fall.
+- With a weather entity, the outdoor temperature follows the hourly forecast, corrected by the learned difference between the outdoor sensor and the forecast. The forecast is then as good as the weather forecast for the site.
 - The price slots set the cost. A minute with no slot has no cost.
 - The forecast stops after 12 hours and reports `not reached within 12 hours` when the room settles above the target.
 

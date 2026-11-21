@@ -2,8 +2,9 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## Unreleased
+## 0.5.0 (2026-11-21)
 
+- Learning samples are not recorded while the outdoor sensor is stalled or unavailable, so the fit only sees measured outdoor temperatures.
 - Weather entity data is used beyond the daily highs. The hourly forecast (fetched with the daily one, at most every 30 minutes, last good result kept) gives an outdoor temperature series that starts at the sensor reading. The time-to-setpoint forecast, `mpc_plan`, `mpc_heat_plan`, pre-cool and preheat use it. The daily `templow` sets the night plan. New optional field `heatwave_warning` (binary sensor) forces `heatwave` on. Without an irradiance sensor, the forecast condition scales the clear-sky solar estimate (`solar_factor`). A stalled or unavailable outdoor sensor falls back to the hourly forecast when it is under 2 hours old (`outdoor_source`). A per-hour-of-day bias between the outdoor sensor and the forecast is learned, stored, applied to the series and the fallback, and cleared by `reset_learning`. New sensors: `outdoor_forecast_used`, `outdoor_source`, `outdoor_forecast_next_c`, `outdoor_bias_now_k`, `outdoor_bias_pairs`, `solar_factor`.
 - Tests run on Home Assistant 2026.11.2 with `pytest-homeassistant`, Home Assistant's own test package. The old `pytest-homeassistant-custom-component` harness is retired and does not load on 2026.11. The minimum Home Assistant version in `hacs.json` is now 2026.11.2.
 - Off is immediate. Turning the room off from the room entity sends off to the first AC, the second AC, the heater switch and every fleet device in the same call. No minimum on time, inhibit window or sensor gate delays it.

@@ -227,7 +227,9 @@ class InputsMixin:
 
     def _read_inputs(self, now: float) -> Entry | None:
         rooms = self._rooms()
-        outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        # A learning sample needs a measured outdoor temperature. A stalled sensor's old value and the forecast
+        # that stands in for it are both left out, so the fit only sees real readings.
+        outdoor = self._fresh_outdoor_sensor(now)
         power_w = _float(self.hass.states.get(self.entry.data[CONF_POWER]))
         if not rooms or outdoor is None or power_w is None:
             return None

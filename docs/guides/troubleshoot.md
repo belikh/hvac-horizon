@@ -12,7 +12,8 @@ What the stall stops:
 
 | Condition | AC and fleet devices | Heater output |
 | :--- | :--- | :--- |
-| The outdoor sensor is stalled | Off | 0 % |
+| The outdoor sensor is stalled, and no hourly forecast under 2 hours old exists | Off | 0 % |
+| The outdoor sensor is stalled, and a fresh hourly forecast exists | Runs on the forecast temperature | Runs on the forecast temperature |
 | Every room sensor is stalled | Off | 0 % |
 | One room sensor is stalled and another is fresh | Runs on the fresh median | Unchanged |
 | No room has a valid reading for the stall window | Off | 0 % |
