@@ -4,7 +4,7 @@ import unittest
 import pytest
 
 from custom_components.hvac_horizon.forecast import forecast
-from custom_components.hvac_horizon.model import NotEnoughData, Sample
+from custom_components.hvac_horizon.model import NotEnoughData, Sample, fit_confidence
 from custom_components.hvac_horizon.tpi import (
     GAIN_MAX,
     GAIN_MIN,
@@ -44,6 +44,20 @@ class LearnRoomRatesTests(unittest.TestCase):
         self.assertAlmostEqual(result.c, C, delta=0.05)
         self.assertGreater(result.samples_off, 0)
         self.assertGreater(result.samples_on, 0)
+
+    def test_standard_errors_are_computed_and_scale_with_the_gain(self):
+        import random
+
+        rng = random.Random(3)
+        noisy = [Sample(s.minutes, s.temp_c, s.temp_next_c + rng.gauss(0, 0.01), s.outdoor_c, s.power_kw) for s in simulate(800)]
+        result = learn_room_rates(noisy)
+        for value in (result.k_stderr, result.g_stderr, result.c_stderr, result.residual_k_per_h):
+            self.assertIsNotNone(value)
+            self.assertGreater(value, 0)
+        fitted = result.to_fit(1.5)
+        self.assertAlmostEqual(fitted.c_stderr, result.c_stderr * 1.5)
+        self.assertEqual(fitted.k_stderr, result.k_stderr)
+        self.assertIsNotNone(fit_confidence(fitted))
 
     def test_needs_both_states(self):
         always_on = [Sample(5.0, s.temp_c, s.temp_next_c, s.outdoor_c, 1.0) for s in simulate(200)]

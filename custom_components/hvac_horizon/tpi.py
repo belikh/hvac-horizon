@@ -10,9 +10,10 @@ The forecast and the pre-cool estimate use the scaled c. The AC's setpoint and m
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
-from .model import MIN_OUTDOOR_SPREAD_K, Fit, NotEnoughData, Sample, _least_squares
+from .model import MIN_OUTDOOR_SPREAD_K, Fit, NotEnoughData, Sample, _invert, _least_squares
 
 MIN_STATE_SAMPLES = 12  # about one hour of 5-minute samples in each state
 GAIN_MIN = 0.5  # the cool gain never drops below half the fitted cooling
@@ -29,10 +30,24 @@ class TpiFit:
     c: float  # cooling effect, K/h per kW, from the AC-on intervals, before the online gain
     samples_off: int
     samples_on: int
+    # Standard errors from the least-squares fits. None when the fit could not compute them.
+    k_stderr: float | None = None  # 1/h
+    g_stderr: float | None = None  # K/h
+    c_stderr: float | None = None  # K/h per kW, before the online gain
+    residual_k_per_h: float | None = None  # residual standard deviation of the AC-off fit, K/h
 
     def to_fit(self, cool_gain: float = 1.0) -> Fit:
-        """The coefficients as a model fit. `cool_gain` scales c; the forecast passes the online gain."""
-        return Fit(k=self.k, c=self.c * cool_gain, g=self.g, samples=self.samples_off + self.samples_on)
+        """The coefficients as a model fit. `cool_gain` scales c and its standard error; the forecast passes the online gain."""
+        return Fit(
+            k=self.k,
+            c=self.c * cool_gain,
+            g=self.g,
+            samples=self.samples_off + self.samples_on,
+            residual_k_per_h=self.residual_k_per_h,
+            k_stderr=self.k_stderr,
+            c_stderr=None if self.c_stderr is None else self.c_stderr * cool_gain,
+            g_stderr=self.g_stderr,
+        )
 
 
 def adjust_cool_gain(gain: float, sample: Sample, tpi: TpiFit) -> float:
@@ -142,8 +157,9 @@ def learn_room_rates(samples: list[Sample]) -> TpiFit:
     y = [(s.temp_next_c - s.temp_c) / (s.minutes / 60.0) for s in off]
     if max(r[0] for r in rows) - min(r[0] for r in rows) < MIN_OUTDOOR_SPREAD_K:
         raise NotEnoughData("AC-off intervals hardly varied in outdoor minus room temperature")
-    k, g = _least_squares(rows, y, [0, 1])
-    k = max(k, 0.0)
+    k_raw, g = _least_squares(rows, y, [0, 1])
+    k = max(k_raw, 0.0)
+    k_stderr, g_stderr, residual = _off_fit_errors(rows, y, k_raw, g)
 
     # With k and g fixed, each AC-on interval gives c = (k x1 + g - y) / P. Least squares over the on intervals.
     num = 0.0
@@ -156,7 +172,40 @@ def learn_room_rates(samples: list[Sample]) -> TpiFit:
     if den <= 0:
         raise NotEnoughData("AC power never varied; cannot separate cooling from heat gain")
     c = max(num / den, 0.0)
-    return TpiFit(k=k, g=g, c=c, samples_off=len(off), samples_on=len(on))
+    c_stderr = _on_fit_error(on, k, g, num / den, den)
+    return TpiFit(
+        k=k, g=g, c=c, samples_off=len(off), samples_on=len(on),
+        k_stderr=k_stderr, g_stderr=g_stderr, c_stderr=c_stderr, residual_k_per_h=residual,
+    )
+
+
+def _off_fit_errors(rows: list[list[float]], y: list[float], k: float, g: float) -> tuple[float | None, float | None, float | None]:
+    """Standard errors of k and g, and the residual standard deviation, of the AC-off least-squares fit.
+
+    Uses the unclamped k. Returns None for the errors when there are no spare degrees of freedom.
+    """
+    dof = len(rows) - 2
+    if dof <= 0:
+        return None, None, None
+    res = [t - (k * r[0] + g * r[1]) for r, t in zip(rows, y)]
+    variance = sum(e * e for e in res) / dof
+    try:
+        inv = _invert([[sum(r[i] * r[j] for r in rows) for j in range(2)] for i in range(2)])
+    except NotEnoughData:
+        return None, None, math.sqrt(variance)
+    return math.sqrt(max(variance * inv[0][0], 0.0)), math.sqrt(max(variance * inv[1][1], 0.0)), math.sqrt(variance)
+
+
+def _on_fit_error(on: list[Sample], k: float, g: float, c: float, den: float) -> float | None:
+    """Standard error of c, K/h per kW: the residual of the one-coefficient fit over sum of P squared. k and g are taken as fixed."""
+    if len(on) < 2 or den <= 0:
+        return None
+    res = []
+    for s in on:
+        rise = (s.temp_next_c - s.temp_c) / (s.minutes / 60.0)
+        res.append((k * (s.outdoor_c - s.temp_c) + g - rise) - c * s.power_kw)
+    variance = sum(e * e for e in res) / (len(on) - 1)
+    return math.sqrt(variance / den)
 
 
 def tpi_on_percent(target_c: float, room_c: float, outdoor_c: float, coef_int: float, coef_ext: float, max_pct: float | None = None) -> float:

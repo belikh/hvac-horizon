@@ -6355,3 +6355,62 @@ async def test_window_actuator_does_not_flap_across_the_cool_threshold(hass, ena
         hass, config_data, freezer, extra={"window_actuator": FLAP_COVER}, readings=["24.1", "23.9"] * 3, sensor="room", outdoor="18.0", watch="cover"
     )
     assert outputs == [("cover", "open_cover", FLAP_COVER, None)]
+
+
+def _sparse_on_entries(now):
+    """364 readings with 22 AC-on samples: too few cycles for the single fit, enough for the room-rate fit."""
+    rng = random.Random(11)
+    temp, readings = 24.0, []
+    for i in range(364):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac = 1.0 if 100 <= i < 111 or 250 <= i < 261 else 0.0
+        mode = "cool" if ac else "off"
+        readings.append(asdict(Entry(t=now - (364 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 * ac, mode=mode, setpoint_c=24.0 if ac else None)))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac) * (5 / 60) + rng.gauss(0, 0.01)
+    return readings
+
+
+_QUALITY_KEYS = ("fit_residual_k_per_h", "k_stderr", "c_stderr", "g_stderr", "fit_outliers_dropped", "fit_confidence")
+
+
+async def test_fit_quality_is_published_for_the_room_rate_fit(hass, enable_custom_integrations, config_data):
+    _register_climate_fakes(hass)
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    coordinator._entries = [Entry(**e) for e in _sparse_on_entries(dt_util.utcnow().timestamp())]
+    coordinator._refit()
+    assert coordinator._fit is None and coordinator._tpi is not None
+    await refresh(hass, entry)
+    data = coordinator.data
+    assert data["k"] is not None
+    for key in _QUALITY_KEYS:
+        assert data[key] is not None, key
+    assert data["fit_confidence"] in ("low", "medium", "high")
+    assert data["c_stderr"] > 0
+    assert data["status"] == "reachable"
+    assert data["minutes_low"] is not None  # minutes_high stays None when c minus one standard error cannot reach the target
+
+
+async def test_fit_quality_is_published_after_a_store_restore(hass, enable_custom_integrations, config_data, hass_storage):
+    _register_climate_fakes(hass)
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    hass_storage[f"hvac_horizon.{entry.entry_id}"] = {
+        "version": 2, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}",
+        "data": {"entries": _sparse_on_entries(dt_util.utcnow().timestamp())},
+    }
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    data = entry.runtime_data.data
+    assert entry.runtime_data._fit is None
+    assert data["k"] is not None and data["c"] is not None and data["g"] is not None
+    for key in _QUALITY_KEYS:
+        assert data[key] is not None, key
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    attributes = hass.states.get(entity_id).attributes
+    assert attributes["c_stderr"] == data["c_stderr"] and attributes["fit_confidence"] == data["fit_confidence"]

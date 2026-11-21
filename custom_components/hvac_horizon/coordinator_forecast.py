@@ -281,20 +281,20 @@ class ForecastMixin:
             "samples_dry": self._mode_counts.get("dry", 0),
             "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4), "heat": round(self._auto_heat_gain, 4)},
         }
-        if self._fit is not None:
-            result.update(
-                fit_residual_k_per_h=_round_or_none(self._fit.residual_k_per_h, 5),
-                k_stderr=_round_or_none(self._fit.k_stderr, 5),
-                c_stderr=_round_or_none(self._fit.c_stderr, 5),
-                g_stderr=_round_or_none(self._fit.g_stderr, 5),
-                fit_outliers_dropped=self._fit.outliers_dropped,
-                fit_confidence=fit_confidence(self._fit),
-            )
         active = self._active_fit()
         if active is None:
             return result
 
         result.update(k=round(active.k, 4), c=round(active.c, 4), g=round(active.g, 4))
+        # The quality fields describe the fit that produced k, c and g, whether it is the single fit or the room-rate fit.
+        result.update(
+            fit_residual_k_per_h=_round_or_none(active.residual_k_per_h, 5),
+            k_stderr=_round_or_none(active.k_stderr, 5),
+            c_stderr=_round_or_none(active.c_stderr, 5),
+            g_stderr=_round_or_none(active.g_stderr, 5),
+            fit_outliers_dropped=active.outliers_dropped,
+            fit_confidence=fit_confidence(active),
+        )
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
