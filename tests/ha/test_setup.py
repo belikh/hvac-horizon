@@ -6584,3 +6584,158 @@ async def test_recheck_is_cancelled_when_the_decision_changes_and_on_unload(hass
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert coordinator._recheck_cancel is None
+
+
+# ---- a room held off stays off across a restart -------------------------------------------------------------
+
+
+OFF_ENTRY_ID = "stored-off-entry"
+
+
+def _store_user_off(hass_storage, **extra):
+    hass_storage[f"hvac_horizon.{OFF_ENTRY_ID}"] = {
+        "version": 2, "minor_version": 1, "key": f"hvac_horizon.{OFF_ENTRY_ID}", "data": {"entries": [], "user_off": True, **extra},
+    }
+
+
+def _starts(calls):
+    """Commands that turn something on or open it: a mode other than off, a switch on or a valve above 0."""
+    return [
+        c for c in calls
+        if c[0] == "turn_on" or (c[0] == "set_hvac_mode" and c[2] != "off") or (c[0] == "set_value" and c[2] > 0)
+    ]
+
+
+@pytest.mark.parametrize("room,outdoor", [("29.0", "32.0"), ("26.0", "30.0"), ("23.8", "20.0"), ("15.0", "5.0")], ids=["hot", "warm", "inside_band", "cold"])
+async def test_room_held_off_sends_no_start_on_any_tick_after_a_restart(hass, enable_custom_integrations, config_data, hass_storage, freezer, room, outdoor):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _store_user_off(hass_storage)
+    set_inputs(hass)
+    calls = _device_services(hass)
+
+    async def record_value(call):
+        calls.append(("set_value", call.data["entity_id"], call.data["value"]))
+
+    hass.services.async_register("number", "set_value", record_value)
+    boiler, valve, second, fleet_ac, fleet_heater = "switch.boiler", "number.valve", "climate.test_ac_2", SMALL_AC, IR_HEATER
+    for entity, state in ((HEATER, "off"), (boiler, "off"), (valve, "0"), (fleet_heater, "off")):
+        hass.states.async_set(entity, state)
+    for entity in (CLIMATE, second, fleet_ac):
+        hass.states.async_set(entity, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    data = {**config_data, "control": True, CONF_HEATER_SWITCH: HEATER, "boiler": boiler, "valve": valve, "climate_2": second, "ac_heat": True}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    assert entry.runtime_data.user_off is True
+    for _ in range(6):  # 30 minutes of ticks
+        assert hass.states.get(entity_id).state == "off"
+        assert _starts(calls) == []
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, room)
+        hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert _starts(calls) == []
+    assert hass.states.get(entity_id).state == "off"
+
+
+async def test_fleet_held_off_sends_no_on_command_after_a_restart(hass, enable_custom_integrations, config_data, hass_storage, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _store_user_off(hass_storage)
+    fleet = [
+        {"device_id": "small", "kind": "cool", "entity_id": SMALL_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0},
+        {"device_id": "ir", "kind": "heat", "entity_id": IR_HEATER, "rate_k_per_h_per_kw": 1.5, "rated_w": 1500.0},
+    ]
+    for room, outdoor in (("29.0", "32.0"), ("15.0", "5.0")):
+        set_inputs(hass)
+        calls = _device_services(hass)
+        hass.states.async_set(SMALL_AC, "off", {"temperature": 30.0})
+        hass.states.async_set(IR_HEATER, "off")
+        set_room(hass, room)
+        hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        entry = MockConfigEntry(
+            domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True, "fleet": fleet}, unique_id=CLIMATE
+        )
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        for _ in range(4):
+            freezer.tick(timedelta(minutes=5))
+            set_room(hass, room)
+            hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+            await refresh(hass, entry)
+        assert _starts(calls) == []
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+        await hass.config_entries.async_remove(entry.entry_id)
+        hass_storage.clear()
+        _store_user_off(hass_storage)
+
+
+async def test_stored_hold_is_read_before_the_first_tick(hass, enable_custom_integrations, config_data, hass_storage, monkeypatch):
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    _store_user_off(hass_storage)
+    seen = []
+    original = HorizonCoordinator._async_update_data
+
+    async def spy(self):
+        seen.append(self._user_off)
+        return await original(self)
+
+    monkeypatch.setattr(HorizonCoordinator, "_async_update_data", spy)
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, "29.0")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert seen and seen[0] is True
+    assert _starts(calls) == []
+
+
+async def test_a_tick_before_the_store_is_loaded_still_reads_the_hold(hass, enable_custom_integrations, config_data, hass_storage):
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    _store_user_off(hass_storage)
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, "29.0")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    coordinator = HorizonCoordinator(hass, entry)
+    assert coordinator._user_off is False  # nothing is read yet
+    await coordinator.async_refresh()  # a tick with no async_load first
+    assert coordinator._user_off is True
+    assert _starts(calls) == []
+    await coordinator.async_shutdown()
+
+
+async def test_a_held_room_starts_again_only_after_the_user_sets_a_mode(hass, enable_custom_integrations, config_data, hass_storage, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _store_user_off(hass_storage)
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "target_temp_step": 1.0})
+    set_room(hass, "29.0")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", entry_id=OFF_ENTRY_ID, data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    for _ in range(3):
+        freezer.tick(timedelta(minutes=5))
+        set_room(hass, "29.0")
+        hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+        await refresh(hass, entry)
+    assert _starts(calls) == []
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "cool"}, blocking=True)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.user_off is False
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls

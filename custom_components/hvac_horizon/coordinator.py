@@ -511,6 +511,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             if self._peer_open_requested():
                 # Another entry's room is at least 2 K warmer than this one. The valve opens fully (see _request_peer_valve).
                 valve_opening = 100.0
+        if valve_opening is not None and self._user_off and self.entry.data.get(CONF_CONTROL):
+            valve_opening = 0.0  # the user holds the room off, so the valve gives no heat
         self._request_peer_valve()
         result["valve_opening_pct"] = valve_opening
         try:
