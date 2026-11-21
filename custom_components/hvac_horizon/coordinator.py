@@ -90,7 +90,7 @@ from custom_components.hvac_horizon.features import (
     transition_message,
 )
 from custom_components.hvac_horizon.fleet import COOL, FAST, HEAT, Device, calibrate_rates, choose_devices, device_kw
-from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
+from custom_components.hvac_horizon.features import SENSOR_STALL_S, TEMP_ADVICE_DEADBAND_K, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit, fit_confidence
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -394,6 +394,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._someone_home = True
         self._preset_now: str | None = None
         self._cool_above_c: float = DEFAULT_COMFORT_C
+        self._window_advice_open = False  # the last window advice was "open"; it carries the deadband
+        self._economizer_open = False  # the last economizer phase was not "off"
         self._heat_target_c: float = DEFAULT_COMFORT_C
         self._heat_on_below_c: float = DEFAULT_COMFORT_C - DEFAULT_HEATER_DEADBAND_C
         self._pwm_window_start_s: float | None = None
@@ -1262,13 +1264,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         comfort = self.comfort_c
         return night_plan(outdoor, statistics.median(rooms), comfort)
 
+    def _switch_on(self, entity_id: str | None) -> bool:
+        """True when the switch entity exists and is on. The on-state that the hysteresis decisions take."""
+        state = self.hass.states.get(entity_id) if entity_id else None
+        return state is not None and state.state == "on"
+
     def _window_advice(self) -> str | None:
         """Advice to open, close or hold windows from the outdoor reading and the room median. Publishes advice only."""
         rooms = self._rooms()
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if not rooms or outdoor is None:
             return None
-        return natural_ventilation_window(outdoor, statistics.median(rooms), cool_above_c=self._cool_above_c)
+        return natural_ventilation_window(outdoor, statistics.median(rooms), cool_above_c=self._cool_above_c, is_open=self._window_advice_open)
 
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
@@ -1507,6 +1514,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             del self._solar_pairs[:-288]
         result["solar_scale"] = learned_solar_scale([m for m, _ in self._solar_pairs], [v for _, v in self._solar_pairs]) if self._solar_pairs else None
         result["window_advice"] = self._window_advice()
+        self._window_advice_open = result["window_advice"] == "open"
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_econ = self._rooms()
         if outdoor_now is not None and rooms_econ:
@@ -1516,7 +1524,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.comfort_c,
                 self._minutes_in_open,
                 cool_above_c=self._cool_above_c,
+                is_open=self._economizer_open,
             )
+            self._economizer_open = phase != "off"
             if phase == "off":
                 self._minutes_in_open = 0.0
             elif self._last_economizer_t is not None:
@@ -1867,10 +1877,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         heater_state = self.hass.states.get(heater_id) if heater_id else None
         heater_on = heater_state is not None and heater_state.state == "on"
         room_c = statistics.median(rooms)
-        if room_c <= self._cool_above_c or room_c < self._heat_on_below_c or heater_on:
+        is_open = state.state in ("open", "on")
+        # An open actuator keeps its open advice until the room is TEMP_ADVICE_DEADBAND_K below the cooling threshold.
+        cool_floor = self._cool_above_c - (TEMP_ADVICE_DEADBAND_K if is_open else 0.0)
+        if room_c <= cool_floor or room_c < self._heat_on_below_c or heater_on:
             open_advice = False
         command = window_actuator_command(
-            open_advice, statistics.median(rooms), outdoor, state.state in ("open", "on"), self._actuator_opened_by_us
+            open_advice, statistics.median(rooms), outdoor, is_open, self._actuator_opened_by_us
         )
         if command is None:
             return
@@ -2327,8 +2340,16 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result.get("action"),
             None,
         )
-        ventilation = air_quality_ventilation(_float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25)))
-        humidity = humidity_action(_float(self._optional(CONF_ROOM_HUMIDITY)))
+        # Each output keeps its own on-state, so a reading that wobbles across a threshold does not flip it.
+        fan_running = self._switch_on(self.entry.data.get(CONF_FAN))
+        ventilation = air_quality_ventilation(_float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25)), running=fan_running)
+        room_humidity = _float(self._optional(CONF_ROOM_HUMIDITY))
+        dry_running = climate is not None and climate.state == "dry" and not self.entry.data.get(CONF_DEHUMIDIFIER)
+        humidity = humidity_action(
+            room_humidity,
+            dehumidifying=self._switch_on(self.entry.data.get(CONF_DEHUMIDIFIER)) or dry_running,
+            humidifying=self._switch_on(self.entry.data.get(CONF_HUMIDIFIER)),
+        )
         result["ventilation"] = ventilation.reason
         result["humidity"] = humidity.reason
         # A CO2 rate between 0 and 1 runs the fan for that share of each PWM window. PM2.5 still forces it on.
@@ -2336,7 +2357,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         co2_rate = ventilation_rate_from_co2(_float(self._optional(CONF_CO2)))
         fan_on = ventilation.run
         if 0.0 < co2_rate < 1.0:
-            pm25_on = air_quality_ventilation(None, _float(self._optional(CONF_PM25))).run
+            pm25_on = air_quality_ventilation(None, _float(self._optional(CONF_PM25)), running=fan_running).run
             fan_on = pwm_on(co2_rate * 100.0, FAN_PWM_WINDOW_MIN, now / 60.0) or pm25_on
         # The economizer fan_assist phase runs the fan too, when the economizer_fan option is on and the gates pass.
         house_home = effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
@@ -2355,6 +2376,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             climate is not None and climate.state == "cool",
             outdoor_now,
             statistics.median(rooms_wh) if rooms_wh else 0.0,
+            fan_on=self._switch_on(self.entry.data.get(CONF_WHOLE_HOUSE_FAN)),
         )
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started, track=True)
@@ -2399,6 +2421,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.
+            # An AC already in dry mode stays there while the humidity decision (with its deadband) still says dehumidify.
+            if (
+                not stalled
+                and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)
+                and humidity.action == "dehumidify"
+                and not self.entry.data.get(CONF_DEHUMIDIFIER)
+                and climate.state == "dry"
+                and self._last_written_mode == "dry"
+                and not self._coil_dry_sent
+            ):
+                return
             if (
                 not stalled
                 and self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)

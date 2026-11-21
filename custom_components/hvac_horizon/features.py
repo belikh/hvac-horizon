@@ -68,18 +68,32 @@ def outdoor_allows(mode: str, outdoor_c: float, cool_min_c: float = 16.0, heat_m
     raise ValueError(f"unknown mode {mode!r}")
 
 
+HUMIDITY_DEADBAND_PCT = 3.0  # percentage points a humidity output stays on past its threshold
+CO2_DEADBAND_PPM = 100.0
+PM25_DEADBAND = 3.0  # ug/m3
+TEMP_ADVICE_DEADBAND_K = 0.5  # kelvin for window advice, the window actuator and the whole-house fan
+
+
 @dataclass(frozen=True)
 class Ventilation:
     run: bool
     reason: str
 
 
-def air_quality_ventilation(co2_ppm: float | None, pm25_ugm3: float | None, co2_on: float = 1000.0, pm25_on: float = 25.0) -> Ventilation:
-    """Run the room fan when CO2 or PM2.5 is above its threshold. Missing readings never switch it on."""
-    if co2_ppm is not None and co2_ppm >= co2_on:
-        return Ventilation(True, f"CO2 {co2_ppm:.0f} ppm at or above {co2_on:.0f}")
-    if pm25_ugm3 is not None and pm25_ugm3 >= pm25_on:
-        return Ventilation(True, f"PM2.5 {pm25_ugm3:.0f} ug/m3 at or above {pm25_on:.0f}")
+def air_quality_ventilation(
+    co2_ppm: float | None, pm25_ugm3: float | None, co2_on: float = 1000.0, pm25_on: float = 25.0, running: bool = False
+) -> Ventilation:
+    """Run the room fan when CO2 or PM2.5 is above its threshold. Missing readings never switch it on.
+
+    While the fan `running`, it stays on until CO2 falls below `co2_on` minus CO2_DEADBAND_PPM and PM2.5 below
+    `pm25_on` minus PM25_DEADBAND.
+    """
+    co2_limit = co2_on - CO2_DEADBAND_PPM if running else co2_on
+    pm25_limit = pm25_on - PM25_DEADBAND if running else pm25_on
+    if co2_ppm is not None and co2_ppm >= co2_limit:
+        return Ventilation(True, f"CO2 {co2_ppm:.0f} ppm at or above {co2_limit:.0f}")
+    if pm25_ugm3 is not None and pm25_ugm3 >= pm25_limit:
+        return Ventilation(True, f"PM2.5 {pm25_ugm3:.0f} ug/m3 at or above {pm25_limit:.0f}")
     return Ventilation(False, "air quality within limits")
 
 
@@ -89,14 +103,22 @@ class HumidityAction:
     reason: str
 
 
-def humidity_action(humidity_pct: float | None, low: float = 40.0, high: float = 60.0) -> HumidityAction:
-    """Keep relative humidity inside [low, high]. Outside the band, run the matching device."""
+def humidity_action(
+    humidity_pct: float | None, low: float = 40.0, high: float = 60.0, dehumidifying: bool = False, humidifying: bool = False
+) -> HumidityAction:
+    """Keep relative humidity inside [low, high]. Outside the band, run the matching device.
+
+    A device already running (`dehumidifying`, `humidifying`) stays on until the reading is back inside the band
+    by HUMIDITY_DEADBAND_PCT.
+    """
     if humidity_pct is None:
         return HumidityAction("none", "no humidity reading")
-    if humidity_pct > high:
-        return HumidityAction("dehumidify", f"{humidity_pct:.0f} % above {high:.0f} %")
-    if humidity_pct < low:
-        return HumidityAction("humidify", f"{humidity_pct:.0f} % below {low:.0f} %")
+    high_limit = high - HUMIDITY_DEADBAND_PCT if dehumidifying else high
+    low_limit = low + HUMIDITY_DEADBAND_PCT if humidifying else low
+    if humidity_pct > high_limit:
+        return HumidityAction("dehumidify", f"{humidity_pct:.0f} % above {high_limit:.0f} %")
+    if humidity_pct < low_limit:
+        return HumidityAction("humidify", f"{humidity_pct:.0f} % below {low_limit:.0f} %")
     return HumidityAction("none", "within band")
 
 
@@ -343,35 +365,41 @@ def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) ->
     return "hold"
 
 
-def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, cool_above_c: float | None = None) -> str:
+def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, cool_above_c: float | None = None, is_open: bool = False) -> str:
     """'open' when fresh air will cool the room: outdoors is cooler than indoors by `min_delta_c` and not above `max_outdoor_c`.
     'close' when outdoors is warmer than indoors or above the cap. 'hold' otherwise.
 
     When `cool_above_c` is given and the room is at or below it, the room needs no cooling and the answer is 'close'.
+    While `is_open` (the last advice was 'open'), each limit moves by TEMP_ADVICE_DEADBAND_K in the open direction:
+    the advice stays 'open' until the room is that far below `cool_above_c`, outdoors that far above `max_outdoor_c`,
+    or the gap that far below `min_delta_c`.
     Ported from ClimateAdvisor's natural ventilation timing. The decision is for windows, not the AC.
     """
-    if cool_above_c is not None and indoor_c <= cool_above_c:
+    margin = TEMP_ADVICE_DEADBAND_K if is_open else 0.0
+    if cool_above_c is not None and indoor_c <= cool_above_c - margin:
         return "close"
-    if outdoor_c > max_outdoor_c or outdoor_c >= indoor_c:
+    if outdoor_c > max_outdoor_c + margin or outdoor_c >= indoor_c:
         return "close"
-    if indoor_c - outdoor_c >= min_delta_c:
-        return "open"
+    if indoor_c - outdoor_c >= min_delta_c - margin:
+        return "open" if is_open or indoor_c - outdoor_c >= min_delta_c else "hold"
     return "hold"
 
 
-def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0, cool_above_c: float | None = None) -> str:
+def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0, cool_above_c: float | None = None, is_open: bool = False) -> str:
     """Two-phase window cooling advice: 'off', 'open_windows' or 'fan_assist'.
 
     'off' when outdoors is above `max_outdoor_c` or less than `min_delta_c` cooler than indoors.
     Also 'off' when `cool_above_c` is given and the room is at or below it, because the room needs no cooling.
     Otherwise 'fan_assist' when the room is above `comfort_c` after `fan_after_min` minutes of open windows, else 'open_windows'.
+    While `is_open` (the last phase was not 'off'), the 'off' limits move by TEMP_ADVICE_DEADBAND_K in the open direction.
     Ported from ClimateAdvisor's economizer FSM. Publishes advice only.
     """
     if min_delta_c < 0 or fan_after_min <= 0:
         raise ValueError("min_delta_c must be >= 0 and fan_after_min must be > 0")
-    if cool_above_c is not None and indoor_c <= cool_above_c:
+    margin = TEMP_ADVICE_DEADBAND_K if is_open else 0.0
+    if cool_above_c is not None and indoor_c <= cool_above_c - margin:
         return "off"
-    if outdoor_c > max_outdoor_c or outdoor_c > indoor_c - min_delta_c:
+    if outdoor_c > max_outdoor_c + margin or outdoor_c > indoor_c - (min_delta_c - margin):
         return "off"
     if indoor_c > comfort_c and minutes_in_open >= fan_after_min:
         return "fan_assist"
@@ -512,10 +540,11 @@ def fan_mode_for_gap(gap_c: float, available: list[str] | None, high_above_c: fl
 def window_actuator_command(open_advice: bool, indoor_c: float, outdoor_c: float, is_open: bool, opened_by_us: bool, min_delta_c: float = 2.0) -> str | None:
     """"open" when the advice says open windows, outdoors is at least `min_delta_c` cooler than indoors and the actuator is shut.
 
-    "close" when the advice has ended or the air is no longer cool enough, and this integration opened the actuator, and it is open.
+    "close" when the advice has ended or the air is no longer cool enough (with the deadband while it is open), and this integration opened the actuator, and it is open.
     None otherwise. An actuator this integration did not open is never closed.
     """
-    cooler = indoor_c - outdoor_c >= min_delta_c
+    # An open actuator stays open until the gap falls TEMP_ADVICE_DEADBAND_K below the opening gap.
+    cooler = indoor_c - outdoor_c >= (min_delta_c - TEMP_ADVICE_DEADBAND_K if is_open else min_delta_c)
     if open_advice and cooler:
         return None if is_open else "open"
     if opened_by_us and is_open:
@@ -647,15 +676,16 @@ def corrected_setpoint(setpoint_c: float, offset_k: float | None) -> float:
 
 
 
-def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0) -> bool:
+def whole_house_fan_allowed(house_sealed: bool, hvac_running: bool, outdoor_c: float | None, indoor_c: float, min_delta_c: float = 2.0, fan_on: bool = False) -> bool:
     """True when the whole-house fan may run to cool: outdoors must be cooler than indoors by `min_delta_c`,
-    the house must not be sealed, and the AC must not be running.
+    the house must not be sealed, and the AC must not be running. While `fan_on`, the fan keeps running until the gap
+    falls TEMP_ADVICE_DEADBAND_K below `min_delta_c`.
 
     Ported from ClimateAdvisor's whole-house fan safety rules.
     """
     if outdoor_c is None or house_sealed or hvac_running:
         return False
-    return indoor_c - outdoor_c >= min_delta_c
+    return indoor_c - outdoor_c >= (min_delta_c - TEMP_ADVICE_DEADBAND_K if fan_on else min_delta_c)
 
 
 def comfort_energy_setpoint(comfort_c: float, energy_c: float, weight: float) -> float:

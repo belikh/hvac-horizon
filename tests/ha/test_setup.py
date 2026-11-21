@@ -6047,3 +6047,115 @@ async def test_room_entity_says_observe_only_when_control_is_off(hass, enable_cu
     assert state.state == "off"
     assert state.attributes["control"] == "observe only"
     assert state.attributes["hvac_action"] == "cooling"
+
+
+FLAP_SWITCH = "switch.flap_output"
+FLAP_SENSOR = "sensor.flap_reading"
+FLAP_COVER = "cover.test_window"
+
+
+async def _flap_run(hass, config_data, freezer, *, extra, readings, sensor=FLAP_SENSOR, room="20.0", outdoor="10.0", climate="off", watch="switch"):
+    """Run 6 ticks with `readings` (one per tick) on `sensor` and return every output call.
+
+    The fake services move the entity state, as a real switch, cover or AC does, so the next tick sees what was sent.
+    `sensor` is a sensor entity id, or "outdoor" or "room" to move that temperature input instead.
+    """
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, climate, {"temperature": 24.0, "friendly_name": "Test AC"})
+    outputs = []
+
+    def feed(value):
+        if sensor == "outdoor":
+            hass.states.async_set(OUTDOOR, value, {"unit_of_measurement": "°C", "device_class": "temperature"})
+            _set_ac_rooms(hass, room)
+        elif sensor == "room":
+            _set_ac_rooms(hass, value)
+            hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+        else:
+            hass.states.async_set(sensor, value)
+            _set_ac_rooms(hass, room)
+            hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+
+    feed(readings[0])
+    hass.states.async_set(FLAP_SWITCH, "off")
+    hass.states.async_set(FLAP_COVER, "closed")
+
+    def mover(domain, service, entity_state):
+        async def move(call):
+            outputs.append((domain, service, call.data["entity_id"], call.data.get("hvac_mode")))
+            hass.states.async_set(call.data["entity_id"], entity_state(call))
+
+        hass.services.async_register(domain, service, move)
+
+    mover("switch", "turn_on", lambda c: "on")
+    mover("switch", "turn_off", lambda c: "off")
+    mover("cover", "open_cover", lambda c: "open")
+    mover("cover", "close_cover", lambda c: "closed")
+    mover("climate", "set_hvac_mode", lambda c: c.data["hvac_mode"])
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "control": True, **extra}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    for index, value in enumerate(readings[1:], start=1):
+        freezer.tick(timedelta(minutes=5))
+        feed(value)
+        # Move the room down by a hundredth each tick so no room sensor reads as stalled.
+        if sensor != "room":
+            _set_ac_rooms(hass, f"{float(room) - 0.01 * index:.2f}")
+        await refresh(hass, entry)
+    return [o for o in outputs if o[0] == watch]
+
+
+ACROSS = 6  # ticks
+
+
+async def test_fan_pm25_does_not_flap_across_its_threshold(hass, enable_custom_integrations, config_data, freezer):
+    # PM2.5 turns the fan on at 25 and holds it until 22. Readings of 26 and 24 alternate for 6 ticks.
+    outputs = await _flap_run(hass, config_data, freezer, extra={"fan": FLAP_SWITCH, "pm25": FLAP_SENSOR}, readings=["26", "24"] * 3)
+    assert outputs == [("switch", "turn_on", FLAP_SWITCH, None)]
+
+
+async def test_humidifier_does_not_flap_across_the_low_edge(hass, enable_custom_integrations, config_data, freezer):
+    outputs = await _flap_run(hass, config_data, freezer, extra={"humidifier": FLAP_SWITCH, "room_humidity": FLAP_SENSOR}, readings=["39", "41"] * 3)
+    assert outputs == [("switch", "turn_on", FLAP_SWITCH, None)]
+
+
+async def test_dehumidifier_does_not_flap_across_the_high_edge(hass, enable_custom_integrations, config_data, freezer):
+    outputs = await _flap_run(hass, config_data, freezer, extra={"dehumidifier": FLAP_SWITCH, "room_humidity": FLAP_SENSOR}, readings=["61", "59"] * 3)
+    assert outputs == [("switch", "turn_on", FLAP_SWITCH, None)]
+
+
+async def test_ac_dry_mode_does_not_flap_across_the_high_edge(hass, enable_custom_integrations, config_data, freezer):
+    outputs = await _flap_run(
+        hass, config_data, freezer, extra={"dry_for_humidity": True, "room_humidity": FLAP_SENSOR}, readings=["61", "59"] * 3, watch="climate"
+    )
+    assert outputs == [("climate", "set_hvac_mode", CLIMATE, "dry")]
+
+
+async def test_whole_house_fan_does_not_flap_across_its_gap(hass, enable_custom_integrations, config_data, freezer):
+    # Indoors 24 C, just under the cool threshold so the AC stays off. The fan starts at a 2 K gap and holds until 1.5 K.
+    outputs = await _flap_run(
+        hass, config_data, freezer, extra={"whole_house_fan": FLAP_SWITCH}, readings=["21.9", "22.1"] * 3, sensor="outdoor", room="24.0"
+    )
+    assert outputs == [("switch", "turn_on", FLAP_SWITCH, None)]
+
+
+async def test_window_actuator_does_not_flap_across_the_outdoor_gap(hass, enable_custom_integrations, config_data, freezer):
+    outputs = await _flap_run(
+        hass, config_data, freezer, extra={"window_actuator": FLAP_COVER}, readings=["23.9", "24.1"] * 3, sensor="outdoor", room="26.0", watch="cover"
+    )
+    assert outputs == [("cover", "open_cover", FLAP_COVER, None)]
+
+
+async def test_window_actuator_does_not_flap_across_the_cool_threshold(hass, enable_custom_integrations, config_data, freezer):
+    # The cool threshold is 24.04 C. Room readings of 24.1 and 23.9 alternate with outdoors at 18 C.
+    outputs = await _flap_run(
+        hass, config_data, freezer, extra={"window_actuator": FLAP_COVER}, readings=["24.1", "23.9"] * 3, sensor="room", outdoor="18.0", watch="cover"
+    )
+    assert outputs == [("cover", "open_cover", FLAP_COVER, None)]

@@ -15,6 +15,9 @@ from custom_components.hvac_horizon.features import (
     heat_source,
     learned_solar_scale,
     humidity_action,
+    natural_ventilation_window,
+    whole_house_fan_allowed,
+    window_actuator_command,
     minimum_time_ok,
     ScheduleBlock,
     minutes_until_preset,
@@ -1088,3 +1091,68 @@ class RaiseCoolThresholdsTests(unittest.TestCase):
         raised = raise_cool_thresholds(replace(self.settings, eco_c=None, boost_c=None), True)
         self.assertIsNone(raised.eco_c)
         self.assertIsNone(raised.boost_c)
+
+
+class DeadbandTests(unittest.TestCase):
+    """Each on-off decision takes its current on-state. Six readings that alternate across the threshold give one change."""
+
+    @staticmethod
+    def _changes(decide, readings):
+        on = False
+        changes = 0
+        for reading in readings:
+            new = decide(reading, on)
+            changes += new != on
+            on = new
+        return changes
+
+    def test_fan_co2_holds_until_100_ppm_below(self):
+        decide = lambda r, on: air_quality_ventilation(r, None, running=on).run
+        self.assertEqual(self._changes(decide, [1001, 999] * 3), 1)
+        self.assertTrue(decide(901, True))
+        self.assertFalse(decide(899, True))
+
+    def test_fan_pm25_holds_until_3_below(self):
+        decide = lambda r, on: air_quality_ventilation(None, r, running=on).run
+        self.assertEqual(self._changes(decide, [25.0, 24.0] * 3), 1)
+        self.assertTrue(decide(22.0, True))
+        self.assertFalse(decide(21.9, True))
+
+    def test_humidity_outputs_hold_for_3_points(self):
+        dehumidify = lambda r, on: humidity_action(r, dehumidifying=on).action == "dehumidify"
+        humidify = lambda r, on: humidity_action(r, humidifying=on).action == "humidify"
+        self.assertEqual(self._changes(dehumidify, [60.5, 59.5] * 3), 1)
+        self.assertEqual(self._changes(humidify, [39.5, 40.5] * 3), 1)
+        self.assertTrue(dehumidify(57.5, True))
+        self.assertFalse(dehumidify(56.9, True))
+        self.assertTrue(humidify(42.5, True))
+        self.assertFalse(humidify(43.1, True))
+
+    def test_window_advice_holds_for_half_a_kelvin(self):
+        decide = lambda gap, on: natural_ventilation_window(20.0, 20.0 + gap, is_open=on) == "open"
+        self.assertEqual(self._changes(decide, [2.1, 1.9] * 3), 1)
+        self.assertFalse(decide(1.4, True))
+        # The cooling threshold and the outdoor cap move the same way.
+        self.assertEqual(natural_ventilation_window(18.0, 24.0, cool_above_c=24.2, is_open=True), "open")
+        self.assertEqual(natural_ventilation_window(18.0, 24.0, cool_above_c=24.2), "close")
+        self.assertEqual(natural_ventilation_window(24.4, 30.0, is_open=True), "open")
+        self.assertEqual(natural_ventilation_window(24.4, 30.0), "close")
+
+    def test_economizer_holds_for_half_a_kelvin(self):
+        decide = lambda gap, on: economizer_phase(20.0, 20.0 + gap, 18.0, 0.0, is_open=on) != "off"
+        self.assertEqual(self._changes(decide, [2.1, 1.9] * 3), 1)
+        self.assertEqual(economizer_phase(20.0, 21.4, 18.0, 0.0, is_open=True), "off")
+        self.assertEqual(economizer_phase(18.0, 24.0, 18.0, 0.0, cool_above_c=24.2, is_open=True), "open_windows")
+        self.assertEqual(economizer_phase(18.0, 24.0, 18.0, 0.0, cool_above_c=24.2), "off")
+
+    def test_whole_house_fan_holds_for_half_a_kelvin(self):
+        decide = lambda gap, on: whole_house_fan_allowed(False, False, 20.0, 20.0 + gap, fan_on=on)
+        self.assertEqual(self._changes(decide, [2.1, 1.9] * 3), 1)
+        self.assertFalse(decide(1.4, True))
+        self.assertFalse(whole_house_fan_allowed(True, False, 20.0, 23.0, fan_on=True))
+        self.assertFalse(whole_house_fan_allowed(False, True, 20.0, 23.0, fan_on=True))
+
+    def test_window_actuator_holds_for_half_a_kelvin(self):
+        self.assertIsNone(window_actuator_command(True, 21.9, 20.0, True, True))
+        self.assertEqual(window_actuator_command(True, 21.9, 20.0, False, False), None)
+        self.assertEqual(window_actuator_command(True, 21.4, 20.0, True, True), "close")
