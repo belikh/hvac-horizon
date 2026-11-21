@@ -313,6 +313,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fleet_changed_at: dict[str, float] = {}  # device_id -> when the dispatch last changed it, for minimum times
         self._device_rates: dict[str, dict[str, float]] = {}  # device_id -> fitted {rate, samples}, kept in the store
         self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
+        self._saved_commanded: dict[str, Any] = {}  # the commanded state as last queued for the store
         self._shed_loads: set[str] = set()  # loads this integration switched off for the power limit, to restore later
         self._price_warned = False  # one warning per coordinator for invalid price thresholds
         self._fleet_warned = False  # one warning per coordinator for unknown fleet keys
@@ -529,6 +530,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._timed_started_min = started
                 self._timed_duration_min = duration
         self._shed_loads = {str(e) for e in data.get("shed_loads", [])}
+        self._load_commanded(data.get("commanded"))
         self._actuator_opened_by_us = bool(data.get("actuator_opened_by_us", False))
         self._device_rates = {
             str(k): {"rate": float(v["rate"]), "samples": float(v.get("samples", 0))}
@@ -703,6 +705,47 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             pid_gain(float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
         )
 
+    def _commanded_state(self) -> dict[str, Any]:
+        """What this entry last wrote to its devices. The store keeps it, so a restart still knows what it left on."""
+        return {
+            "setpoint": self._last_written_setpoint,
+            "mode": self._last_written_mode,
+            "heater_on": self._heater_commanded_on,
+            "heater_switch": self._heater_switch_driven,
+            "switches_on": sorted(self._switches_on),
+            "second_ac_on": self._second_ac_commanded_on,
+            "coil_dry": self._coil_dry_sent,
+            "valve": self._valve_driven,
+            "valve_pct": self._valve_commanded_pct,
+        }
+
+    def _load_commanded(self, stored: Any) -> None:
+        """Restore what was last commanded. A payload from before this key, or a malformed one, leaves the defaults."""
+        stored = stored if isinstance(stored, dict) else {}
+        setpoint = stored.get("setpoint")
+        self._last_written_setpoint = float(setpoint) if isinstance(setpoint, (int, float)) else None
+        mode = stored.get("mode")
+        self._last_written_mode = str(mode) if mode is not None else None
+        heater_on = stored.get("heater_on")
+        self._heater_commanded_on = bool(heater_on) if heater_on is not None else None
+        switch = stored.get("heater_switch")
+        self._heater_switch_driven = str(switch) if switch else None
+        self._switches_on = {str(e) for e in stored.get("switches_on") or []}
+        self._second_ac_commanded_on = bool(stored.get("second_ac_on", False))
+        self._coil_dry_sent = bool(stored.get("coil_dry", False))
+        valve = stored.get("valve")
+        self._valve_driven = str(valve) if valve else None
+        pct = stored.get("valve_pct")
+        self._valve_commanded_pct = float(pct) if isinstance(pct, (int, float)) else 0.0
+        self._saved_commanded = self._commanded_state()
+
+    def _save_commanded_if_changed(self) -> None:
+        """Queue a store write when a command changed what the entry last wrote, so a crash loses at most one tick."""
+        current = self._commanded_state()
+        if current != self._saved_commanded:
+            self._saved_commanded = current
+            self._store.async_delay_save(self._save_payload, 0)
+
     def _save_payload(self) -> dict[str, Any]:
         return {
             "entries": [asdict(e) for e in self._entries],
@@ -718,6 +761,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._timed_preset is None or self._timed_started_min is None
             else {"name": self._timed_preset, "started_min": self._timed_started_min, "duration_min": self._timed_duration_min},
             "shed_loads": sorted(self._shed_loads),
+            "commanded": self._commanded_state(),
             "actuator_opened_by_us": self._actuator_opened_by_us,
             "device_rates": self._device_rates,
         }
@@ -1646,6 +1690,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
         if valve_opening is not None and self._inputs_seen:
             await self._drive_valve(valve_opening)
+        self._save_commanded_if_changed()
         return result
 
     def _notify_transition(self, kind: str, attr: str, current: bool, on_text: str, off_text: str) -> None:

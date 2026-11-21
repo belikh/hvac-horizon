@@ -5841,3 +5841,51 @@ async def test_ac_the_entry_started_is_not_stopped_early_after_a_reload(hass, en
     set_room(hass, "20.0")
     await refresh(hass, entry)
     assert calls == ["cool", "off"]
+
+
+async def _hard_restart(hass, entry, monkeypatch):
+    """Unload and set up again without the unload stop, as a crash or a power cut leaves the devices. The store still saves."""
+
+    async def no_stop(self):
+        return None
+
+    with monkeypatch.context() as patch:
+        patch.setattr(type(entry.runtime_data), "async_safety_stop", no_stop)
+        assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    return no_stop
+
+
+async def test_manual_setpoint_change_while_ha_was_down_is_an_external_change(hass, enable_custom_integrations, config_data, monkeypatch):
+    entry, calls = await _setup_recording(hass, config_data, room="26.0", outdoor="30.0", climate="cool")
+    written = [c for c in calls if c[:2] == ("climate", "set_temperature")]
+    assert written
+    assert entry.runtime_data.data["external_change"] is False
+    await _hard_restart(hass, entry, monkeypatch)
+    # Someone sets the AC to 19 C while Home Assistant is down.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 19.0, "friendly_name": "Test AC"})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data._last_written_setpoint == written[-1][3]
+    assert entry.runtime_data.data["external_change"] is True
+
+
+async def test_safety_stop_after_a_restart_turns_off_a_device_the_previous_process_left_on(hass, enable_custom_integrations, config_data, monkeypatch):
+    extra = {"fan": STOP_FAN, "co2": STOP_CO2}
+    entry, calls = await _setup_recording(hass, config_data, extra=extra, states={STOP_FAN: "off", STOP_CO2: "1500"})
+    assert ("switch", "turn_on", STOP_FAN, None) in calls
+    hass.states.async_set(STOP_FAN, "on")
+    await _hard_restart(hass, entry, monkeypatch)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    # The new process sent no turn_on: the fan was already on. It still knows it left the fan on.
+    assert ("switch", "turn_off", STOP_FAN, None) in await _stop(hass, calls)
+
+
+async def test_commanded_state_loads_from_an_old_payload(hass, enable_custom_integrations, config_data, hass_storage):
+    entry, _ = await _setup_recording(hass, config_data)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    hass_storage[f"hvac_horizon.{entry.entry_id}"] = {"version": 3, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}", "data": {"entries": []}}
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data._switches_on == set()
