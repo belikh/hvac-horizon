@@ -534,9 +534,19 @@ def fan_assist_on(phase: str | None, enabled: bool, unlocked: bool, house_home: 
     return enabled and phase == "fan_assist" and unlocked and house_home and not stalled
 
 
-def mpc_idle(plan_run_now: bool, room_c: float, cool_above_c: float, deadband_c: float) -> bool:
-    """True when the plan's next step is idle and the room is more than `deadband_c` below the cool threshold."""
-    return not plan_run_now and room_c < cool_above_c - deadband_c
+MPC_IDLE_LOOKAHEAD = 4  # plan steps that must all be idle (1 hour at 15 min per step)
+
+
+def mpc_idle(plan: list[bool] | None, room_c: float, cool_above_c: float, deadband_c: float, lookahead: int = MPC_IDLE_LOOKAHEAD) -> bool:
+    """True when the plan may idle a cool decision.
+
+    The room must be at most `deadband_c` above the cool threshold, and the first `lookahead` plan steps must all be
+    idle (the plan expects the room to stay at or below target without the AC). A room more than `deadband_c` above
+    the threshold is never idled. An empty or missing plan never idles.
+    """
+    if not plan or room_c > cool_above_c + deadband_c:
+        return False
+    return not any(plan[:lookahead])
 
 
 def drying_needed(humidity_pct: float | None, band_high_pct: float = 60.0, cool_gap_c: float = 0.0) -> bool:

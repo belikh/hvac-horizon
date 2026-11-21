@@ -1927,15 +1927,20 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._user_off:
             action = Action(Mode.OFF, None, "user turned the room off")
         self._ac_cooling_tick = self._ac_cooling_tick or action.mode is Mode.COOL
-        # The MPC plan's first step can idle a cool decision, such as a pre-cool start, when the room is well below the threshold.
-        # Without a plan (no fit or no price slots) the decision stands.
-        # An idle step turns cool off. It never starts heat, so the heat branch below is skipped for that tick.
+        # The MPC plan can idle a cool decision only when the room is within the deadband of the threshold (or below it)
+        # and the next plan steps are all idle. A room more than the deadband above the threshold keeps cooling.
+        # Without a plan (no fit or no price slots) the decision stands. An idle step turns cool off. It never starts
+        # heat, so the heat branch below is skipped for that tick.
         plan = result.get("mpc_plan")
         # A night pre-cool is judged against its comfort target, so the plan cannot idle it against the away setback.
         mpc_cool_c = comfort_c if night == "pre-cool" else self._cool_above_c
-        mpc_idled = bool(plan and rooms and action.mode is Mode.COOL and mpc_idle(plan[0], statistics.median(rooms), mpc_cool_c, MPC_DEADBAND_C))
+        mpc_idled = bool(rooms and action.mode is Mode.COOL and mpc_idle(plan, statistics.median(rooms), mpc_cool_c, MPC_DEADBAND_C))
         if mpc_idled:
-            action = Action(Mode.OFF, None, "mpc idle: room below target")
+            action = Action(Mode.OFF, None, "mpc idle: room within deadband of target and plan stays idle")
+        if not plan:
+            result["mpc_status"] = "no plan: normal decision"
+        else:
+            result["mpc_status"] = f"plan step 0 {'run' if plan[0] else 'idle'}: " + ("changed the decision to idle" if mpc_idled else "decision unchanged")
         result["action"] = f"{action.mode.value}: {action.reason}"
         climate = self.hass.states.get(climate_id)
         result["daily_briefing"] = daily_briefing(

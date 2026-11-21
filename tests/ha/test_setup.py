@@ -3829,10 +3829,31 @@ async def test_mpc_run_step_keeps_the_pre_cool_decision(hass, enable_custom_inte
     assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
 
 
-async def test_mpc_idle_step_inside_the_deadband_keeps_the_decision(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+async def test_mpc_idle_step_just_below_target_is_idled_and_reported(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    # Changed from the old "inside the deadband keeps the decision": the plan may now idle a room within the deadband.
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.8", plan=[False] * 16)
+    assert "cool" not in modes
+    assert entry.runtime_data.data["mpc_status"] == "plan step 0 idle: changed the decision to idle"
+
+
+async def test_mpc_idle_plan_does_not_stop_cooling_a_room_2k_above_target(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="26.1", plan=[False] * 16, precool_now=False)
     assert modes == ["cool"]
-    assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+    assert entry.runtime_data.data["action"].startswith("cool")
+    assert entry.runtime_data.data["mpc_status"] == "plan step 0 idle: decision unchanged"
+
+
+async def test_mpc_idle_plan_idles_a_cool_decision_0_2k_above_target(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="24.24", plan=[False] * 16)
+    assert "cool" not in modes
+    assert entry.runtime_data.data["action"].startswith("off: mpc idle")
+    assert entry.runtime_data.data["mpc_status"] == "plan step 0 idle: changed the decision to idle"
+
+
+async def test_mpc_plan_with_a_run_step_soon_does_not_idle(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
+    entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="24.24", plan=[False, False, True] + [False] * 13)
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["mpc_status"] == "plan step 0 idle: decision unchanged"
 
 
 async def test_mpc_idle_step_does_not_idle_a_night_pre_cool(hass, enable_custom_integrations, config_data, monkeypatch, freezer):
@@ -3995,6 +4016,7 @@ async def test_no_mpc_plan_falls_back_to_the_current_decision(hass, enable_custo
     entry, modes = await _mpc_run(hass, config_data, monkeypatch, freezer, room="23.0", no_prices=True)
     assert "mpc_plan" not in entry.runtime_data.data
     assert modes == ["cool"]
+    assert entry.runtime_data.data["mpc_status"] == "no plan: normal decision"
 
 
 async def test_a_high_priority_load_too_big_to_return_does_not_block_a_smaller_one(hass, enable_custom_integrations, config_data):

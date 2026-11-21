@@ -22,6 +22,7 @@ from custom_components.hvac_horizon.features import (
     round_to_step,
     mould_target,
     mpc_heat_plan,
+    mpc_idle,
     mpc_plan,
     motion_preset,
     mode_disagrees,
@@ -743,6 +744,28 @@ class MpcPlanTests(unittest.TestCase):
     def test_nonpositive_step_raises(self):
         with self.assertRaises(ValueError):
             mpc_plan(room_c=26.0, prices=[0.1], step_min=0.0, **self.ARGS)
+
+
+class MpcIdleTests(unittest.TestCase):
+    def test_room_2k_above_target_is_never_idled(self):
+        self.assertFalse(mpc_idle([False] * 16, 26.0, 24.0, 0.5))
+
+    def test_room_just_above_target_with_idle_plan_is_idled(self):
+        self.assertTrue(mpc_idle([False] * 16, 24.2, 24.0, 0.5))
+
+    def test_room_at_the_deadband_edge_is_idled(self):
+        self.assertTrue(mpc_idle([False] * 16, 24.5, 24.0, 0.5))
+        self.assertFalse(mpc_idle([False] * 16, 24.51, 24.0, 0.5))
+
+    def test_run_step_within_the_lookahead_blocks_idle(self):
+        self.assertFalse(mpc_idle([False, False, True] + [False] * 13, 24.2, 24.0, 0.5))
+
+    def test_run_step_after_the_lookahead_does_not_block_idle(self):
+        self.assertTrue(mpc_idle([False] * 4 + [True] * 12, 24.2, 24.0, 0.5))
+
+    def test_no_plan_never_idles(self):
+        self.assertFalse(mpc_idle(None, 22.0, 24.0, 0.5))
+        self.assertFalse(mpc_idle([], 22.0, 24.0, 0.5))
 
 
 class MpcHeatPlanTests(unittest.TestCase):

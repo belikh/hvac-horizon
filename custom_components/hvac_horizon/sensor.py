@@ -51,6 +51,7 @@ STATUS_KEYS: dict[str, str] = {
     "shed": "Loads shed",
     "restored": "Load switched back on",
     "mpc_plan": "MPC plan steps",
+    "mpc_status": "MPC plan effect",
     "mpc_heat_steps": "MPC heat plan steps",
     "solar_scale": "Solar scale",
     "vacation": "Vacation mode",
