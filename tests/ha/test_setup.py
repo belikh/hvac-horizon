@@ -103,41 +103,131 @@ def config_data():
     }
 
 
-async def test_config_flow_creates_entry(hass, enable_custom_integrations, config_data):
-    set_inputs(hass)
+ROOM_KEYS = ("climate", "power", "room_sensors", "outdoor")
+
+
+async def _start_flow(hass, config_data):
+    """Open the flow and submit the room step. Returns the menu result."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    assert result["type"] == "form"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], config_data)
+    assert result["type"] == "form" and result["step_id"] == "room"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: config_data[k] for k in ROOM_KEYS})
+    assert result["type"] == "menu" and result["step_id"] == "menu"
+    return result
+
+
+async def _open_section(hass, flow_id, name):
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": name})
+    assert result["type"] == "form" and result["step_id"] == name
+    return result
+
+
+async def test_config_flow_short_path_creates_an_observe_only_entry(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    assert result["menu_options"][0] == "finish"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
     assert result["data"][CONF_CLIMATE] == CLIMATE
+    assert result["data"]["control"] is False
+    assert CONF_PRICE not in result["data"]
+    assert result["title"] == "Test AC"
+
+
+async def test_config_flow_full_path_stores_the_fields_of_each_section(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    flow_id = result["flow_id"]
+    await _open_section(hass, flow_id, "price")
+    result = await hass.config_entries.flow.async_configure(flow_id, {CONF_PRICE: PRICE, "price_cheap": 0.1, "price_expensive": 0.4})
+    assert result["type"] == "menu"
+    await _open_section(hass, flow_id, "comfort")
+    blocks = [{"start_h": 22, "end_h": 6, "preset": "eco"}]
+    result = await hass.config_entries.flow.async_configure(flow_id, {CONF_COMFORT_C: 23.0, CONF_SCHEDULE_BLOCKS: blocks})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
+    assert result["type"] == "create_entry"
+    data = result["data"]
+    assert data[CONF_PRICE] == PRICE and data["price_cheap"] == 0.1 and data["price_expensive"] == 0.4
+    assert data[CONF_COMFORT_C] == 23.0 and data[CONF_SCHEDULE_BLOCKS] == blocks
+    assert data[CONF_ROOM_SENSORS] == [ROOM_A, ROOM_B] and data["control"] is False
+
+
+async def test_config_flow_section_can_be_submitted_empty(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "heater")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert result["type"] == "create_entry"
+    assert CONF_HEATER_SWITCH not in result["data"]
+
+
+async def test_config_flow_turns_control_on_from_the_advanced_section(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "advanced")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"control": True})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert result["data"]["control"] is True
+
+
+async def test_config_flow_rejects_a_duplicate_room(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE).add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: config_data[k] for k in ROOM_KEYS})
+    assert result["type"] == "abort" and result["reason"] == "already_configured"
 
 
 async def test_config_flow_rejects_cheap_price_above_expensive(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "price_cheap": 0.5, "price_expensive": 0.2})
-    assert result["type"] == "form"
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "price")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"price_cheap": 0.5, "price_expensive": 0.2})
+    assert result["type"] == "form" and result["step_id"] == "price"
     assert result["errors"] == {"price_cheap": "price_order"}
     assert hass.config_entries.async_entries(DOMAIN) == []
 
 
 async def test_config_flow_rejects_out_of_range_price(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "price")
     with pytest.raises(data_entry_flow.InvalidData):  # the number selector rejects 11 before the flow runs
-        await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "price_expensive": 11})
+        await hass.config_entries.flow.async_configure(result["flow_id"], {"price_expensive": 11})
     assert hass.config_entries.async_entries(DOMAIN) == []
 
 
 async def test_config_flow_rejects_fleet_device_with_an_extra_key(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     fleet = [{"device_id": "a", "kind": "cool", "rated_w": 900, "colour": "red"}]
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "fleet": fleet})
-    assert result["type"] == "form"
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "devices")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"fleet": fleet})
+    assert result["type"] == "form" and result["step_id"] == "devices"
     assert result["errors"] == {"fleet": "invalid_fleet"}
     assert "'colour'" in result["description_placeholders"]["fleet_problem"]
     assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_config_flow_rejects_a_malformed_schedule_on_the_comfort_section(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    await _open_section(hass, result["flow_id"], "comfort")
+    bad = [{"start_h": 0.0, "end_h": 25.0, "preset": "eco"}]
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_SCHEDULE_BLOCKS: bad})
+    assert result["type"] == "form" and result["step_id"] == "comfort"
+    assert result["errors"] == {CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
+
+
+async def test_config_flow_menu_shows_every_optional_section(hass, enable_custom_integrations, config_data):
+    from custom_components.hvac_horizon import config_flow
+
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    assert result["menu_options"] == ["finish"] + config_flow.OPTIONAL_SECTIONS
+    assert len(config_flow.OPTIONAL_SECTIONS) == 7
 
 
 async def test_stored_invalid_price_threshold_loads_with_defaults_and_one_warning(hass, enable_custom_integrations, config_data, caplog):
@@ -252,14 +342,9 @@ async def test_reconfigure_keeps_entry_and_samples(hass, enable_custom_integrati
     await hass.async_block_till_done()
     before = entry.runtime_data.data["samples"]
 
-    result = await entry.start_reconfigure_flow(hass)
-    assert result["type"] == "form"
     new_data = dict(config_data)
     new_data[CONF_PRICE] = PRICE
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], new_data)
-    await hass.async_block_till_done()
-    assert result["type"] == "abort"
-    assert result["reason"] == "reconfigure_successful"
+    await _reconfigure(hass, entry, new_data)
     assert entry.data[CONF_PRICE] == PRICE
     assert entry.state is config_entries.ConfigEntryState.LOADED
     assert entry.runtime_data.data["samples"] >= before
@@ -416,10 +501,14 @@ async def test_keep_alive_resends_last_setpoint(hass, enable_custom_integrations
 
 async def test_flow_accepts_control_options(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    data = dict(config_data, comfort_c=24.0, away_c=27.0, window_delay_min=10, control=False)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], data)
+    result = await _start_flow(hass, config_data)
+    flow_id = result["flow_id"]
+    for section, fields in (("comfort", {"comfort_c": 24.0, "away_c": 27.0}), ("occupancy", {"window_delay_min": 10}), ("advanced", {"control": False})):
+        await _open_section(hass, flow_id, section)
+        result = await hass.config_entries.flow.async_configure(flow_id, fields)
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
+    assert result["data"]["window_delay_min"] == 10 and result["data"]["away_c"] == 27.0
     assert result["data"]["comfort_c"] == 24.0
     assert result["data"]["control"] is False
 
@@ -2439,12 +2528,50 @@ async def test_status_attributes_show_autotune_and_malformed_shed_entries(hass, 
     assert status.attributes["shed_skipped"] == "malformed load: switch.heater_x|not-a-number"
 
 
-async def _reconfigure(hass, entry, submitted):
+async def _reconfigure_sections(hass, entry, submitted):
+    """Open the reconfigure menu and submit every section with its fields from `submitted`.
+
+    A field missing from `submitted` is left out of its section's submit, so the flow clears it.
+    Returns the result of the last section, which is the menu unless a section reported an error.
+    """
+    from custom_components.hvac_horizon import config_flow
+
     result = await entry.start_reconfigure_flow(hass)
-    assert result["type"] == "form"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], submitted)
+    assert result["type"] == "menu" and result["step_id"] == "reconfigure"
+    for name in config_flow.SECTIONS:
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": name})
+        assert result["type"] == "form" and result["step_id"] == name
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {k: v for k, v in submitted.items() if k in config_flow.SECTIONS[name]}
+        )
+        if result["type"] == "form":
+            return result
+    return result
+
+
+async def _reconfigure(hass, entry, submitted):
+    result = await _reconfigure_sections(hass, entry, submitted)
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
     assert result["type"] == "abort" and result["reason"] == "reconfigure_successful", result
+
+
+async def test_reconfigure_edits_one_section_and_leaves_the_others(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, CONF_COMFORT_C: 22.0}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "price"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"price_cheap": 0.1, "price_expensive": 0.5})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    await hass.async_block_till_done()
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data["price_cheap"] == 0.1 and CONF_PRICE not in entry.data  # the price section was submitted without a sensor
+    assert entry.data[CONF_COMFORT_C] == 22.0 and entry.data[CONF_ROOM_SENSORS] == [ROOM_A, ROOM_B]
 
 
 async def test_reconfigure_clears_a_field_left_out_of_the_submit(hass, enable_custom_integrations, config_data):
@@ -2593,10 +2720,9 @@ async def test_reconfigure_rejects_a_malformed_schedule_list(hass, enable_custom
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    result = await entry.start_reconfigure_flow(hass)
     bad = {**config_data, CONF_SCHEDULE_BLOCKS: [{"start_h": 0.0, "end_h": 25.0, "preset": "eco"}]}
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], bad)
-    assert result["type"] == "form"
+    result = await _reconfigure_sections(hass, entry, bad)
+    assert result["type"] == "form" and result["step_id"] == "comfort"
     assert result["errors"] == {CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
     assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
 
@@ -2851,13 +2977,9 @@ async def test_user_kp_after_a_tune_wins_over_the_tuned_kp(hass, enable_custom_i
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, _ = await setup_heater(hass, config_data)
     entry.runtime_data._heater_gains = {"kp": 7.0, "ki": 30.0, "kd": 0.2}
-    result = await entry.start_reconfigure_flow(hass)
     new_data = dict(entry.data)
     new_data[CONF_HEATER_KP] = 12.0
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], new_data)
-    await hass.async_block_till_done()
-    assert result["type"] == "abort"
-    assert result["reason"] == "reconfigure_successful"
+    await _reconfigure(hass, entry, new_data)
     await refresh(hass, entry)
     pid = entry.runtime_data._heater_pid
     assert pid.kp == pytest.approx(12.0)

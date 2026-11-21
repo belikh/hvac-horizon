@@ -1,5 +1,7 @@
-"""Config flow: pick the AC, its power meter, the room and outdoor sensors, and the optional price,
-humidity and energy sensors. The reconfigure step edits the same fields without deleting samples."""
+"""Config flow in steps. The first step takes the AC, its power meter and the room and outdoor sensors.
+A menu then offers to finish with control off, or to open any of the optional sections. Each section is one
+form and can be submitted empty. Reconfigure opens the same menu over the stored settings, so it edits the
+same fields without deleting samples."""
 
 from __future__ import annotations
 
@@ -7,7 +9,7 @@ import dataclasses
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
 from .fleet import Device
@@ -376,6 +378,63 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+# The form is split into sections. Each section is one step. SECTIONS lists the fields of each one, and every
+# field of the full schema is in exactly one section (a test checks this). "room" holds the required fields.
+SECTIONS: dict[str, tuple[str, ...]] = {
+    "room": (CONF_CLIMATE, CONF_POWER, CONF_ROOM_SENSORS, CONF_OUTDOOR),
+    "comfort": (
+        CONF_COMFORT_C, CONF_ECO_C, CONF_BOOST_C, CONF_AWAY_C, CONF_HEAT_ECO_C, CONF_HEAT_BOOST_C,
+        CONF_COMFORT_ENERGY_WEIGHT, CONF_SCHEDULE, CONF_SCHEDULE_BLOCKS, CONF_VACATION, CONF_VACATION_C,
+        CONF_AWAY_DELAY_MIN,
+    ),
+    "price": (CONF_PRICE, CONF_PRICE_CHEAP, CONF_PRICE_EXPENSIVE, CONF_ENERGY),
+    "heater": (
+        CONF_HEATER_SWITCH, CONF_HEATER_INVERTED, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
+        CONF_HEATER_KI, CONF_HEATER_KD, CONF_TPI_COEF_INT, CONF_TPI_COEF_EXT, CONF_TPI_THRESHOLD_HIGH,
+        CONF_TPI_THRESHOLD_LOW, CONF_MAX_ON_PERCENT, CONF_OUTPUT_MIN, CONF_OUTPUT_MAX, CONF_OUTPUT_MIN_ENTITY,
+        CONF_OUTPUT_MAX_ENTITY, CONF_VALVE, CONF_TRV_TEMPERATURE, CONF_BOILER, CONF_AC_HEAT, CONF_MPC_HEAT_PLAN,
+    ),
+    "occupancy": (
+        CONF_PRESENCE, CONF_MOTION, CONF_MOTION_AWAY_MIN, CONF_WINDOW, CONF_WINDOW_DELAY_MIN, CONF_WINDOW_ACTUATOR,
+        CONF_COVER, CONF_WINDOW_AZIMUTH, CONF_WINDOW_AREA_M2, CONF_IRRADIANCE, CONF_WEATHER,
+    ),
+    "air_quality": (
+        CONF_HUMIDITY, CONF_ROOM_HUMIDITY, CONF_CO2, CONF_PM25, CONF_FAN, CONF_AUTO_FAN, CONF_DEHUMIDIFIER,
+        CONF_HUMIDIFIER, CONF_COIL_DRY, CONF_DRY_FOR_HUMIDITY, CONF_HOUSE_SEALED, CONF_ECONOMIZER_FAN,
+        CONF_WHOLE_HOUSE_FAN,
+    ),
+    "devices": (
+        CONF_CLIMATE_2, CONF_POWER_2, CONF_FLEET, CONF_DISPATCH_MODE, CONF_WHOLE_HOUSE_POWER, CONF_SHED_MAX_W,
+        CONF_SHED_LOADS, CONF_COMPRESSOR_GROUP, CONF_MIN_ON_MIN, CONF_MIN_OFF_MIN,
+    ),
+    "advanced": (
+        CONF_CONTROL, CONF_LOCK_PIN, CONF_STALL_WINDOW_S, CONF_NIGHT_PLAN_ACT, CONF_ACCURACY_PANEL, CONF_PEER_ENTRY,
+        CONF_PEER_SETPOINT_MODE, CONF_AI_CONVERSATION, CONF_AI_BUDGET,
+    ),
+}
+OPTIONAL_SECTIONS = [name for name in SECTIONS if name != "room"]
+
+
+def _section_schema(section: str, defaults: dict[str, Any]) -> vol.Schema:
+    """The form for one section, with suggested values from defaults."""
+    keys = SECTIONS[section]
+    return vol.Schema({k: v for k, v in _schema(defaults).schema.items() if str(k) in keys})
+
+
+def _section_problems(section: str, data: dict[str, Any]) -> tuple[dict[str, str], dict[str, str]]:
+    """Return the form errors and description placeholders for a submitted section."""
+    errors: dict[str, str] = {}
+    placeholders: dict[str, str] = {}
+    if section == "comfort" and _schedule_block_problem(data.get(CONF_SCHEDULE_BLOCKS, [])):
+        errors[CONF_SCHEDULE_BLOCKS] = "invalid_schedule_blocks"
+    if section == "devices" and (problem := _fleet_problem(data.get(CONF_FLEET, []))):
+        errors[CONF_FLEET] = "invalid_fleet"
+        placeholders["fleet_problem"] = problem
+    if section == "price":
+        errors.update(_price_errors(data))
+    return errors, placeholders
+
+
 # Field names in the form. A reconfigure submit that omits one of these clears it, except the lock PIN.
 FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
 
@@ -383,54 +442,79 @@ FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
 class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 2
 
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+        self._stored_pin: str | None = None  # the PIN in the entry being reconfigured
+
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
-        if user_input is not None:
-            if _schedule_block_problem(user_input.get(CONF_SCHEDULE_BLOCKS, [])):
-                return self.async_show_form(
-                    step_id="user", data_schema=_schema(user_input), errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
-                )
-            if _fleet_problem(user_input.get(CONF_FLEET, [])):
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=_schema(user_input),
-                    errors={CONF_FLEET: "invalid_fleet"},
-                    description_placeholders={"fleet_problem": _fleet_problem(user_input.get(CONF_FLEET, []))},
-                )
-            if price_errors := _price_errors(user_input):
-                return self.async_show_form(step_id="user", data_schema=_schema(user_input), errors=price_errors)
-            await self.async_set_unique_id(user_input[CONF_CLIMATE])
-            self._abort_if_unique_id_configured()
-            climate = self.hass.states.get(user_input[CONF_CLIMATE])
-            title = climate.attributes.get("friendly_name", user_input[CONF_CLIMATE]) if climate else user_input[CONF_CLIMATE]
-            return self.async_create_entry(title=title, data=user_input)
-        return self.async_show_form(step_id="user", data_schema=_schema({}))
+        return await self.async_step_room()
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
-        entry = self._get_reconfigure_entry()
-        if user_input is not None:
-            if _schedule_block_problem(user_input.get(CONF_SCHEDULE_BLOCKS, [])):
-                return self.async_show_form(
-                    step_id="reconfigure",
-                    data_schema=_schema(user_input),
-                    errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"},
-                )
-            if _fleet_problem(user_input.get(CONF_FLEET, [])):
-                return self.async_show_form(
-                    step_id="reconfigure",
-                    data_schema=_schema(user_input),
-                    errors={CONF_FLEET: "invalid_fleet"},
-                    description_placeholders={"fleet_problem": _fleet_problem(user_input.get(CONF_FLEET, []))},
-                )
-            if price_errors := _price_errors(user_input):
-                return self.async_show_form(step_id="reconfigure", data_schema=_schema(user_input), errors=price_errors)
-            # data_updates merges, so a field left out of the submit would keep its old value. Build the
-            # whole data dict instead. The lock PIN is kept when the PIN box is left blank.
-            data = {k: v for k, v in entry.data.items() if k not in FORM_FIELDS}
-            if CONF_LOCK_PIN in entry.data and not user_input.get(CONF_LOCK_PIN):
-                user_input = {**user_input, CONF_LOCK_PIN: entry.data[CONF_LOCK_PIN]}
-            data.update(user_input)
-            return self.async_update_reload_and_abort(entry, data=data)
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=_schema(dict(entry.data)),
-        )
+        if not self._data:
+            entry = self._get_reconfigure_entry()
+            self._data = dict(entry.data)
+            self._stored_pin = entry.data.get(CONF_LOCK_PIN)
+        return self._show_menu()
+
+    def _show_menu(self) -> ConfigFlowResult:
+        reconfiguring = self.source == SOURCE_RECONFIGURE
+        options = (["room"] if reconfiguring else []) + OPTIONAL_SECTIONS
+        return self.async_show_menu(step_id="reconfigure" if reconfiguring else "menu", menu_options=["finish"] + options)
+
+    async def async_step_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self._show_menu()
+
+    async def _async_section(self, section: str, user_input: dict | None) -> ConfigFlowResult:
+        if user_input is None:
+            return self.async_show_form(step_id=section, data_schema=_section_schema(section, self._data))
+        errors, placeholders = _section_problems(section, user_input)
+        if errors:
+            return self.async_show_form(
+                step_id=section,
+                data_schema=_section_schema(section, user_input),
+                errors=errors,
+                description_placeholders=placeholders or None,
+            )
+        # A field left out of the submit is cleared, so reconfigure can remove a setting. A blank PIN box
+        # keeps the stored PIN.
+        for name in SECTIONS[section]:
+            self._data.pop(name, None)
+        if CONF_LOCK_PIN in SECTIONS[section] and not user_input.get(CONF_LOCK_PIN) and self._stored_pin:
+            user_input = {**user_input, CONF_LOCK_PIN: self._stored_pin}
+        self._data.update(user_input)
+        return self._show_menu()
+
+    async def async_step_room(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is not None and self.source != SOURCE_RECONFIGURE:
+            await self.async_set_unique_id(user_input[CONF_CLIMATE])
+            self._abort_if_unique_id_configured()
+        return await self._async_section("room", user_input)
+
+    async def async_step_comfort(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("comfort", user_input)
+
+    async def async_step_price(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("price", user_input)
+
+    async def async_step_heater(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("heater", user_input)
+
+    async def async_step_occupancy(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("occupancy", user_input)
+
+    async def async_step_air_quality(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("air_quality", user_input)
+
+    async def async_step_devices(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("devices", user_input)
+
+    async def async_step_advanced(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("advanced", user_input)
+
+    async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if self.source == SOURCE_RECONFIGURE:
+            return self.async_update_reload_and_abort(self._get_reconfigure_entry(), data=dict(self._data))
+        data = {CONF_CONTROL: False, **self._data}  # finishing early leaves the room in observe-only mode
+        climate = self.hass.states.get(data[CONF_CLIMATE])
+        title = climate.attributes.get("friendly_name", data[CONF_CLIMATE]) if climate else data[CONF_CLIMATE]
+        return self.async_create_entry(title=title, data=data)

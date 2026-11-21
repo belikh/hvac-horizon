@@ -110,13 +110,35 @@ def test_heater_inverted_stored_value_is_suggested_and_missing_means_false():
     assert marker.default() is False
 
 
-def test_every_form_field_has_a_label_in_both_steps():
-    translations = json.loads((Path(config_flow.__file__).parent / "translations" / "en.json").read_text(encoding="utf-8"))
-    fields = {str(k) for k in config_flow._schema({}).schema}
-    for step in ("user", "reconfigure"):
-        labels = translations["config"]["step"][step]["data"]
-        missing = sorted(fields - set(labels))
-        assert not missing, f"{step} has no label for {missing}"
+def _translations():
+    return json.loads((Path(config_flow.__file__).parent / "translations" / "en.json").read_text(encoding="utf-8"))
+
+
+def test_sections_split_the_full_schema_with_no_overlap():
+    fields = [str(k) for k in config_flow._schema({}).schema]
+    in_sections = [name for names in config_flow.SECTIONS.values() for name in names]
+    assert sorted(in_sections) == sorted(fields)  # every field is in a section, none twice
+
+
+def test_only_the_room_section_has_required_fields():
+    for name in config_flow.SECTIONS:
+        required = [str(k) for k in config_flow._section_schema(name, {}).schema if isinstance(k, vol.Required)]
+        assert (required != []) == (name == "room"), name
+
+
+def test_every_section_field_has_a_label_in_its_step():
+    steps = _translations()["config"]["step"]
+    for name, names in config_flow.SECTIONS.items():
+        labels = steps[name]["data"]
+        assert set(labels) == set(names), name
+
+
+def test_every_step_has_a_title_and_description_and_each_menu_option_a_label():
+    steps = _translations()["config"]["step"]
+    for name in [*config_flow.SECTIONS, "menu", "reconfigure"]:
+        assert steps[name]["title"] and steps[name]["description"], name
+    assert set(steps["menu"]["menu_options"]) == {"finish", *config_flow.OPTIONAL_SECTIONS}
+    assert set(steps["reconfigure"]["menu_options"]) == {"finish", *config_flow.SECTIONS}
 
 
 def _serialise_field(validator):
