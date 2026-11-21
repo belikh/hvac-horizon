@@ -115,7 +115,7 @@ SCHEDULE_PRESETS = ("comfort", "eco", "boost", "away")
 def _fleet_problem(value: Any) -> str | None:
     """Return why a room device list is invalid, or None when it is valid.
 
-    Each device needs a unique device_id and a kind of cool or heat. It needs rated_w or power_sensor.
+    Each device needs a unique device_id, a kind of cool or heat and rated_w. An entity_id, when set, is a climate entity or a heat switch.
     """
     if not isinstance(value, list):
         return "fleet must be a list"
@@ -130,6 +130,11 @@ def _fleet_problem(value: Any) -> str | None:
             return f"kind must be cool or heat: {device['kind']}"
         if not device.get("rated_w"):
             return f"a device needs rated_w, the watts it draws while running: {device['device_id']}"
+        entity = device.get("entity_id")
+        if entity is not None:
+            domain = str(entity).split(".", 1)[0]
+            if domain not in ("climate", "switch") or (domain == "switch" and device["kind"] == "cool"):
+                return f"entity_id must be a climate entity, or a switch for a heat device: {device['device_id']}"
     return None
 
 

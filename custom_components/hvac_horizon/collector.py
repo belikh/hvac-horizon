@@ -36,6 +36,7 @@ class Entry:
     power_mean_w: float | None = None  # integral of power over the interval, from state changes
     heat_pct: float | None = None  # heater output in percent during the tick before this reading
     power_2_w: float | None = None  # power of the second AC at this reading, W; None when no second power sensor
+    device_kw: dict[str, float] | None = None  # kW of each fleet device at this reading, by device_id; None without a fleet
 
 
 def _running_kw(power_w: float) -> float:
@@ -105,6 +106,25 @@ def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
                 device_kw={"ac": _interval_power_kw(a, b), "ac_2": second, HEATER: heater_on},
+            )
+        )
+    return out
+
+
+def fleet_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
+    """Room samples whose device_kw holds the fleet devices' power, from consecutive readings one step apart."""
+    ordered = sorted(entries, key=lambda e: e.t)
+    out: list[RoomSample] = []
+    for a, b in zip(ordered, ordered[1:]):
+        if abs((b.t - a.t) - STEP_S) > TOLERANCE_S or not a.device_kw:
+            continue
+        out.append(
+            RoomSample(
+                minutes=(b.t - a.t) / 60.0,
+                temp_c=a.room_c,
+                temp_next_c=b.room_c,
+                outdoor_c=a.outdoor_c,
+                device_kw=dict(a.device_kw),
             )
         )
     return out

@@ -6,6 +6,7 @@ so the standard-library unittest run does not collect it.
 
 import math
 import statistics
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -5042,3 +5043,163 @@ async def test_schedule_next_event_starts_the_pre_cool_when_away(hass, enable_cu
     entry, modes = await _schedule_run(hass, config_data, monkeypatch, freezer, value, away=True)
     assert modes == ["cool"]
     assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+
+
+SMALL_AC = "climate.small_ac"
+BIG_AC = "climate.big_ac"
+IR_HEATER = "switch.ir_heater"
+FLEET_AC_PAIR = [
+    {"device_id": "small", "kind": "cool", "entity_id": SMALL_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0},
+    {"device_id": "big", "kind": "cool", "entity_id": BIG_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 3500.0},
+]
+
+
+async def _setup_fleet(hass, config_data, *, room, fleet, outdoor="30.0", mode="economy", prepare=None, pin=None):
+    """Set up a control-on entry whose cooling and heating are a fleet. Returns the entry and the service calls made."""
+    set_inputs(hass)
+    _set_room(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC"})
+    for device in fleet:
+        if device["entity_id"].startswith("climate."):
+            hass.states.async_set(device["entity_id"], "off", {"temperature": 30.0})
+        else:
+            hass.states.async_set(device["entity_id"], "off")
+    calls = []
+
+    def recorder(domain, service):
+        async def record(call):
+            calls.append((domain, service, call.data["entity_id"], call.data.get("hvac_mode")))
+
+        hass.services.async_register(domain, service, record)
+
+    for domain, service in (("climate", "set_hvac_mode"), ("climate", "set_temperature"), ("switch", "turn_on"), ("switch", "turn_off")):
+        recorder(domain, service)
+    data = {**config_data, "control": True, "fleet": fleet, "dispatch_mode": mode, **({"lock_pin": pin} if pin else {})}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    if prepare is not None:
+        prepare(entry)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, calls
+
+
+def _turned_on(calls):
+    return {c[2] for c in calls if (c[1] == "set_hvac_mode" and c[3] in ("cool", "heat")) or c[1] == "turn_on"}
+
+
+async def test_fleet_runs_only_the_small_unit_when_the_room_is_a_little_above_target(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR)
+    assert _turned_on(calls) == {SMALL_AC}
+    assert entry.runtime_data.data["dispatch"]["cool"] == ["small"]
+
+
+async def test_fleet_adds_the_large_unit_when_the_room_is_far_above_target(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_fleet(hass, config_data, room="29.0", fleet=FLEET_AC_PAIR)
+    assert _turned_on(calls) == {SMALL_AC, BIG_AC}
+
+
+async def test_fleet_turns_off_a_running_unit_that_is_not_chosen(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR)
+    hass.states.async_set(BIG_AC, "cool", {"temperature": 24.0})
+    freezer.tick(timedelta(minutes=6))
+    calls.clear()
+    await refresh(hass, entry)
+    assert ("climate", "set_hvac_mode", BIG_AC, "off") in calls
+
+
+async def test_fleet_heater_switch_turns_on_only_for_a_cold_room(hass, enable_custom_integrations, config_data):
+    fleet = [
+        {"device_id": "ac", "kind": "cool", "entity_id": SMALL_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0},
+        {"device_id": "ir", "kind": "heat", "entity_id": IR_HEATER, "rate_k_per_h_per_kw": 1.5, "rated_w": 1500.0},
+    ]
+    entry, calls = await _setup_fleet(hass, config_data, room="20.0", outdoor="10.0", fleet=fleet)
+    assert _turned_on(calls) == {IR_HEATER}
+    entry, calls = await _setup_fleet(hass, config_data, room="29.0", fleet=fleet)
+    assert IR_HEATER not in _turned_on(calls)
+    assert SMALL_AC in _turned_on(calls)
+
+
+async def test_fleet_does_not_start_while_locked(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await _setup_fleet(hass, config_data, room="29.0", fleet=FLEET_AC_PAIR, mode="fast", pin="1234")
+    assert _turned_on(calls)
+    for entity in (SMALL_AC, BIG_AC):
+        hass.states.async_set(entity, "off", {"temperature": 30.0})
+    freezer.tick(timedelta(minutes=6))
+    await hass.services.async_call("hvac_horizon", "set_lock", {"entry_id": entry.entry_id, "locked": True, "pin": "1234"}, blocking=True)
+    calls.clear()
+    await refresh(hass, entry)
+    assert _turned_on(calls) == set()
+
+
+async def test_fleet_stops_every_unit_when_a_sensor_stalls(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, calls = await _setup_fleet(hass, config_data, room="29.0", fleet=FLEET_AC_PAIR, mode="fast")
+    for entity in (SMALL_AC, BIG_AC):
+        hass.states.async_set(entity, "cool", {"temperature": 24.0})
+    calls.clear()
+    freezer.tick(timedelta(minutes=16))
+    hass.states.async_set(ROOM_B, "unavailable")
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert {("climate", "set_hvac_mode", SMALL_AC, "off"), ("climate", "set_hvac_mode", BIG_AC, "off")} <= set(calls)
+
+
+async def test_device_without_a_power_sensor_publishes_its_rated_watts(hass, enable_custom_integrations, config_data):
+    entry, _ = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR)
+    dispatch = entry.runtime_data.data["dispatch"]
+    assert dispatch["power_kw"] == 0.9
+    assert dispatch["devices"]["small"]["power_kw"] == 0.9
+    assert dispatch["devices"]["small"]["power_source"] == "rated"
+
+
+async def test_device_with_a_power_sensor_publishes_the_measured_power(hass, enable_custom_integrations, config_data):
+    fleet = [dict(FLEET_AC_PAIR[0], power_sensor="sensor.small_w"), FLEET_AC_PAIR[1]]
+    hass.states.async_set("sensor.small_w", "640", {"unit_of_measurement": "W", "device_class": "power"})
+    entry, _ = await _setup_fleet(hass, config_data, room="25.0", fleet=fleet)
+    dispatch = entry.runtime_data.data["dispatch"]
+    assert dispatch["devices"]["small"]["power_source"] == "sensor"
+    assert dispatch["power_kw"] == 0.64
+
+
+def _calibration_entries():
+    """Readings of a room where the small cooler (3.0 K/h per kW, 0.9 kW) runs alone in blocks of 10 intervals."""
+    import time
+
+    k, g, temp, rate = 0.1, 0.3, 27.0, 3.0
+    base = time.time() - 90 * 300
+    out = []
+    for i in range(80):
+        outdoor = 30.0 + 4.0 * ((i % 40) / 40.0)
+        kw = 0.9 if (i // 10) % 2 == 1 else 0.0
+        out.append(
+            asdict(Entry(t=base + i * 300, room_c=temp, outdoor_c=outdoor, power_w=0.0, device_kw={"small": kw, "big": 0.0}))
+        )
+        temp += (5.0 / 60.0) * (k * (outdoor - temp) + g - rate * kw)
+    return out
+
+
+async def test_fitted_rate_is_stored_and_used_after_a_reload(hass, enable_custom_integrations, config_data, hass_storage):
+    def seed(entry):
+        hass_storage[f"hvac_horizon.{entry.entry_id}"] = {
+            "version": 3, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}", "data": {"entries": _calibration_entries()},
+        }
+
+    entry, _ = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR, prepare=seed)
+    devices = entry.runtime_data.data["dispatch"]["devices"]
+    assert devices["small"]["rate_source"] == "fitted"
+    assert abs(devices["small"]["rate_k_per_h_per_kw"] - 3.0) < 0.1
+    assert devices["big"]["rate_source"] == "entered"
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    key = f"hvac_horizon.{entry.entry_id}"
+    assert abs(hass_storage[key]["data"]["device_rates"]["small"]["rate"] - 3.0) < 0.1
+    # Reload with no readings left: the stored rate is still used.
+    hass_storage[key]["data"]["entries"] = []
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    again = entry.runtime_data.data["dispatch"]["devices"]
+    assert again["small"]["rate_source"] == "fitted"
+    assert abs(again["small"]["rate_k_per_h_per_kw"] - 3.0) < 0.1

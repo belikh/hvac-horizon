@@ -22,6 +22,8 @@ from homeassistant.util import dt as dt_util
 from custom_components.hvac_horizon.backfill import accuracy_pairs, backtest, median_abs_error
 from custom_components.hvac_horizon.collector import (
     Entry,
+    RUNNING_MIN_KW,
+    fleet_samples_from_entries,
     heat_pairs_from_entries,
     entries_from_history,
     has_enough_cycles,
@@ -86,7 +88,7 @@ from custom_components.hvac_horizon.features import (
     timed_preset_name,
     transition_message,
 )
-from custom_components.hvac_horizon.fleet import COOL, FAST, HEAT, Device, choose_devices, device_kw
+from custom_components.hvac_horizon.fleet import COOL, FAST, HEAT, Device, calibrate_rates, choose_devices, device_kw
 from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
 from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
 from custom_components.hvac_horizon.control import precool_start_in_min
@@ -306,6 +308,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._samples_since_fit = 0
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
+        self._fleet_changed_at: dict[str, float] = {}  # device_id -> when the dispatch last changed it, for minimum times
+        self._device_rates: dict[str, dict[str, float]] = {}  # device_id -> fitted {rate, samples}, kept in the store
         self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
         self._shed_loads: set[str] = set()  # loads this integration switched off for the power limit, to restore later
         self._heater_on_min: float = 0.0
@@ -515,6 +519,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._timed_duration_min = duration
         self._shed_loads = {str(e) for e in data.get("shed_loads", [])}
         self._actuator_opened_by_us = bool(data.get("actuator_opened_by_us", False))
+        self._device_rates = {
+            str(k): {"rate": float(v["rate"]), "samples": float(v.get("samples", 0))}
+            for k, v in (data.get("device_rates") or {}).items()
+            if isinstance(v, dict) and v.get("rate")
+        }
         self._refit()
 
     def save_soon(self) -> None:
@@ -699,6 +708,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else {"name": self._timed_preset, "started_min": self._timed_started_min, "duration_min": self._timed_duration_min},
             "shed_loads": sorted(self._shed_loads),
             "actuator_opened_by_us": self._actuator_opened_by_us,
+            "device_rates": self._device_rates,
         }
 
     async def async_shutdown_store(self) -> None:
@@ -732,6 +742,39 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if HEATER in kinds:
             self._room_fit["heater_k_per_h_on"] = round(found.coef[HEATER], 4)
 
+    def _refit_fleet(self) -> None:
+        """Fit each fleet device's rate from the intervals where it ran alone. A device without enough data keeps its stored rate."""
+        devices = self._fleet()
+        if not devices:
+            return
+        self._device_rates.update(calibrate_rates(fleet_samples_from_entries(self._entries), devices))
+
+    def _fleet_running(self, device: Device) -> bool:
+        """True when the device's entity is running: a climate in cool or heat, or a switch that is on."""
+        state = self.hass.states.get(device.entity_id) if device.entity_id else None
+        if state is None:
+            return False
+        return state.state == "on" if device.domain == "switch" else state.state in ("cool", "heat")
+
+    def _fleet_cooling(self) -> bool:
+        return any(d.kind == COOL and d.domain == "climate" and self._fleet_state(d) == "cool" for d in self._fleet())
+
+    def _fleet_state(self, device: Device) -> str | None:
+        state = self.hass.states.get(device.entity_id) if device.entity_id else None
+        return None if state is None else state.state
+
+    def _fleet_kw(self) -> dict[str, float] | None:
+        """kW of each fleet device now, for the collector reading. None when no fleet is set."""
+        devices = self._fleet()
+        if not devices:
+            return None
+        out: dict[str, float] = {}
+        for device in devices:
+            sensor = _float(self.hass.states.get(device.power_sensor)) if device.power_sensor else None
+            kw = device_kw(device, sensor, self._fleet_running(device))
+            out[device.device_id] = kw if kw >= RUNNING_MIN_KW or not device.power_sensor else 0.0
+        return out
+
     def _active_fit(self) -> Fit | None:
         """The room model for the forecast: the fitted rates with the online cooling gain, else the single-device fit."""
         if self._tpi is not None:
@@ -764,6 +807,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
         self._refit_room_model()
+        self._refit_fleet()
         try:
             self._tpi = learn_room_rates(samples)
         except NotEnoughData:
@@ -875,7 +919,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._drive_heater_switch()
 
     def _heater_switch(self) -> str | None:
-        return (room_devices(self.entry.data)["heating"] or [None])[0]
+        """The heater switch of the entry. A switch that is also a fleet device belongs to the fleet dispatch."""
+        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
+        return None if switch in {d.entity_id for d in self._fleet()} else switch
 
     async def _command_heater(self, switch: str, command_on: bool) -> None:
         """Send the switch command and record the switch and the state, so unload can undo it."""
@@ -1233,6 +1279,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             price=price,
             energy_kwh=_float(self._optional(CONF_ENERGY)),
             heat_pct=self._pwm_pct_now,
+            device_kw=self._fleet_kw(),
         )
 
     def _price_forecast(self, now: float) -> list:
@@ -1773,24 +1820,109 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
         return devices
 
-    def _dispatch(self) -> dict[str, Any]:
-        """The devices that would run for the current gaps, and their power. Observe only: no device is driven."""
+    def _dispatch(self, cool_allowed: bool = True, heat_allowed: bool = True, cool_floor_k: float = 0.0) -> dict[str, Any]:
+        """The devices to run for the current gaps, with the rate and power of each.
+
+        A device uses its fitted rate when it has one and its entered rate otherwise; `devices` says which.
+        `cool_floor_k` keeps the first cooler running while the room sits inside the cooling deadband.
+        """
         rooms = self._rooms()
-        devices = self._fleet()
-        if not rooms or not devices:
-            return {"cool": [], "heat": [], "power_kw": 0.0}
+        entered = self._fleet()
+        if not rooms or not entered:
+            return {"cool": [], "heat": [], "power_kw": 0.0, "devices": {}}
+        devices: list[Device] = []
+        info: dict[str, dict[str, Any]] = {}
+        for device in entered:
+            fitted = self._device_rates.get(device.device_id)
+            rate = fitted["rate"] if fitted else device.rate_k_per_h_per_kw
+            devices.append(replace(device, rate_k_per_h_per_kw=rate))
+            info[device.device_id] = {
+                "rate_k_per_h_per_kw": None if rate is None else round(rate, 4),
+                "rate_source": "fitted" if fitted else ("entered" if rate else "missing"),
+                "power_source": "sensor" if device.power_sensor and self.hass.states.get(device.power_sensor) is not None else "rated",
+                "power_kw": 0.0,
+            }
         median = statistics.median(rooms)
         mode = self.entry.data.get(CONF_DISPATCH_MODE, FAST)
         price = _float(self._optional(CONF_PRICE)) or DEFAULT_PRICE_CHEAP
-        cool = choose_devices(devices, COOL, median - self._cool_above_c, 1.0, mode, price)
-        heat = choose_devices(devices, HEAT, self._heat_target_c - median, 1.0, mode, price)
+        cool_gap = max(median - self._cool_above_c, cool_floor_k)
+        cool = choose_devices(devices, COOL, cool_gap, 1.0, mode, price) if cool_allowed else []
+        heat = choose_devices(devices, HEAT, self._heat_target_c - median, 1.0, mode, price) if heat_allowed and median < self._heat_on_below_c else []
         power = 0.0
         by_id = {d.device_id: d for d in devices}
         for device_id in cool + heat:
             device = by_id[device_id]
             sensor = _float(self.hass.states.get(device.power_sensor)) if device.power_sensor else None
-            power += device_kw(device, sensor, running=True)
-        return {"cool": cool, "heat": heat, "power_kw": round(power, 3)}
+            kw = device_kw(device, sensor, running=True)
+            info[device_id]["power_kw"] = round(kw, 3)
+            power += kw
+        return {"cool": cool, "heat": heat, "power_kw": round(power, 3), "devices": info}
+
+    def _fleet_minimum_ok(self, device: Device, running: bool, now: float) -> bool:
+        """True when the device may change state now. Fleet devices use the same minimum on and off times as the AC."""
+        changed = self._fleet_changed_at.get(device.device_id)
+        since_min = (now - changed) / 60.0 if changed is not None else 1e9
+        return minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0))
+
+    async def _drive_fleet(self, now: float, result: dict[str, Any], action: Any, stalled: bool) -> None:
+        """Drive the dispatch through the gated paths. Chosen devices run and every other fleet device is turned off.
+
+        Cooling follows the cool decision (so window, away, lock, user off, night hold and MPC idle apply). Heating is
+        gated like the heater switch. Climate devices get the cool setpoint or the heat target. Minimum on and off
+        times apply to every change except a stall stop.
+        """
+        cooling = action.mode is Mode.COOL and not stalled
+        heating = not stalled and not cooling and not self._heater_gate_closed(result)
+        dispatch = self._dispatch(cool_allowed=cooling, heat_allowed=heating, cool_floor_k=0.5 if cooling else 0.0)
+        result["dispatch"] = dispatch
+        wanted = set(dispatch["cool"]) | set(dispatch["heat"])
+        waiting: list[str] = []
+        for device in self._fleet():
+            if not device.entity_id or self._fleet_state(device) in (None, "unavailable", "unknown"):
+                continue
+            on = device.device_id in wanted
+            setpoint = action.setpoint_c if device.kind == COOL else self._heat_target_c
+            if not await self._drive_fleet_device(device, on, setpoint, now, stalled):
+                waiting.append(device.device_id)
+        dispatch["waiting"] = waiting
+
+    async def _drive_fleet_device(self, device: Device, on: bool, setpoint_c: float | None, now: float, stalled: bool) -> bool:
+        """Bring one device to on or off. Returns False when it waits for a minimum time or the compressor group."""
+        running = self._fleet_running(device)
+        state = self._fleet_state(device)
+        if device.domain == "switch":
+            if (state == "on") == on:
+                return True
+            if not stalled and not self._fleet_minimum_ok(device, running, now):
+                return False
+            self._fleet_changed_at[device.device_id] = now
+            await self._drive_switch(device.entity_id, on)
+            return True
+        mode = "cool" if device.kind == COOL else "heat"
+        if state != (mode if on else "off"):
+            if not stalled and not self._fleet_minimum_ok(device, running, now):
+                return False
+            if on and device.kind == COOL:
+                if not self._group_start_ok(now):
+                    return False
+                self._record_group_start(now)
+            self._fleet_changed_at[device.device_id] = now
+            await self.hass.services.async_call(
+                "climate", "set_hvac_mode", {"entity_id": device.entity_id, "hvac_mode": mode if on else "off"}, blocking=True
+            )
+        if on and setpoint_c is not None:
+            current = self.hass.states.get(device.entity_id).attributes.get("temperature")
+            if current is None or float(current) != float(setpoint_c):
+                await self.hass.services.async_call(
+                    "climate", "set_temperature", {"entity_id": device.entity_id, "temperature": setpoint_c}, blocking=True
+                )
+        return True
+
+    async def _fleet_all_off(self, now: float) -> None:
+        """Turn every running fleet device off with no minimum time. Used by the safety stops."""
+        for device in self._fleet():
+            if device.entity_id and self._fleet_running(device):
+                await self._drive_fleet_device(device, False, None, now, stalled=True)
 
     def _preheat(self, now_h: float, blocks: list[ScheduleBlock], heat_target_c: float, comfort_c: float) -> tuple[float, str, float | None]:
         """Heat to comfort early when the next comfort block starts within the learned heat-up time.
@@ -1833,7 +1965,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             reason = "window open"
         elif house_away:
             reason = "house away"
-        if reason is None or climate is None or climate.state in ("off", "unavailable", "unknown"):
+        if reason is None:
+            return
+        await self._fleet_all_off(now)
+        if climate is None or climate.state in ("off", "unavailable", "unknown"):
             return
         await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
         self._last_sent_min = now / 60.0
@@ -1844,7 +1979,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Send one climate action per cycle. Runs only when the control option is on."""
         climate_id = self.entry.data[CONF_CLIMATE]
         first_ac = self.hass.states.get(climate_id)
-        self._ac_cooling_tick = first_ac is not None and first_ac.state == "cool"
+        self._ac_cooling_tick = (first_ac is not None and first_ac.state == "cool") or self._fleet_cooling()
         if not lock_allows_control(self._locked):
             # The lock blocks normal commands. A stall, an open window or an away house still stops the AC.
             result["action"] = "locked"
@@ -1916,7 +2051,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 night_precool_c=comfort_c if night == "pre-cool" else None,
             )
             cooling_now = self.hass.states.get(climate_id)
-            action = decide(state, self._settings, cooling_now is not None and cooling_now.state == "cool")
+            action = decide(state, self._settings, (cooling_now is not None and cooling_now.state == "cool") or self._fleet_cooling())
             if night == "hold" and action.mode is Mode.COOL:
                 # The night hold keeps a start off at comfort. A running AC keeps its setpoint at comfort.
                 running_now = self.hass.states.get(climate_id)
@@ -1980,6 +2115,10 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
         # The first AC's block below returns early on several paths, so the second AC is driven before it.
+        if any(d.entity_id for d in self._fleet()):
+            # Fleet devices with an entity replace the single-AC path: the dispatch drives every cooler and heater of the room.
+            await self._drive_fleet(now, result, action, stalled)
+            return
         await self._drive_second_ac(action, result, now, climate)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
@@ -2291,7 +2430,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         group = self._compressor_group()
         registry = self.hass.data.setdefault(DOMAIN, {}).setdefault("cooling", {})
-        registry[self.entry.entry_id] = (group, climate is not None and climate.state == "cool")
+        registry[self.entry.entry_id] = (group, (climate is not None and climate.state == "cool") or self._fleet_cooling())
         result["house_cooling"] = house_cooling(registry, self.entry.entry_id, group)
 
     def median_room_c(self) -> float | None:
