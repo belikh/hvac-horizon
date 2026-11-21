@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## 0.5.5 (unreleased)
+## 0.5.5 (2026-11-22)
 
 - Free cooling is given up when it cools too little. With the window open or the whole-house fan on, a room above the
   cool threshold that fell by less than 0.3 K in 30 minutes gets the AC. Before, a room held up to 2 K above the
