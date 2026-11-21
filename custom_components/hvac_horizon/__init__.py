@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.const import Platform
+from homeassistant.core import Event, HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
@@ -127,6 +127,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.start_power_tracking()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+
+    async def _on_stop(_event: Event) -> None:
+        # Home Assistant stop does not unload entries, so switch off what this entry turned on.
+        await coordinator.async_safety_stop()
+
+    entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _on_stop))
     sync_accuracy_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
@@ -141,5 +147,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.runtime_data.forget_cooling()
         entry.runtime_data.forget_peer_requests()
         await entry.runtime_data.async_heater_off()
+        await entry.runtime_data._fleet_all_off(dt_util.utcnow().timestamp())
         await entry.runtime_data.async_shutdown_store()
     return unloaded

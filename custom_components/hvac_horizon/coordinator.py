@@ -1012,6 +1012,24 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         await self._command_heater(switch, False)
 
+    async def async_safety_stop(self) -> None:
+        """Turn off everything this instance last commanded on. Used at Home Assistant stop and unload.
+
+        Ignores the lock and the minimum on and off times. Cancels the PWM timers and the refresh timer,
+        so no tick turns a device on again.
+        """
+        self._unschedule_refresh()
+        await self.async_heater_off()
+        await self._fleet_all_off(dt_util.utcnow().timestamp())
+        if self.entry.data.get(CONF_CONTROL) and self._last_written_mode in ("cool", "heat"):
+            climate_id = self.entry.data[CONF_CLIMATE]
+            climate = self.hass.states.get(climate_id)
+            if climate is not None and climate.state in ("cool", "heat"):
+                await self.hass.services.async_call(
+                    "climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True
+                )
+                self._last_written_mode = "off"
+
     async def _refresh_weather(self) -> None:
         weather_id = self.entry.data.get(CONF_WEATHER)
         if not weather_id:

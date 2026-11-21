@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.components import sensor
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -1973,6 +1973,57 @@ async def test_heater_switches_off_on_unload(hass, enable_custom_integrations, c
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert calls == ["turn_off"]
+
+
+async def test_home_assistant_stop_turns_the_heater_off(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert calls == ["turn_off"]
+
+
+async def test_home_assistant_stop_turns_a_running_fleet_device_off(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR)
+    hass.states.async_set(SMALL_AC, "cool", {"temperature": 24.0})
+    calls.clear()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert ("climate", "set_hvac_mode", SMALL_AC, "off") in calls
+
+
+async def test_home_assistant_stop_turns_a_running_fleet_switch_off_while_locked(hass, enable_custom_integrations, config_data):
+    fleet = [{"device_id": "ir", "kind": "heat", "entity_id": IR_HEATER, "rate_k_per_h_per_kw": 1.5, "rated_w": 1500.0}]
+    entry, calls = await _setup_fleet(hass, config_data, room="25.0", fleet=fleet, pin="7391")
+    entry.runtime_data.set_lock(True, "7391")
+    hass.states.async_set(IR_HEATER, "on")
+    calls.clear()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert ("switch", "turn_off", IR_HEATER, None) in calls
+
+
+async def test_unload_removes_the_stop_listener(hass, enable_custom_integrations, config_data):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    assert calls == []
+
+
+async def test_unload_turns_a_running_fleet_device_off(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_fleet(hass, config_data, room="25.0", fleet=FLEET_AC_PAIR)
+    hass.states.async_set(SMALL_AC, "cool", {"temperature": 24.0})
+    calls.clear()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ("climate", "set_hvac_mode", SMALL_AC, "off") in calls
 
 
 async def test_inverted_heater_is_commanded_with_inverted_polarity(hass, enable_custom_integrations, config_data):
