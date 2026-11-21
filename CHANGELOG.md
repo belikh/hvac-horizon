@@ -6,6 +6,7 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 Changes since 0.3.0.
 
+- A sensor stall turns the first and second AC off without waiting for the minimum on time, as it already did for fleet devices.
 - Safety stop and unload turn off every output the entry commanded on: AC in dry mode, second AC, fan, humidifier, dehumidifier, boiler, whole-house fan and valve.
 - A failed update tick no longer swallows `KeyboardInterrupt`, `SystemExit` or `CancelledError`.
 - Minimum on and off times count from the device's own `last_changed`, so a restart or a manual change does not clear them.

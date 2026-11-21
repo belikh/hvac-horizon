@@ -255,7 +255,7 @@ class AcMixin:
             # Fleet devices with an entity replace the single-AC path: the dispatch drives every cooler and heater of the room.
             await self._drive_fleet(now, result, action, stalled)
             return
-        await self._drive_second_ac(action, result, now, climate)
+        await self._drive_second_ac(action, result, now, climate, stalled)
         if climate is None or climate.state in ("unavailable", "unknown"):
             return
         self._check_mode(climate.state)
@@ -273,7 +273,8 @@ class AcMixin:
         running = climate.state in ("cool", "heat")
         if climate.state != wanted_mode and (running or wanted_mode == "cool"):
             since_min = self._since_min(climate, self._state_changed_at, now)
-            if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
+            # A stall stop ignores the minimum times, as the fleet and locked stops do.
+            if not stalled and not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
                 result["action"] = f"{action.mode.value}: waiting for minimum time"
                 return
             self._state_changed_at = now
@@ -446,7 +447,7 @@ class AcMixin:
         self._was_cooling = now_cooling
         return handled
 
-    async def _drive_second_ac(self, action: Any, result: dict[str, Any], now: float, first: State | None) -> None:
+    async def _drive_second_ac(self, action: Any, result: dict[str, Any], now: float, first: State | None, stalled: bool) -> None:
         """Send the first AC's cool or off decision to the optional second AC. Called only on the control path."""
         result["second_ac"] = "idle"
         climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
@@ -478,7 +479,7 @@ class AcMixin:
                 )
                 result["second_ac"] = "driven"
         elif action.mode is Mode.OFF and second.state != "off":
-            if not self._second_minimum_ok(second.state, now):
+            if not stalled and not self._second_minimum_ok(second.state, now):
                 result["second_ac"] = "waiting for minimum time"
                 return
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)

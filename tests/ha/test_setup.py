@@ -3891,6 +3891,38 @@ async def test_second_ac_stop_inside_minimum_on_time_is_held(hass, enable_custom
     assert (second, "off") in modes
 
 
+async def test_stall_turns_the_second_ac_off_inside_its_minimum_on_time(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)  # outdoor 30 C, so cooling is allowed
+    second = "climate.test_ac_2"
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    hass.states.async_set(second, "off", {"temperature": 22.0})
+    modes = []
+
+    async def record_mode(call):
+        modes.append((call.data["entity_id"], call.data["hvac_mode"]))
+        state = hass.states.get(call.data["entity_id"])
+        hass.states.async_set(call.data["entity_id"], call.data["hvac_mode"], dict(state.attributes))
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, climate_2=second), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (second, "cool") in modes
+
+    freezer.tick(timedelta(minutes=2))  # inside the 5 minute minimum on time
+    monkeypatch.setattr(HorizonCoordinator, "_stalled_sensors", lambda self, now: [ROOM_A, ROOM_B])
+    await refresh(hass, entry)
+    assert (second, "off") in modes
+
+
 async def test_stall_output_turns_the_heater_off_even_without_the_gate(hass, enable_custom_integrations, config_data, monkeypatch):
     # The window, lock and away gates are open here. Only the stall can turn the heater off, through safety_output.
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
