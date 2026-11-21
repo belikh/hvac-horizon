@@ -11,12 +11,14 @@ Assumptions, stated so the output can be checked:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .model import Fit
 
-STEP_MIN = 1.0  # integration step, minutes
-HORIZON_MIN = 12 * 60.0  # give up after 12 hours
+STEP_MIN = 1.0  # step length, minutes; each step is solved exactly, so this sets only the time resolution
+HORIZON_MIN = 12 * 60.0  # default: give up after 12 hours
+MIN_RANGE_C = 1e-6  # K/h per kW; floor for c minus one standard error
+SMALL_KDT = 1e-9  # below this k * dt the exact step uses its series limit
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,19 @@ def _equilibrium_c(fit: Fit, outdoor_c: float, running_power_kw: float) -> float
     return outdoor_c + net / fit.k
 
 
+def _step_temperature(fit: Fit, temp_c: float, outdoor_c: float, running_power_kw: float, dt_h: float) -> float:
+    """Room temperature after `dt_h` hours. Exact for constant coefficients, outdoor temperature and power.
+
+    T(t+dt) = T_eq + (T - T_eq) * exp(-k dt) with T_eq = T_out + (g - c P) / k. It is evaluated as
+    T + (k (T_out - T) + g - c P) * phi with phi = (1 - exp(-k dt)) / k, which is the same value and
+    stays finite as k goes to 0, where phi becomes dt and the update is linear.
+    """
+    rate = fit.k * (outdoor_c - temp_c) + fit.g - fit.c * running_power_kw
+    kdt = fit.k * dt_h
+    phi = dt_h if kdt < SMALL_KDT else -math.expm1(-kdt) / fit.k
+    return temp_c + rate * phi
+
+
 def price_at(slots: list[PriceSlot], minute: float) -> float | None:
     for slot in slots:
         if slot.start_min <= minute < slot.start_min + slot.duration_min:
@@ -64,6 +79,7 @@ def forecast(
     outdoor_c: float,
     running_power_kw: float,
     prices: list[PriceSlot],
+    horizon_min: float = HORIZON_MIN,
 ) -> Forecast:
     """Return the time, energy and cost to cool from `temp_c` down to `target_c`."""
     if running_power_kw <= 0 or fit.c <= 0:
@@ -84,17 +100,38 @@ def forecast(
     temp = temp_c
     minute = 0.0
     while temp > target_c:
-        if minute >= HORIZON_MIN:
-            return Forecast(False, None, None, None, t_eq, "not reached within 12 hours")
+        if minute >= horizon_min:
+            return Forecast(False, None, None, None, t_eq, f"not reached within {horizon_min / 60.0:g} hours")
         dt_h = STEP_MIN / 60.0
-        # Explicit Euler step. It is accurate for STEP_MIN well below the time constant 1/k.
-        dtemp = (fit.k * (outdoor_c - temp) - fit.c * running_power_kw + fit.g) * dt_h
         step_energy = running_power_kw * dt_h
         energy += step_energy
         if cost is not None:
             price = price_at(prices, minute)
             cost = None if price is None else cost + step_energy * price
-        temp = max(temp + dtemp, target_c - 1e-9)
+        temp = max(_step_temperature(fit, temp, outdoor_c, running_power_kw, dt_h), target_c - 1e-9)
         minute += STEP_MIN
 
     return Forecast(True, minute, energy, cost, t_eq, "reachable")
+
+
+def forecast_range(
+    fit: Fit,
+    temp_c: float,
+    target_c: float,
+    outdoor_c: float,
+    running_power_kw: float,
+    prices: list[PriceSlot],
+    horizon_min: float = HORIZON_MIN,
+) -> tuple[float | None, float | None]:
+    """Minutes to the setpoint with c one standard error above (low) and below (high) the fit.
+
+    Both are None when the fit has no standard error of c. `high` is also None when the smaller c cannot
+    reach the setpoint within the horizon. The smaller c is clamped to MIN_RANGE_C.
+    """
+    if fit.c_stderr is None:
+        return None, None
+    faster = replace(fit, c=fit.c + fit.c_stderr)
+    slower = replace(fit, c=max(fit.c - fit.c_stderr, MIN_RANGE_C))
+    low = forecast(faster, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min).minutes
+    high = forecast(slower, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min).minutes
+    return low, high

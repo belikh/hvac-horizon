@@ -2,7 +2,7 @@ import math
 import unittest
 
 from custom_components.hvac_horizon import Fit, PriceSlot, forecast
-from custom_components.hvac_horizon.forecast import _equilibrium_c
+from custom_components.hvac_horizon.forecast import _equilibrium_c, forecast_range, _step_temperature
 
 FIT = Fit(k=0.4, c=1.5, samples=200)
 
@@ -64,6 +64,67 @@ class ForecastTests(unittest.TestCase):
         f = forecast(slow, 28.0, 27.0, 30.0, 0.8, [])
         self.assertFalse(f.reachable)
         self.assertIn("12 hours", f.reason)
+
+    def test_exact_step_matches_the_analytic_solution_over_12_hours(self):
+        t0, out, p = 28.0, 30.0, 1.1
+        t_eq = out + (FIT.g - FIT.c * p) / FIT.k
+        temp = t0
+        for _ in range(720):
+            temp = _step_temperature(FIT, temp, out, p, 1 / 60)
+        analytic = t_eq + (t0 - t_eq) * math.exp(-FIT.k * 12.0)
+        self.assertLess(abs(temp - analytic), 1e-9)
+
+    def test_exact_step_with_gain_matches_the_analytic_solution(self):
+        f = Fit(k=0.3, c=1.2, g=0.5)
+        t_eq = 28.0 + (0.5 - 1.2 * 1.0) / 0.3
+        temp = 26.0
+        for _ in range(720):
+            temp = _step_temperature(f, temp, 28.0, 1.0, 1 / 60)
+        self.assertLess(abs(temp - (t_eq + (26.0 - t_eq) * math.exp(-0.3 * 12.0))), 1e-9)
+
+    def test_exact_step_with_zero_k_is_linear(self):
+        f = Fit(k=0.0, c=1.0, g=0.2)
+        self.assertAlmostEqual(_step_temperature(f, 28.0, 30.0, 1.5, 0.5), 28.0 + (0.2 - 1.5) * 0.5, places=12)
+
+    def test_exact_step_differs_from_euler_by_a_small_bounded_amount(self):
+        # Euler with a 1-minute step has a first-order error of about k*dt/2 relative to the change.
+        # For k = 0.4 /h that is 0.33 percent of the change; the bound used is 0.01 K.
+        t0, out, p = 28.0, 30.0, 1.1
+        euler = exact = t0
+        for _ in range(720):
+            euler += (FIT.k * (out - euler) - FIT.c * p + FIT.g) / 60
+            exact = _step_temperature(FIT, exact, out, p, 1 / 60)
+        self.assertGreater(abs(euler - exact), 0.0)
+        self.assertLess(abs(euler - exact), 0.01)  # measured 0.00028 K after 12 h
+
+    def test_horizon_is_a_parameter(self):
+        f = forecast(FIT, 28.0, 26.5, 30.0, 1.1, [], horizon_min=60.0)
+        self.assertFalse(f.reachable)
+        self.assertIn("1 hours", f.reason)
+
+    def test_range_brackets_the_forecast_on_a_fitted_room(self):
+        import random
+
+        from custom_components.hvac_horizon import Sample, fit
+        from tests.test_model import simulate
+
+        fitted = fit(simulate(300, noise=0.03))
+        self.assertIsNotNone(fitted.c_stderr)
+        f = forecast(fitted, 28.0, 26.5, 30.0, 1.1, [])
+        low, high = forecast_range(fitted, 28.0, 26.5, 30.0, 1.1, [])
+        self.assertTrue(f.reachable)
+        self.assertLessEqual(low, f.minutes)
+        self.assertLessEqual(f.minutes, high)
+        self.assertLess(low, high)
+
+    def test_range_is_none_without_standard_errors(self):
+        self.assertEqual(forecast_range(FIT, 28.0, 26.5, 30.0, 1.1, []), (None, None))
+
+    def test_range_high_is_none_when_smaller_c_cannot_reach(self):
+        f = Fit(k=0.4, c=1.5, c_stderr=1.4)  # c - se = 0.1: equilibrium is above the target
+        low, high = forecast_range(f, 28.0, 26.5, 30.0, 1.1, [])
+        self.assertIsNotNone(low)
+        self.assertIsNone(high)
 
 
 if __name__ == "__main__":

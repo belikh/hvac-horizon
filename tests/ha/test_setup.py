@@ -6,6 +6,7 @@ so the standard-library unittest run does not collect it.
 """
 
 import math
+import random
 import statistics
 import time
 from dataclasses import asdict
@@ -3311,6 +3312,40 @@ async def test_learned_room_rate_coefficients_are_published_and_used(hass, enabl
     assert set(attribute) >= {"k_per_h", "g_k_per_h", "c_k_per_h_per_kw"}
     assert attribute["c_k_per_h_per_kw"] == pytest.approx(published["c_k_per_h_per_kw"])
     assert "tpi" not in hass.states.get(entity_id).attributes
+
+
+async def test_fit_quality_and_forecast_range_are_published(hass, enable_custom_integrations, config_data):
+    import math
+
+    from custom_components.hvac_horizon.collector import Entry
+
+    _register_climate_fakes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    rng = random.Random(4)
+    temp, readings = 24.0, []
+    for i in range(800):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        ac = 1.0 if (i // 6) % 2 == 0 else 0.0
+        readings.append(Entry(t=now - (800 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 * ac))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * ac) * (5 / 60) + rng.gauss(0, 0.01)
+    coordinator._entries = readings
+    coordinator._refit()
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["c_stderr"] > 0
+    assert data["fit_confidence"] in ("low", "medium", "high")
+    entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
+    attributes = hass.states.get(entity_id).attributes
+    for key in ("fit_residual_k_per_h", "k_stderr", "c_stderr", "g_stderr", "fit_outliers_dropped", "fit_confidence"):
+        assert key in attributes
+    assert attributes["c_stderr"] == data["c_stderr"]
+    assert attributes["fit_confidence"] == data["fit_confidence"]
+    assert "minutes_low" in data and "minutes_high" in data
 
 
 async def test_heat_and_dry_intervals_stay_out_of_the_cooling_fit_and_are_counted(hass, enable_custom_integrations, config_data, freezer):

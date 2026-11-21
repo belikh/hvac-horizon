@@ -75,6 +75,8 @@ STATUS_KEYS: dict[str, str] = {
     "room_fit": "Two-device room fit",
     "forecast_days": "Forecast day counts",
     "dispatch": "Room dispatch",
+    "minutes_low": "Minutes to setpoint, low",
+    "minutes_high": "Minutes to setpoint, high",
 }
 STATUS_UNITS = {
     "target_c": "°C",
@@ -87,6 +89,8 @@ STATUS_UNITS = {
     "heater_output_pct": "%",
     "tpi_output_pct": "%",
     "heat_up_min": "min",
+    "minutes_low": "min",
+    "minutes_high": "min",
     "rooms_max_age_s": "s",
     "solar_gain_kw": "kW",
     "trv_offset_k": "K",
@@ -136,6 +140,12 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
             "k_per_h": d.get("k"),
             "c_k_per_kw": d.get("c"),
             "g_k_per_h": d.get("g"),
+            "fit_residual_k_per_h": d.get("fit_residual_k_per_h"),  # residual standard deviation of the fit, K/h
+            "k_stderr": d.get("k_stderr"),  # standard errors of the fitted coefficients; None without a fit
+            "c_stderr": d.get("c_stderr"),
+            "g_stderr": d.get("g_stderr"),
+            "fit_outliers_dropped": d.get("fit_outliers_dropped"),  # samples removed by the residual filter
+            "fit_confidence": d.get("fit_confidence"),  # low, medium or high from the relative standard error of c
             "autotune_status": d.get("autotune_status"),
             "autotune": d.get("autotune"),  # kp, ki, kd after a relay test; None before
             "shed_skipped": d.get("shed_skipped"),  # set when a shed load entry is malformed

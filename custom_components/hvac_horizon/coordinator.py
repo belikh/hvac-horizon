@@ -35,7 +35,7 @@ from custom_components.hvac_horizon.collector import (
     samples_from_entries,
 )
 from custom_components.hvac_horizon.devices import COOL, HEAT, HEATER, RoomFit, fit_room, forecast_fit
-from custom_components.hvac_horizon.forecast import forecast, price_at
+from custom_components.hvac_horizon.forecast import forecast, forecast_range, price_at
 from custom_components.hvac_horizon.decide import MPC_DEADBAND_C, Action, Mode, Preset, RoomState, Settings, cool_above_c, decide, raise_cool_thresholds
 from custom_components.hvac_horizon.features import (
     ScheduleBlock,
@@ -91,7 +91,7 @@ from custom_components.hvac_horizon.features import (
 )
 from custom_components.hvac_horizon.fleet import COOL, FAST, HEAT, Device, calibrate_rates, choose_devices, device_kw
 from custom_components.hvac_horizon.features import SENSOR_STALL_S, fan_assist_on, peer_warmer, window_actuator_command, group_start_allowed, house_cooling, heat_setpoint, air_quality_ventilation, pid_gain, boost_output, coil_dry_due, comfort_energy_setpoint, valve_exercise_due, trv_offset, corrected_setpoint, residual_correction, cover_action, house_mode_from_store, humidity_action, keep_alive_due, minimum_time_ok, price_shifted_target, round_to_step, shed_plan, shed_restore, fan_mode_for_gap, mpc_idle, stagger_allowed, valve_opening_pct, window_open_pause, minutes_until_preset
-from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
+from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit, fit_confidence
 from custom_components.hvac_horizon.control import precool_start_in_min
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.pid import Pid
@@ -252,6 +252,10 @@ def _parse_deadline(raw: Any) -> tuple[float | None, str | None]:
     except (TypeError, ValueError, OverflowError, OSError):
         return None, f"next_event {raw!r} is not a datetime, ISO string or timestamp"
 _ENTRY_FIELDS = {f.name for f in fields(Entry)}
+
+
+def _round_or_none(value: float | None, digits: int) -> float | None:
+    return None if value is None else round(value, digits)
 
 
 def _float(state: State | None) -> float | None:
@@ -2814,9 +2818,17 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "samples": len(self._entries),
             "status": "learning",
             "minutes": None,
+            "minutes_low": None,
+            "minutes_high": None,
             "energy_kwh": None,
             "cost": None,
             "reason": self._fit_reason,
+            "fit_residual_k_per_h": None,
+            "k_stderr": None,
+            "c_stderr": None,
+            "g_stderr": None,
+            "fit_outliers_dropped": None,
+            "fit_confidence": None,
             "k": None,
             "c": None,
             "g": None,
@@ -2829,6 +2841,15 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "samples_dry": self._mode_counts.get("dry", 0),
             "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4), "heat": round(self._auto_heat_gain, 4)},
         }
+        if self._fit is not None:
+            result.update(
+                fit_residual_k_per_h=_round_or_none(self._fit.residual_k_per_h, 5),
+                k_stderr=_round_or_none(self._fit.k_stderr, 5),
+                c_stderr=_round_or_none(self._fit.c_stderr, 5),
+                g_stderr=_round_or_none(self._fit.g_stderr, 5),
+                fit_outliers_dropped=self._fit.outliers_dropped,
+                fit_confidence=fit_confidence(self._fit),
+            )
         active = self._active_fit()
         if active is None:
             return result
@@ -2851,6 +2872,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         room = statistics.median(rooms)
         if room <= target:
             result.update(status="at setpoint", minutes=0.0, energy_kwh=0.0, cost=0.0)
+            if active.c_stderr is not None:
+                result.update(minutes_low=0.0, minutes_high=0.0)
             return result
 
         power_kw = (_float(self.hass.states.get(self.entry.data[CONF_POWER])) or 0.0) / 1000.0
@@ -2862,9 +2885,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         active, power_kw = self._forecast_model(active, power_kw, now)
         f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now))
+        low, high = forecast_range(active, room, target, outdoor, power_kw, self._price_forecast(now)) if f.reachable else (None, None)
         result.update(
             status="reachable" if f.reachable else "unreachable",
             minutes=None if f.minutes is None else round(f.minutes, 1),
+            minutes_low=None if low is None else round(low, 1),
+            minutes_high=None if high is None else round(high, 1),
             energy_kwh=None if f.energy_kwh is None else round(f.energy_kwh, 3),
             cost=None if f.cost is None else round(f.cost, 3),
             reason=f.reason,

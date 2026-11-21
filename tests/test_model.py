@@ -3,7 +3,7 @@ import random
 import unittest
 
 from custom_components.hvac_horizon import Sample, fit
-from custom_components.hvac_horizon.model import NotEnoughData
+from custom_components.hvac_horizon.model import MAX_CONDITION, NotEnoughData, fit_confidence
 
 K_TRUE = 0.4  # 1/h
 C_TRUE = 1.5  # K/h per kW
@@ -73,6 +73,75 @@ class FitTests(unittest.TestCase):
         samples = [Sample(5.0, 26.0, 25.9, 30.0, 1.0 if i % 2 else 0.0) for i in range(60)]
         with self.assertRaises(NotEnoughData):
             fit(samples)
+
+    def test_gross_outliers_are_dropped_and_counted(self):
+        clean = fit(simulate(400, noise=0.02))
+        samples = simulate(400, noise=0.02)
+        for i in range(10, 400, 20):  # 20 samples, 5 percent, each with a 4 K reading error
+            s = samples[i]
+            samples[i] = Sample(s.minutes, s.temp_c, s.temp_next_c + 4.0, s.outdoor_c, s.power_kw)
+        result = fit(samples)
+        self.assertEqual(result.outliers_dropped, 20)
+        self.assertEqual(result.samples, 400)
+        self.assertLessEqual(abs(result.k - clean.k), 0.05 * clean.k)
+        self.assertLessEqual(abs(result.c - clean.c), 0.05 * clean.c)
+        self.assertLessEqual(abs(result.g - clean.g), 0.05)  # K/h; the true g is 0
+        self.assertEqual(clean.outliers_dropped, 0)
+
+    def test_outlier_drop_is_capped_at_ten_percent(self):
+        samples = simulate(200, noise=0.02)
+        for i in range(0, 200, 4):  # 25 percent bad
+            s = samples[i]
+            samples[i] = Sample(s.minutes, s.temp_c, s.temp_next_c + 4.0, s.outdoor_c, s.power_kw)
+        self.assertLessEqual(fit(samples).outliers_dropped, 20)
+
+    def test_clean_data_drops_nothing(self):
+        self.assertEqual(fit(simulate(200)).outliers_dropped, 0)
+
+    def test_near_collinear_series_is_rejected_with_the_reason(self):
+        rng = random.Random(2)
+        samples = []
+        for i in range(300):  # outdoor tracks AC power, so k, c and g cannot be separated
+            power = 1.0 if (i // 6) % 2 == 0 else 0.0
+            outdoor = 28.0 + 4.0 * power + 0.01 * rng.gauss(0, 1)
+            nxt = 26.0 + (0.4 * (outdoor - 26.0) - 1.5 * power + 0.01 * rng.gauss(0, 1)) * 5 / 60
+            samples.append(Sample(5.0, 26.0, nxt, outdoor, power))
+        with self.assertRaises(NotEnoughData) as ctx:
+            fit(samples)
+        self.assertIn("nearly collinear", str(ctx.exception))
+
+    def test_synthetic_series_pass_the_condition_limit(self):
+        for n in (30, 60, 200, 2000):
+            self.assertLess(fit(simulate(n, noise=0.02)).condition, MAX_CONDITION)
+
+    def test_unidentified_c_is_rejected(self):
+        rng = random.Random(5)
+        samples = []
+        temp = 26.0
+        for i in range(200):  # the AC flips on and off but the room ignores it
+            outdoor = 30.0 + 3.0 * math.sin(i / 11.0)
+            power = 1.0 if (i // 6) % 2 == 0 else 0.0
+            nxt = temp + (0.4 * (outdoor - temp) - 0.002 * power) * 5 / 60 + rng.gauss(0, 0.05)
+            samples.append(Sample(5.0, temp, nxt, outdoor, power))
+            temp = nxt
+        with self.assertRaises(NotEnoughData) as ctx:
+            fit(samples)
+        self.assertIn("not identified", str(ctx.exception))
+
+    def test_standard_errors_shrink_with_more_samples(self):
+        small = fit(simulate(100, noise=0.02))
+        large = fit(simulate(1600, noise=0.02))
+        for name in ("k_stderr", "c_stderr", "g_stderr"):
+            self.assertLess(getattr(large, name), getattr(small, name), name)
+        self.assertAlmostEqual(large.residual_k_per_h, 0.02 * 12, delta=0.03)  # noise 0.02 K per 5 minutes is 0.24 K/h
+
+    def test_confidence_label_follows_relative_error_of_c(self):
+        from custom_components.hvac_horizon.model import Fit
+
+        self.assertEqual(fit_confidence(Fit(k=0.4, c=1.0, c_stderr=0.05)), "high")
+        self.assertEqual(fit_confidence(Fit(k=0.4, c=1.0, c_stderr=0.2)), "medium")
+        self.assertEqual(fit_confidence(Fit(k=0.4, c=1.0, c_stderr=0.5)), "low")
+        self.assertIsNone(fit_confidence(Fit(k=0.4, c=1.0)))
 
     def assertAbs(self, value, target, tol):
         self.assertLessEqual(abs(value - target), tol, f"{value} not within {tol} of {target}")
