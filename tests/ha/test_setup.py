@@ -5889,3 +5889,46 @@ async def test_commanded_state_loads_from_an_old_payload(hass, enable_custom_int
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.runtime_data._switches_on == set()
+
+
+async def test_shed_load_the_user_changed_after_the_shed_is_not_restored(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    calls = []
+
+    async def record_on(call):
+        calls.append(("on", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "on")
+
+    async def record_off(call):
+        calls.append(("off", call.data["entity_id"]))
+        hass.states.async_set(call.data["entity_id"], "off", context=call.context, timestamp=time.time())
+
+    async def ignore(call):
+        return None
+
+    hass.services.async_register("switch", "turn_on", record_on)
+    hass.services.async_register("switch", "turn_off", record_off)
+    hass.services.async_register("climate", "set_hvac_mode", ignore)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    hass.states.async_set("sensor.test_house_power", "5000", {"unit_of_measurement": "W"})
+    hass.states.async_set("switch.test_low", "on")
+    data = dict(config_data, control=True, whole_house_power="sensor.test_house_power", shed_max_w=4000, shed_loads=["switch.test_low|500"])
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == [("off", "switch.test_low")]
+    assert entry.runtime_data._shed_at["switch.test_low"] == time.time()
+
+    # The user turns the load on, then off again.
+    freezer.tick(timedelta(minutes=1))
+    hass.states.async_set("switch.test_low", "on", timestamp=time.time())
+    freezer.tick(timedelta(minutes=1))
+    hass.states.async_set("switch.test_low", "off", timestamp=time.time())
+    calls.clear()
+    hass.states.async_set("sensor.test_house_power", "2000", {"unit_of_measurement": "W"})
+    await refresh(hass, entry)
+    assert calls == []
+    assert "restored" not in entry.runtime_data.data
+    assert entry.runtime_data._shed_loads == set()

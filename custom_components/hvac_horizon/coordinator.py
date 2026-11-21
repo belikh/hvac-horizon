@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, State, callback
+from homeassistant.core import Context, HomeAssistant, State, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.components import persistent_notification
 from homeassistant.helpers import issue_registry as ir
@@ -314,6 +314,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._device_rates: dict[str, dict[str, float]] = {}  # device_id -> fitted {rate, samples}, kept in the store
         self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
         self._saved_commanded: dict[str, Any] = {}  # the commanded state as last queued for the store
+        self._shed_at: dict[str, float] = {}  # load -> when this entry shed it; stored with the record
+        self._shed_context: dict[str, str] = {}  # load -> id of the context of this entry's turn_off command; memory only
+        self._loaded_at: float = 0.0  # when the store was read; a restored record cannot see changes before it
         self._shed_loads: set[str] = set()  # loads this integration switched off for the power limit, to restore later
         self._price_warned = False  # one warning per coordinator for invalid price thresholds
         self._fleet_warned = False  # one warning per coordinator for unknown fleet keys
@@ -531,6 +534,9 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._timed_duration_min = duration
         self._shed_loads = {str(e) for e in data.get("shed_loads", [])}
         self._load_commanded(data.get("commanded"))
+        self._loaded_at = dt_util.utcnow().timestamp()
+        self._shed_at = {str(k): float(v) for k, v in (data.get("shed_at") or {}).items() if str(k) in self._shed_loads and isinstance(v, (int, float))}
+        self._shed_context = {}
         self._actuator_opened_by_us = bool(data.get("actuator_opened_by_us", False))
         self._device_rates = {
             str(k): {"rate": float(v["rate"]), "samples": float(v.get("samples", 0))}
@@ -762,6 +768,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else {"name": self._timed_preset, "started_min": self._timed_started_min, "duration_min": self._timed_duration_min},
             "shed_loads": sorted(self._shed_loads),
             "commanded": self._commanded_state(),
+            "shed_at": {e: t for e, t in sorted(self._shed_at.items()) if e in self._shed_loads},
             "actuator_opened_by_us": self._actuator_opened_by_us,
             "device_rates": self._device_rates,
         }
@@ -1747,8 +1754,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
             return
         for entity_id in to_shed:
-            await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True)
+            command = Context()
+            await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True, context=command)
             self._shed_loads.add(entity_id)
+            self._shed_at[entity_id] = dt_util.utcnow().timestamp()
+            self._shed_context[entity_id] = command.id
             self._store.async_delay_save(self._save_payload, 0)
 
     async def _drive_restore(self, entity_id: str) -> bool:
@@ -1764,12 +1774,34 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unavailable", "unknown"):
             return False  # keep the record until the load reports again
+        if state.state != "on" and self._changed_since_shed(entity_id, state):
+            # The user or another automation changed the load after the shed. It is not this entry's to turn on.
+            self._forget_shed(entity_id)
+            return False
         sent = state.state != "on"
         await self._drive_switch(entity_id, True)
         if entity_id in self._shed_loads:
-            self._shed_loads.discard(entity_id)
-            self._store.async_delay_save(self._save_payload, 0)
+            self._forget_shed(entity_id)
         return sent
+
+    def _changed_since_shed(self, entity_id: str, state: State) -> bool:
+        """True when the load changed after this entry shed it, by a context other than this entry's turn_off.
+
+        A record restored from the store has no context. It sees only changes after the store was read, because
+        Home Assistant resets last_changed for every entity at start.
+        """
+        shed_at = self._shed_at.get(entity_id)
+        if shed_at is None:
+            return False
+        own = self._shed_context.get(entity_id)
+        since = shed_at if own is not None else max(shed_at, self._loaded_at)
+        return state.last_changed.timestamp() > since and state.context.id != own
+
+    def _forget_shed(self, entity_id: str) -> None:
+        self._shed_loads.discard(entity_id)
+        self._shed_at.pop(entity_id, None)
+        self._shed_context.pop(entity_id, None)
+        self._store.async_delay_save(self._save_payload, 0)
 
     async def _drive_window_actuator(self, result: dict[str, Any]) -> None:
         """Open or close the window actuator on the natural ventilation or economizer advice.
