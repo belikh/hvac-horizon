@@ -140,6 +140,8 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | `house_sealed` | House is sealed | off | Stops the whole-house fan. |
 | `coil_dry` | Dry the AC coil after cooling | off | Runs the AC dry mode for 20 minutes after cooling. |
 | `auto_fan` | Set the AC fan mode from the room gap | off | Sets the AC fan mode from the gap to the target while cooling. |
+| `fleet` | Room devices (list) | empty | The heaters and coolers in the room. HVAC Horizon runs the ones that cover the gap to the target. See [[reference/settings]] for the device keys. |
+| `dispatch_mode` | Device choice | `fast` | `fast` runs the device that delivers the most first. `economy` runs the device with the lowest cost per kelvin first. |
 | `ai_conversation` | AI conversation agent for the investigator (optional) | none | Writes the investigator answer when the AC mode changes, within the daily budget. |
 | `ai_budget_per_day` | Model calls per day for the investigator | none, 0 is off | Daily limit on model calls. |
 

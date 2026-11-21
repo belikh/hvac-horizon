@@ -4,18 +4,18 @@
 
 ## Forecast sensors
 
-Each entry has six forecast sensors. The first three hold the forecast. Each published status key also has its own sensor. See the status keys below.
+Each entry has six forecast sensors. The first three hold the forecast. Each published status key also has its own sensor, 57 in all. See [Sensors](../reference/sensors.md). The forecast covers cooling only. A room below the cooling target shows `at setpoint`, with no heat forecast.
 
 | Sensor | Key | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
-| Minutes to setpoint | `minutes` | min | Time for the room to reach the target at the current power. |
+| Minutes to setpoint | `minutes_to_setpoint` | min | Time for the room to reach the target at the current power. |
 | Energy to setpoint | `energy_kwh` | kWh | AC energy used until the target is reached. |
 | Cost to setpoint | `cost` | none | Energy priced slot by slot, from the price forecast. |
 | Status | `status` | none | State of the forecast. See the table below. |
 | Samples collected | `samples` | none | Stored readings. The store keeps up to 8640 readings, 30 days at 5 minutes. |
 | Forecast error | `forecast_error_min` | min | Median error of the backtest runs. |
 
-The Status sensor holds more values in its attributes. Its `reason` attribute explains the current state.
+The Status sensor holds more values in its attributes. Its `reason` attribute explains the state of the fit or the forecast. It does not show the control decision. The action text is in the `investigation` attribute and the Daily briefing sensor.
 
 ## Status values
 
@@ -32,7 +32,7 @@ Observe mode compares the room with the climate entity's setpoint. Control mode 
 
 ## Learning
 
-The model learns from each 5-minute reading. A reading holds the room temperature, the outdoor temperature, the AC power, the AC mode, the setpoint, and the price when set.
+The model learns from each 5-minute reading. A reading holds the room temperature, the outdoor temperature, the AC power, the AC mode, the setpoint, and the price when set. Intervals where the AC ran in heat, dry or fan-only mode stay out of the cooling fit. The `samples_heat` and `samples_dry` sensors count the heat and dry intervals.
 
 The first model needs the following. Each rule is a code limit.
 
@@ -63,7 +63,7 @@ These attributes sit on the Status sensor.
 | Attribute | Meaning |
 | :--- | :--- |
 | `reason` | Why the forecast or the fit is in its current state. |
-| `k_per_h`, `g_k_per_h`, `c_k_per_kw` | Coefficients of the fitted model: heat gain toward outdoors, constant gain, and cooling per kW. |
+| `k_per_h`, `g_k_per_h`, `c_k_per_kw` | Coefficients of the fitted model. `k_per_h` is the heat-gain rate toward outdoors, in 1/h. `g_k_per_h` is the constant internal gain, in K per hour. `c_k_per_kw` is the cooling per kW of AC power, in K per hour. |
 | `investigation` | Rule-based answer to why the AC runs or does not, with recent actions. |
 | `investigation_ai` | Answer from the conversation agent. Set when the AI conversation field is set. |
 | `investigation_ai_mode` | The AC mode that the AI answer explains. |
@@ -74,6 +74,7 @@ These attributes sit on the Status sensor.
 | `room_rate_coefficients` | Rates fitted from the AC-off and AC-on readings. Holds `k_per_h`, `g_k_per_h`, `c_k_per_h_per_kw`, `samples_off` and `samples_on`. None until fitted. |
 | `auto_tpi_gains` | Online gains for cooling (`cool`) and heating (`heat`). Each starts at 1.0. The cool gain stays between 0.5 and 1.5 and moves at most 0.02 per interval. |
 | `autotune` | PID gains `kp`, `ki` and `kd` after a relay test. None before. |
+| `autotune_status` | State of the last relay test: `running`, `done`, `timed_out`, `cancelled` or `reached_cutoff`. None before any test. |
 
 The AI calls are limited by `ai_budget_per_day`. Absent or 0 means no model calls.
 
@@ -81,10 +82,13 @@ The AI calls are limited by `ai_budget_per_day`. Absent or 0 means no model call
 
 | Sensor | Meaning |
 | :--- | :--- |
-| Target temperature (`target_c`) | With control on, the planned target for this tick. With control off, the comfort setpoint. |
+| Target temperature (`target_c`) | With control on, the temperature the AC cools above this tick (equal to Cool above): the preset setpoint, the user's target, the price shift and the mould bump. With control off, the comfort setpoint. |
 | Preset (`preset`) | With control on, the preset in use: `comfort`, `eco`, `boost` or `away`. With control off, `comfort`. See [Services and presets](services-and-presets.md). |
 | Cool above (`cool_on_above_c`) | The AC cools when the room is above this value. Updated on every tick. |
 | Heat below (`heat_on_below_c`) | The heater heats when the room is below this value. It is 0.5 K under the heat target. Updated on every tick. |
+| Pre-cool status (`precool_status`) | Why a pre-cool start exists or not, for example `start in 25 min` or `no schedule entity`. |
+| MPC plan effect (`mpc_status`) | Whether the cooling plan changed the decision this tick. |
+| Room dispatch (`dispatch`) | The devices from `fleet` that run for the current gap. |
 
 **See also**
 

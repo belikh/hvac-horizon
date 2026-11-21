@@ -10,23 +10,34 @@
    <h1>HVAC Horizon</h1>
 
 .. meta::
-   :description: Forecasts the time, energy and cost for an air conditioner to reach its setpoint, learned from measured power.
+   :description: Learns how a room cools and heats, forecasts the time, energy and cost to a target, and controls the room's AC and heater.
 
-HVAC Horizon is a Home Assistant custom integration. It forecasts how long an air conditioner takes to cool a room to its setpoint, and what the run costs. It learns from measured AC power, room temperature, outdoor temperature and the electricity price.
+HVAC Horizon is a Home Assistant custom integration for one room. It learns how fast the room cools and heats from measured AC power, room and outdoor temperature and the electricity price. It forecasts the minutes, energy and cost to reach a target. With control on, it also drives the AC, an optional heater switch and other room devices.
+
+Each entry creates one device with these entities:
+
+- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool`` and (with a heater switch or ``ac_heat``) ``heat``.
+- Forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error.
+- 57 status sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch.
+
+Services cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
 
 ----
 
 Install
 -------
 
-Add this repository to HACS as a custom repository, category *Integration*.
+Add ``https://github.com/belikh/hvac-horizon`` to HACS as a custom repository with category *Integration*, download it and restart Home Assistant.
 
 .. image:: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
    :target: https://hacs.xyz/
    :alt: HACS custom repository
- Install it, then restart Home Assistant. Add the integration from *Settings > Devices & Services*, and pick the AC, its power sensor, the room and outdoor temperature sensors and the price sensor.
 
-The integration shows *learning* until it has enough samples to fit. The first forecast needs at least three hours with the AC on and three hours with it off, in several separate runs.
+Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon* and pick the AC climate entity, its power sensor, the room temperature sensors and the outdoor temperature sensor. To turn control on later, open the integration card, select the entry menu and choose *Reconfigure*.
+
+The status sensor shows *learning* until the first fit. The fit needs at least three hours with the AC on and three hours with it off, in at least three separate runs.
+
+Documentation: `Install <https://docs.jupiter.au/hvac-horizon/start/install/>`__, `Set up the integration <https://docs.jupiter.au/hvac-horizon/guides/set-up-the-integration/>`__, `Settings <https://docs.jupiter.au/hvac-horizon/reference/settings/>`__ and `Sensors <https://docs.jupiter.au/hvac-horizon/reference/sensors/>`__.
 
 ----
 

@@ -9,9 +9,9 @@ status: draft
 
 ## Settings
 
-The setup and reconfigure forms store these keys in the config entry. A key marked `unset` has no default in the form. The code uses the value in brackets when the key is absent.
+The setup and reconfigure forms store these keys in the config entry. A key marked `unset` has no default in the form. Where the table says `code uses`, the code applies that value when the key is absent. `ai_budget_per_day` absent or 0 means no model calls. `comfort_energy_weight` absent means 0.
 
-Only `climate`, `power`, `room_sensors` and `outdoor` are required. Every other key is optional.
+Only `climate`, `power`, `room_sensors` and `outdoor` are required. Every other key is optional. The table lists the keys in the order of the form.
 
 A heater gain from a relay test replaces the unset or default value of `heater_kp`, `heater_ki` or `heater_kd`. A gain you set yourself takes precedence over the tuned value.
 
@@ -91,11 +91,37 @@ A heater gain from a relay test replaces the unset or default value of `heater_k
 | `window_area_m2` | optional | unset | Window area, m² (optional, needed for solar gain) |
 | `irradiance` | optional | unset | Irradiance sensor on the window, W/m² (optional) |
 | `control` | optional | `False` | Let HVAC Horizon control the AC (off = observe only) |
-| `heater_inverted` | optional | `False)` | Heater switch is inverted (on means off) |
+| `heater_inverted` | optional | `False` | Heater switch is inverted (on means off) |
 | `output_min` | optional | unset (code uses `0.0`) | Minimum heater output (%) |
 | `output_max` | optional | unset (code uses `100.0`) | Maximum heater output (%) |
 | `output_min_entity` | optional | unset | Minimum heater output number entity (optional, overrides the minimum above) |
 | `output_max_entity` | optional | unset | Maximum heater output number entity (optional, overrides the maximum above) |
-| `schedule_blocks` | optional | `list` | Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional) |
+| `schedule_blocks` | optional | `[]` | Schedule blocks: a list of {start_h, end_h, preset}, hours 0 to 24, preset comfort, eco, boost or away (optional) |
+| `fleet` | optional | `[]` | Room devices: a list of {device_id, kind (cool or heat), rate_k_per_h_per_kw, rated_w, power_sensor (optional)} |
+| `dispatch_mode` | optional | `fast` | Device choice: fast (highest effect first) or economy (lowest cost per kelvin) |
 | `ai_conversation` | optional | unset | AI conversation agent for the investigator (optional) |
 | `ai_budget_per_day` | optional | unset | Model calls per day for the investigator (0 or empty is off) |
+
+## Room devices (`fleet`)
+
+`fleet` is a list of the heaters and coolers in the room. When it is set, HVAC Horizon picks which devices to run for the room's gap to the target. `dispatch_mode` sets the order: `fast` runs the device that delivers the most first, `economy` runs the device with the lowest cost per kelvin first. The `dispatch` sensor shows the choice. See [[reference/sensors]].
+
+Each device is an object with these keys. The form rejects any other key.
+
+| Key | Required | Default | Meaning |
+| :-- | :-- | :-- | :-- |
+| `device_id` | required | none | Name of the device. Must be unique in the list. |
+| `kind` | required | none | `cool` or `heat`. |
+| `rated_w` | required | none | Watts the device draws while it runs. Used when there is no power sensor. |
+| `entity_id` | optional | none | The `climate` entity that drives the device. A `heat` device can use a `switch` instead. Without it the device is chosen but not driven. |
+| `power_sensor` | optional | none | Power sensor in watts. Its reading replaces `rated_w` while the device runs. |
+| `rate_k_per_h_per_kw` | optional | none | Room change in kelvin per hour for each kW the device draws. A device without a rate is not chosen. Once the device has run alone for 6 intervals of 5 minutes, the fitted rate replaces it. |
+
+```json title="Fleet"
+[
+  {"device_id": "split", "kind": "cool", "rated_w": 900, "rate_k_per_h_per_kw": 4.0, "entity_id": "climate.lounge_ac"},
+  {"device_id": "panel", "kind": "heat", "rated_w": 1500, "rate_k_per_h_per_kw": 2.0, "entity_id": "switch.panel_heater"}
+]
+```
+
+Fleet devices use the same `min_on_min` and `min_off_min` as the AC. The form shows `Room devices are invalid` with the reason when the list breaks a rule.

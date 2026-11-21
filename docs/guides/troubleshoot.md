@@ -4,20 +4,20 @@
 
 ## Sensor stalled
 
-A sensor counts as stalled when its `last_reported` time is older than the stall window. The default window is 900 seconds. The form accepts 300 to 3600 seconds. `unavailable` and `unknown` do not count as stalled. They count as no reading.
+A sensor counts as stalled when its `last_reported` time is older than the stall window. The default window is 900 seconds. Set it with `stall_window_s`. The form accepts 300 to 3600 seconds. `unavailable` and `unknown` do not count as stalled. They count as no reading.
 
 The check reads `last_reported`, not `last_updated`. Home Assistant keeps `last_updated` when a sensor repeats its value. A steady reading would look stalled.
 
 What the stall stops:
 
-| Condition | AC | Heater output |
+| Condition | AC and fleet devices | Heater output |
 | :--- | :--- | :--- |
 | The outdoor sensor is stalled | Off | 0 % |
 | Every room sensor is stalled | Off | 0 % |
 | One room sensor is stalled and another is fresh | Runs on the fresh median | Unchanged |
 | No room has a valid reading for the stall window | Off | 0 % |
 
-A stall stops the AC even inside the inhibit window.
+A stall stops the AC even inside the inhibit window. It also stops the window actuator from opening. It does not stop the valve, the boiler or the cover: they keep following the last readings.
 
 When sensors stall, HVAC Horizon raises the repair issue `HVAC Horizon sensors not updating`. It also creates a persistent notification. The issue lists the stalled sensors. It clears when they report again.
 
@@ -38,14 +38,17 @@ The AC mode does not change until the current state has lasted long enough.
 - Running means `cool` or `heat`. Stopping the AC, or switching heat to cool, waits for `min_on_min`.
 - Starting cooling waits for `min_off_min`, counted from the last change.
 - The defaults are 5 minutes for `min_on_min` and 3 minutes for `min_off_min`, used when the fields are unset.
+- Devices in `fleet` use the same two times. A stall stop and the safety stops ignore them.
 
 Change them in the reconfigure form. Each accepts 0 to 120 minutes.
 
 ## Lock with a PIN
 
 1. Open the reconfigure form. Enter a value in **Lock PIN**. The field is a password box.
-2. Call `hvac_horizon.set_lock` with `locked: true`. Locking needs no PIN in the call.
+2. Call `hvac_horizon.set_lock` with `locked: true`. Locking needs no PIN in the call, but fails when no PIN is configured.
 3. Call `hvac_horizon.set_lock` with `locked: false` and `pin` set to the PIN. Unlocking needs the same PIN.
+
+The lock is stored, so it stays on after a restart. While locked, the AC action reads `locked` and the room climate entity refuses new targets, presets and modes. A stalled sensor, a window open longer than `window_delay_min` or an away house still turns the AC off. The action then reads `locked: off, sensor stalled`, `locked: off, window open` or `locked: off, house away`.
 
 See [Services and presets](services-and-presets.md) for the error text on a wrong PIN.
 
@@ -62,6 +65,9 @@ The control step writes one action text per tick. The `investigation` attribute 
 | `off: sensor stalled` | A stall is blocking the AC. |
 | `off: no room reading` | No room has a valid reading for the stall window. |
 | `locked` | Control is locked. |
+| `locked: off, <reason>` | Control is locked and a stall, an open window or an away house turned the AC off. |
+| `off: user turned the room off` | You set the room climate entity to `off`. |
+| `off: night hold: AC does not start` | `night_plan_act` is on and the night plan is `hold`. |
 
 ## Repair issues
 

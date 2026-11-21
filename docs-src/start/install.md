@@ -25,8 +25,16 @@ Add the repository to HACS as a custom integration, then install it.
 
 The power sensor must read the power of the whole AC unit in watts. A wall plug that reports the unit's draw works.
 
+Each entry creates one device named `HVAC Horizon <climate name>`. The device holds the room climate entity and the sensors.
+
 ## Turn on control
 
-Observe-only mode learns and forecasts. It sends no commands to the AC.
+Observe-only mode learns and forecasts. It sends no commands to the AC. The `control` field is off until you turn it on.
 
-To let the integration set the AC, open the integration's settings, select **Configure**, and turn on **Control**.
+The integration has no options flow, so there is no **Configure** button. Change settings with the reconfigure action:
+
+1. Open **Settings > Devices and services** and find the **HVAC Horizon** card.
+2. Open the entry, select the three-dot menu, and select **Reconfigure**. The form is titled **Edit HVAC Horizon**.
+3. Turn on **Let HVAC Horizon control the AC (off = observe only)**, then select **Submit**.
+
+The entry reloads and keeps the stored samples. See [[guides/set-up-the-integration]] for every field.

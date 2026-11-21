@@ -4,7 +4,7 @@
 
 ## Sensors
 
-Each entry creates the sensors below. The entity ID is `sensor.<name>` for the entry's name. The key is the suffix that the integration uses in the unique ID, and the attribute key where a value is read from the `status` sensor.
+Each entry creates the 63 sensors below, plus the room climate entity. See [Services and presets](../guides/services-and-presets.md) for the climate entity. The entity ID is `sensor.<name>` for the entry's name. The key is the suffix that the integration uses in the unique ID, and the attribute key where a value is read from the `status` sensor.
 
 | Key | Name | Unit |
 | :--- | :--- | :--- |
@@ -16,6 +16,7 @@ Each entry creates the sensors below. The entity ID is `sensor.<name>` for the e
 | `forecast_error_min` | Forecast error | min |
 | `day_type` | Day type | none |
 | `night_plan` | Night plan | none |
+| `precool_status` | Pre-cool status | none |
 | `daily_briefing` | Daily briefing | none |
 | `window_advice` | Window advice | none |
 | `ventilation` | Ventilation | none |
@@ -33,6 +34,8 @@ Each entry creates the sensors below. The entity ID is `sensor.<name>` for the e
 | `target_c` | Target temperature | °C |
 | `preset` | Preset | none |
 | `heating_allowed` | Heating allowed | none |
+| `samples_heat` | AC heat intervals | none |
+| `samples_dry` | AC dry intervals | none |
 | `heater_feedback` | Heater feedback | none |
 | `heater_pwm_on` | Heater PWM on | none |
 | `valve_opening_pct` | Valve opening | % |
@@ -47,6 +50,7 @@ Each entry creates the sensors below. The entity ID is `sensor.<name>` for the e
 | `shed` | Loads shed | none |
 | `restored` | Load switched back on | none |
 | `mpc_plan` | MPC plan steps | none |
+| `mpc_status` | MPC plan effect | none |
 | `mpc_heat_steps` | MPC heat plan steps | none |
 | `solar_scale` | Solar scale | none |
 | `vacation` | Vacation mode | none |
@@ -66,8 +70,21 @@ Each entry creates the sensors below. The entity ID is `sensor.<name>` for the e
 | `trv_offset_k` | TRV offset | K |
 | `room_fit` | Two-device room fit | none |
 | `forecast_days` | Forecast day counts | none |
+| `dispatch` | Room dispatch | none |
 
-The `status` sensor carries the status values as attributes. A list or dict shows its content in `value`, cut to 255 characters. Use the attribute key from this table to read the value.
+Every row after `forecast_error_min` is one entry of `STATUS_KEYS` in `sensor.py`. A list or dict value shows as JSON text cut to 255 characters in the state, and the full value is in the `value` attribute. A key the coordinator did not publish this tick reads as `unknown`.
+
+## Control status keys
+
+| Key | Content |
+| :--- | :--- |
+| `cool_on_above_c` | The room temperature above which the AC cools, in °C. Updated every tick. |
+| `heat_on_below_c` | The room temperature below which the heater heats, in °C. It is the heat target minus 0.5 K. Updated every tick. |
+| `dispatch` | The devices chosen from `fleet`. A dict with `cool` and `heat` (lists of `device_id`), `power_kw`, `devices` (per device: `rate_k_per_h_per_kw`, `rate_source` as `fitted`, `entered` or `missing`, `power_source` as `sensor` or `rated`, `power_kw`) and, with control on, `waiting` (devices held by a minimum time or the compressor group). Empty lists when no fleet is set. |
+| `precool_status` | Text that says why a pre-cool plan exists or not, for example `start in 25 min`, `no schedule entity`, `no room model yet`, `no running power learned yet` or `no deadline: next_event is in the past`. |
+| `mpc_status` | Text for the cooling plan: `no plan: normal decision`, or `plan step 0 run` or `plan step 0 idle` followed by `decision unchanged` or `changed the decision to idle`. Set only on a tick where control runs. |
+| `samples_heat` | Count of stored 5-minute intervals where the AC was in heat mode. The cooling fit leaves them out. |
+| `samples_dry` | Count of stored 5-minute intervals where the AC was in dry mode. The cooling fit leaves them out. |
 
 ## Attributes
 
@@ -75,10 +92,11 @@ These attributes sit on the entity named in the Entity column. They are read fro
 
 | Attribute | Entity | Content |
 | :--- | :--- | :--- |
-| `reason` | Status | The rule that holds the current decision. |
-| `k_per_h` | Status | Room cooling rate from the AC-off fit, in K per hour. |
+| `reason` | Status | Why the forecast or the fit is in its current state: the fit reason (`fitted`, `not enough data`, `need at least 3 hours of AC on and off time over 3 runs`) or the forecast reason (`reachable`, `not reached within 12 hours`). It does not hold the control decision. The action text is in `investigation` and the Daily briefing. |
+| `k_per_h` | Status | Heat-gain rate toward outdoors of the fitted model, in 1/h. |
 | `c_k_per_kw` | Status | Cooling effect of the AC, in K per hour per kW. |
-| `g_k_per_h` | Status | Outdoor exchange rate, in K per hour. |
+| `g_k_per_h` | Status | Constant gain of the fitted model (internal heat), in K per hour. |
+| `autotune_status` | Status | State of the last relay test: `running`, `done`, `timed_out`, `cancelled` or `reached_cutoff`. None before any test. |
 | `autotune` | Status | Gains kp, ki and kd after a relay test. None before. |
 | `shed_skipped` | Status | Set when a shed load entry is malformed. |
 | `investigation` | Status | Rule-based answer to why the AC runs or does not, with recent actions. |

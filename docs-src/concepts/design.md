@@ -68,8 +68,8 @@ The unit tests use synthetic data from the same equations. They check the arithm
 
 ## Milestones
 
-1. Model and forecast core, with unit tests.
-2. Collector: store samples and refit inside Home Assistant. In progress.
-3. Observe-only sensors for time, energy and cost to setpoint.
-4. Control through the climate entity, gated on the observe-only results.
+1. Model and forecast core, with unit tests. Built.
+2. Collector: store samples and refit inside Home Assistant. Built.
+3. Observe-only sensors for time, energy and cost to setpoint. Built.
+4. Control through the climate entity, gated on the observe-only results. Built.
 5. Multiple rooms, and an outdoor forecast for planning.
