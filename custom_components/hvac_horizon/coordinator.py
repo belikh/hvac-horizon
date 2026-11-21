@@ -374,6 +374,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heater_commanded_on: bool | None = None
         # Switch entity and the state last sent to it. Unload uses these, not the current entry options.
         self._heater_switch_driven: str | None = None
+        # Optional switches (fan, humidifier, dehumidifier, boiler, whole-house fan) this entry last commanded on. The safety stop turns them off.
+        self._switches_on: set[str] = set()
+        self._second_ac_commanded_on = False  # the second AC was last commanded to cool
+        self._coil_dry_sent = False  # this entry put the first AC in dry mode and has not turned it off
+        self._valve_driven: str | None = None  # valve entity and the opening last sent to it
+        self._valve_commanded_pct: float = 0.0
+        self._inputs_seen = False  # room and outdoor readings have been valid at least once since setup; no on-command goes out before
         self._pwm_cancel: list[Callable[[], None]] = []
         self._settings: Settings | None = None
         self._someone_home = True
@@ -964,6 +971,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if driving:
             # A stalled sensor sets the fallback output, whatever the gates say (features.safety_output).
             pct = safety_output(self._stall_blocks(result), pct, fallback_pct=SAFETY_FALLBACK_PCT)
+            if not self._inputs_seen:
+                pct = 0.0  # no heat command before the first valid room and outdoor readings
         relay_running = self._tuner is not None
         if relay_running:
             # The relay test replaces the PWM output. The PWM timers stay cancelled until the test ends.
@@ -1024,14 +1033,33 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unschedule_refresh()
         await self.async_heater_off()
         await self._fleet_all_off(dt_util.utcnow().timestamp())
-        if self.entry.data.get(CONF_CONTROL) and self._last_written_mode in ("cool", "heat"):
-            climate_id = self.entry.data[CONF_CLIMATE]
+        if not self.entry.data.get(CONF_CONTROL):
+            return
+        climate_id = self.entry.data[CONF_CLIMATE]
+        if self._last_written_mode in ("cool", "heat", "dry") or self._coil_dry_sent:
             climate = self.hass.states.get(climate_id)
-            if climate is not None and climate.state in ("cool", "heat"):
+            if climate is not None and climate.state in ("cool", "heat", "dry"):
                 await self.hass.services.async_call(
                     "climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True
                 )
-                self._last_written_mode = "off"
+            self._last_written_mode = "off"
+            self._coil_dry_sent = False
+        climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
+        if climate_2_id and self._second_ac_commanded_on:
+            second = self.hass.states.get(climate_2_id)
+            if second is not None and second.state in ("cool", "heat", "dry"):
+                await self.hass.services.async_call(
+                    "climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True
+                )
+            self._second_ac_commanded_on = False
+        for entity_id in sorted(self._switches_on):
+            await self._drive_switch(entity_id, False, track=True)
+        valve = self._valve_driven
+        if valve is not None and self._valve_commanded_pct > 0.0:
+            state = self.hass.states.get(valve)
+            if state is not None and state.state not in ("unavailable", "unknown") and _float(state) != 0.0:
+                await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": 0.0}, blocking=True)
+            self._valve_commanded_pct = 0.0
 
     async def _refresh_weather(self) -> None:
         weather_id = self.entry.data.get(CONF_WEATHER)
@@ -1172,8 +1200,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         return None if outdoor is None else classify_day(outdoor).value
 
-    async def _drive_switch(self, entity_id: str | None, on: bool) -> None:
-        """Turn an optional switch on or off, only when it differs from its state."""
+    async def _drive_switch(self, entity_id: str | None, on: bool, *, track: bool = False) -> None:
+        """Turn an optional switch on or off, only when it differs from its state.
+
+        With `track`, record the command before the call, so a call cancelled part way is still undone by the safety stop.
+        """
         if not entity_id:
             return
         state = self.hass.states.get(entity_id)
@@ -1182,6 +1213,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if (state.state == "on") == on:
             return
         service = "turn_on" if on else "turn_off"
+        if track:
+            if on:
+                self._switches_on.add(entity_id)
+            else:
+                self._switches_on.discard(entity_id)
         await self.hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
 
     def _report_stalls(self, stalled: list[str]) -> None:
@@ -1324,7 +1360,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._heater_step_done = False
         try:
             return await self._async_update_steps(now, result)
-        except BaseException:
+        except Exception:  # KeyboardInterrupt, SystemExit and CancelledError pass through; the unload and stop paths turn devices off
             if not self._heater_step_done:
                 # A step failed before the heater step. Close the gate and cancel the PWM timers, then turn the heater off.
                 self._heater_gated = True
@@ -1341,6 +1377,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._weather_checked_min is None or now_min - self._weather_checked_min >= 30:
             self._weather_checked_min = now_min
             await self._refresh_weather()
+        if self._rooms() and _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR])) is not None:
+            self._inputs_seen = True
         reading = self._read_inputs(now)
         interval_mean = self._take_interval_mean(now)
         if reading is not None:
@@ -1587,7 +1625,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._drive_shed(to_shed)
                 shed_now = [(entity_id, watts) for entity_id, watts, _ in loads if entity_id in self._shed_loads]
                 restore = shed_restore(total_w, float(max_w), shed_now)
-                if restore is not None and await self._drive_restore(restore):
+                if restore is not None and self._inputs_seen and await self._drive_restore(restore):
                     result["restored"] = restore
             self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
             self._ac_cooling_tick = False
@@ -1606,7 +1644,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["safety_output_pct"] = safety_output(self._stall_blocks(result), 100.0, fallback_pct=SAFETY_FALLBACK_PCT)
         result["autotune_status"] = self._autotune_status
         result["autotune"] = None if self._autotune_result is None else {"kp": round(self._autotune_result.kp, 3), "ki": round(self._autotune_result.ki, 3), "kd": round(self._autotune_result.kd, 3)}
-        if valve_opening is not None:
+        if valve_opening is not None and self._inputs_seen:
             await self._drive_valve(valve_opening)
         return result
 
@@ -1642,11 +1680,18 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # An idle valve can seize. After a week still, step it 10 points for one cycle, then the normal command returns it.
             if valve_exercise_due((now_min - self._valve_moved_min) / (24 * 60.0)):
                 step = opening - 10.0 if opening > 90.0 else opening + 10.0
+                self._record_valve(valve, step)
                 await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": step}, blocking=True)
                 self._valve_moved_min = now_min
             return
+        self._record_valve(valve, opening)
         await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
         self._valve_moved_min = now_min
+
+    def _record_valve(self, valve: str, opening: float) -> None:
+        """Record the valve and the opening about to be sent, so the safety stop can close it."""
+        self._valve_driven = valve
+        self._valve_commanded_pct = opening
 
     async def _drive_shed(self, to_shed: list[str]) -> None:
         """Switch off the planned loads. Runs only with control on, unlocked and not inhibited."""
@@ -2032,6 +2077,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
         self._last_sent_min = now / 60.0
         self._last_written_mode = "off"
+        self._coil_dry_sent = False
         result["action"] = f"locked: off, {reason}"
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
@@ -2045,6 +2091,11 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._locked_safety_stop(now, result, climate_id, first_ac)
             return
         now_min = now / 60.0
+        if not self._inputs_seen and not (self._stall_blocks(result) or self._no_room_data_stop(now)):
+            # Room and outdoor readings have not been valid yet (sensors still starting). Send no command until they are.
+            # A stalled sensor still goes on to the stop path, which sends off commands only.
+            result["action"] = "waiting for first valid readings"
+            return
         if self._external_change():
             # Arm the inhibition once per manual value. Re-arming on every cycle would keep the AC silent
             # for as long as the manual setpoint stands.
@@ -2158,11 +2209,12 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         house_home = effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         if fan_assist_on(result.get("economizer"), bool(self.entry.data.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled):
             fan_on = True
-        await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on)
-        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify")
-        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify")
+        started = self._inputs_seen  # no switch starts before the first valid room and outdoor readings
+        await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify" and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
         heat_ok = result.get("heating_allowed", True)
-        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok)
+        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started, track=True)
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
@@ -2172,7 +2224,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             statistics.median(rooms_wh) if rooms_wh else 0.0,
         )
         result["whole_house_fan"] = fan_ok
-        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok)
+        await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started, track=True)
         # The first AC's block below returns early on several paths, so the second AC is driven before it.
         if any(d.entity_id for d in self._fleet()):
             # Fleet devices with an entity replace the single-AC path: the dispatch drives every cooler and heater of the room.
@@ -2232,6 +2284,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"
+                self._coil_dry_sent = False
             return
         self._was_cooling = climate.state == "cool"
         self._dry_started_min = None
@@ -2420,12 +2473,14 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self._was_cooling = now_cooling
                         return False
                     self._record_group_start(now)
+                    self._coil_dry_sent = True
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 handled = True
             elif self._dry_started_min is not None:
                 self._dry_started_min = None
                 if climate.state == "dry":
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                    self._coil_dry_sent = False
                     handled = True
         self._was_cooling = now_cooling
         return handled
@@ -2448,6 +2503,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         result["second_ac"] = "waiting for minimum time"
                         return
                     self._record_group_start(now)
+                    self._second_ac_commanded_on = True
                     await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
                     self._last_start_min["climate_2"] = now / 60.0
                     self._second_changed_at = now
@@ -2465,6 +2521,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 result["second_ac"] = "waiting for minimum time"
                 return
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
+            self._second_ac_commanded_on = False
             self._second_changed_at = now
             result["second_ac"] = "driven"
 

@@ -1,3 +1,4 @@
+import asyncio
 """Home Assistant test: config flow, setup, one refresh and unload.
 
 Run with pytest-homeassistant-custom-component. This directory has no __init__.py,
@@ -5593,3 +5594,190 @@ async def test_start_timed_preset_service_publishes_the_preset_and_drives_the_ac
     freezer.tick(timedelta(minutes=31))
     await refresh(hass, entry)
     assert entry.runtime_data.data["preset"] == "comfort"
+
+
+# Safety stop covers every output the entry drives, and no command goes out before the first valid readings.
+
+STOP_FAN = "switch.stop_fan"
+STOP_HUMIDIFIER = "switch.stop_humidifier"
+STOP_DEHUMIDIFIER = "switch.stop_dehumidifier"
+STOP_BOILER = "switch.stop_boiler"
+STOP_WHOLE_HOUSE_FAN = "switch.stop_whole_house_fan"
+STOP_VALVE = "number.stop_valve"
+SECOND_AC = "climate.test_ac_2"
+STOP_CO2 = "sensor.stop_co2"
+STOP_HUMIDITY = "sensor.stop_humidity"
+
+
+async def _setup_recording(hass, config_data, *, room="20.0", outdoor="10.0", climate="off", extra=None, states=None):
+    """Set up a control-on entry with no heater. Every switch, climate and number service call is recorded as (domain, service, entity, value)."""
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, climate, {"temperature": 24.0, "friendly_name": "Test AC"})
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    for entity, state in (states or {}).items():
+        hass.states.async_set(entity, state)
+    calls = []
+
+    def recorder(domain, service):
+        async def record(call):
+            value = call.data.get("hvac_mode", call.data.get("value", call.data.get("temperature")))
+            calls.append((domain, service, call.data["entity_id"], value))
+
+        hass.services.async_register(domain, service, record)
+
+    for domain, service in (
+        ("switch", "turn_on"),
+        ("switch", "turn_off"),
+        ("climate", "set_hvac_mode"),
+        ("climate", "set_temperature"),
+        ("number", "set_value"),
+    ):
+        recorder(domain, service)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "control": True, **(extra or {})}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, calls
+
+
+async def _stop(hass, calls):
+    calls.clear()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+    return list(calls)
+
+
+@pytest.mark.parametrize(
+    "switch, extra, states, setup_kwargs",
+    [
+        (STOP_FAN, {"fan": STOP_FAN, "co2": STOP_CO2}, {STOP_FAN: "off", STOP_CO2: "1500"}, {}),
+        (STOP_HUMIDIFIER, {"humidifier": STOP_HUMIDIFIER, "room_humidity": STOP_HUMIDITY}, {STOP_HUMIDIFIER: "off", STOP_HUMIDITY: "30"}, {}),
+        (STOP_DEHUMIDIFIER, {"dehumidifier": STOP_DEHUMIDIFIER, "room_humidity": STOP_HUMIDITY}, {STOP_DEHUMIDIFIER: "off", STOP_HUMIDITY: "70"}, {}),
+        (STOP_BOILER, {"boiler": STOP_BOILER}, {STOP_BOILER: "off"}, {"outdoor": "0.0"}),
+        (STOP_WHOLE_HOUSE_FAN, {"whole_house_fan": STOP_WHOLE_HOUSE_FAN}, {STOP_WHOLE_HOUSE_FAN: "off"}, {"room": "26.0", "outdoor": "18.0"}),
+    ],
+    ids=["fan", "humidifier", "dehumidifier", "boiler", "whole_house_fan"],
+)
+async def test_safety_stop_turns_off_a_switch_the_entry_turned_on(hass, enable_custom_integrations, config_data, switch, extra, states, setup_kwargs):
+    entry, calls = await _setup_recording(hass, config_data, extra=extra, states=states, **setup_kwargs)
+    assert ("switch", "turn_on", switch, None) in calls
+    hass.states.async_set(switch, "on")
+    assert ("switch", "turn_off", switch, None) in await _stop(hass, calls)
+
+
+async def test_safety_stop_closes_a_valve_the_entry_opened(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_recording(hass, config_data, extra={"valve": STOP_VALVE}, states={STOP_VALVE: "0"})
+    opened = [c for c in calls if c[:3] == ("number", "set_value", STOP_VALVE)]
+    assert opened and opened[-1][3] > 0
+    hass.states.async_set(STOP_VALVE, str(opened[-1][3]))
+    assert ("number", "set_value", STOP_VALVE, 0.0) in await _stop(hass, calls)
+
+
+async def test_safety_stop_turns_off_an_ac_the_entry_put_in_dry_mode(hass, enable_custom_integrations, config_data):
+    extra = {"room_humidity": STOP_HUMIDITY, "dry_for_humidity": True}
+    entry, calls = await _setup_recording(hass, config_data, room="23.0", extra=extra, states={STOP_HUMIDITY: "72"})
+    assert ("climate", "set_hvac_mode", CLIMATE, "dry") in calls
+    hass.states.async_set(CLIMATE, "dry", {"temperature": 24.0})
+    assert ("climate", "set_hvac_mode", CLIMATE, "off") in await _stop(hass, calls)
+
+
+async def test_safety_stop_turns_off_the_second_ac_the_entry_started(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_recording(
+        hass, config_data, room="26.0", outdoor="30.0", climate="cool", extra={"climate_2": SECOND_AC}, states={SECOND_AC: "off"}
+    )
+    assert ("climate", "set_hvac_mode", SECOND_AC, "cool") in calls
+    hass.states.async_set(SECOND_AC, "cool", {"temperature": 24.0})
+    stop_calls = await _stop(hass, calls)
+    assert ("climate", "set_hvac_mode", SECOND_AC, "off") in stop_calls
+    # The first AC was already cooling when the entry started, so the entry never commanded it.
+    assert not [c for c in stop_calls if c[2] == CLIMATE]
+
+
+async def test_safety_stop_leaves_a_switch_the_entry_never_drove(hass, enable_custom_integrations, config_data):
+    # The fan switch is unavailable while the entry runs, so it sends it no command. The user then turns it on.
+    entry, calls = await _setup_recording(
+        hass, config_data, extra={"fan": STOP_FAN, "co2": STOP_CO2}, states={STOP_FAN: "unavailable", STOP_CO2: "1500", "switch.other": "on"}
+    )
+    assert not [c for c in calls if c[2] == STOP_FAN]
+    hass.states.async_set(STOP_FAN, "on")
+    assert [c for c in await _stop(hass, calls) if c[0] == "switch"] == []
+
+
+async def test_unload_turns_off_what_the_entry_turned_on(hass, enable_custom_integrations, config_data):
+    entry, calls = await _setup_recording(hass, config_data, extra={"fan": STOP_FAN, "co2": STOP_CO2}, states={STOP_FAN: "off", STOP_CO2: "1500"})
+    hass.states.async_set(STOP_FAN, "on")
+    calls.clear()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ("switch", "turn_off", STOP_FAN, None) in calls
+
+
+async def test_cancelled_tick_during_unload_leaves_the_heater_off(hass, enable_custom_integrations, config_data):
+    # Cancel a tick while its heater turn_on call is in flight. CancelledError passes through the tick, and the unload turns the heater off.
+    entry, calls = await setup_heater(hass, config_data)
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    entered = asyncio.Event()
+
+    async def hang_on(call):
+        calls.append("turn_on")
+        entered.set()
+        await asyncio.sleep(3600)
+
+    hass.services.async_register("switch", "turn_on", hang_on)
+    task = hass.async_create_task(coordinator._async_update_data())
+    await asyncio.wait_for(entered.wait(), 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    hass.states.async_set(HEATER, "on")
+    calls.clear()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert calls == ["turn_off"]
+
+
+async def test_keyboard_interrupt_in_a_tick_is_not_swallowed_by_the_heater_fallback(hass, enable_custom_integrations, config_data, monkeypatch):
+    entry, calls = await setup_heater(hass, config_data, heater_state="on")
+    coordinator = entry.runtime_data
+    coordinator._unschedule_refresh()
+    coordinator._heater_commanded_on = True
+
+    async def interrupted(now, result):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(coordinator, "_async_update_steps", interrupted)
+    calls.clear()
+    with pytest.raises(KeyboardInterrupt):
+        await coordinator._async_update_data()
+    assert calls == []
+
+
+@pytest.mark.parametrize("missing", ["room", "outdoor"])
+async def test_no_command_before_the_first_valid_readings(hass, enable_custom_integrations, config_data, missing):
+    # Cold room with the outdoor sensor down: heater, boiler and valve would start. Hot room with no room reading: the AC would cool.
+    extra = {
+        "heater_switch": HEATER,
+        "boiler": STOP_BOILER,
+        "valve": STOP_VALVE,
+        "fan": STOP_FAN,
+        "co2": STOP_CO2,
+        "room_humidity": STOP_HUMIDITY,
+        "dehumidifier": STOP_DEHUMIDIFIER,
+        "climate_2": SECOND_AC,
+    }
+    states = {HEATER: "off", STOP_BOILER: "off", STOP_VALVE: "0", STOP_FAN: "off", STOP_CO2: "1500", STOP_HUMIDITY: "70", STOP_DEHUMIDIFIER: "off", SECOND_AC: "off"}
+    room, outdoor = ("unavailable", "0.0") if missing == "room" else ("26.0", "unavailable")
+    entry, calls = await _setup_recording(hass, config_data, room=room, outdoor=outdoor, extra=extra, states=states)
+    await refresh(hass, entry)
+    starts = [c for c in calls if c[1] in ("turn_on", "set_value") or (c[1] == "set_hvac_mode" and c[3] != "off")]
+    assert starts == []
+    # Readings arrive. The normal decision applies: a hot room cools.
+    for entity in (ROOM_A, ROOM_B):
+        hass.states.async_set(entity, "26.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    await refresh(hass, entry)
+    assert ("climate", "set_hvac_mode", CLIMATE, "cool") in calls
+    assert ("switch", "turn_on", STOP_FAN, None) in calls

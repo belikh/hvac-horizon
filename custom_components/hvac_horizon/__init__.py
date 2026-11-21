@@ -146,7 +146,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         sync_accuracy_panel(hass, exclude_entry_id=entry.entry_id)
         entry.runtime_data.forget_cooling()
         entry.runtime_data.forget_peer_requests()
-        await entry.runtime_data.async_heater_off()
-        await entry.runtime_data._fleet_all_off(dt_util.utcnow().timestamp())
+        await entry.runtime_data.async_safety_stop()
         await entry.runtime_data.async_shutdown_store()
     return unloaded
