@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from homeassistant import config_entries
+from homeassistant import config_entries, data_entry_flow
 from homeassistant.components import sensor
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import SupportsResponse
@@ -30,6 +30,8 @@ from custom_components.hvac_horizon.forecast import forecast
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.tpi import GAIN_MAX, TpiFit
 from custom_components.hvac_horizon.const import (
+    DEFAULT_PRICE_CHEAP,
+    DEFAULT_PRICE_EXPENSIVE,
     CONF_BOOST_C,
     CONF_AWAY_DELAY_MIN,
     CONF_COMFORT_C,
@@ -105,6 +107,60 @@ async def test_config_flow_creates_entry(hass, enable_custom_integrations, confi
     result = await hass.config_entries.flow.async_configure(result["flow_id"], config_data)
     assert result["type"] == "create_entry"
     assert result["data"][CONF_CLIMATE] == CLIMATE
+
+
+async def test_config_flow_rejects_cheap_price_above_expensive(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "price_cheap": 0.5, "price_expensive": 0.2})
+    assert result["type"] == "form"
+    assert result["errors"] == {"price_cheap": "price_order"}
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_config_flow_rejects_out_of_range_price(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    with pytest.raises(data_entry_flow.InvalidData):  # the number selector rejects 11 before the flow runs
+        await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "price_expensive": 11})
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_config_flow_rejects_fleet_device_with_an_extra_key(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    fleet = [{"device_id": "a", "kind": "cool", "rated_w": 900, "colour": "red"}]
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**config_data, "fleet": fleet})
+    assert result["type"] == "form"
+    assert result["errors"] == {"fleet": "invalid_fleet"}
+    assert "'colour'" in result["description_placeholders"]["fleet_problem"]
+    assert hass.config_entries.async_entries(DOMAIN) == []
+
+
+async def test_stored_invalid_price_threshold_loads_with_defaults_and_one_warning(hass, enable_custom_integrations, config_data, caplog):
+    set_inputs(hass)
+    data = {**config_data, "price_cheap": 0.9, "price_expensive": 0.1}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+    assert coordinator._price_thresholds() == (DEFAULT_PRICE_CHEAP, DEFAULT_PRICE_EXPENSIVE)
+    assert sum("Invalid price thresholds" in r.message for r in caplog.records if r.levelname == "WARNING") == 1
+
+
+async def test_stored_fleet_device_with_an_extra_key_is_kept_with_one_warning(hass, enable_custom_integrations, config_data, caplog):
+    set_inputs(hass)
+    fleet = [{"device_id": "a", "kind": "cool", "rated_w": 900, "colour": "red"}]
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "fleet": fleet}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert [d.device_id for d in entry.runtime_data._fleet()] == ["a"]
+    entry.runtime_data._fleet()
+    assert sum("unknown keys" in r.message for r in caplog.records if r.levelname == "WARNING") == 1
 
 
 async def test_setup_publishes_sensors_and_refreshes(hass, enable_custom_integrations, config_data):

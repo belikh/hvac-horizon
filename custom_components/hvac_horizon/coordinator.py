@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import statistics
 from dataclasses import asdict, fields, replace
 from datetime import datetime, timedelta
@@ -312,6 +313,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._device_rates: dict[str, dict[str, float]] = {}  # device_id -> fitted {rate, samples}, kept in the store
         self._second_changed_at: float | None = None  # when the second AC last changed mode, for its minimum times
         self._shed_loads: set[str] = set()  # loads this integration switched off for the power limit, to restore later
+        self._price_warned = False  # one warning per coordinator for invalid price thresholds
+        self._fleet_warned = False  # one warning per coordinator for unknown fleet keys
         self._heater_on_min: float = 0.0
         self._heater_check_t: float | None = None
         self._heater_gated = False
@@ -1748,8 +1751,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             price_shifted_target(
                 comfort,
                 price,
-                cheap_per_kwh=float(self.entry.data.get(CONF_PRICE_CHEAP, DEFAULT_PRICE_CHEAP)),
-                expensive_per_kwh=float(self.entry.data.get(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)),
+                cheap_per_kwh=self._price_thresholds()[0],
+                expensive_per_kwh=self._price_thresholds()[1],
             ),
         )
         target_c = mould_target(target_c, bool(result.get("mould_risk")))
@@ -1812,12 +1815,44 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["dispatch"] = self._dispatch()
         result["heat_on_below_c"] = round(self._heat_on_below_c, 2)
 
+    def _price_thresholds(self) -> tuple[float, float]:
+        """The cheap and expensive price thresholds. An invalid stored value falls back to the defaults, with one warning."""
+        data = self.entry.data
+
+        def number(name: str, default: float) -> float:
+            value = data.get(name)
+            if value is None:
+                return default
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 10:
+                return math.nan
+            return float(value)
+
+        cheap = number(CONF_PRICE_CHEAP, DEFAULT_PRICE_CHEAP)
+        expensive = number(CONF_PRICE_EXPENSIVE, DEFAULT_PRICE_EXPENSIVE)
+        if math.isnan(cheap) or math.isnan(expensive) or cheap >= expensive:
+            if not self._price_warned:
+                self._price_warned = True
+                _LOGGER.warning(
+                    "Invalid price thresholds (cheap=%r, expensive=%r) for %s; using %s and %s. Fix them in the entry settings.",
+                    data.get(CONF_PRICE_CHEAP), data.get(CONF_PRICE_EXPENSIVE), self.entry.title,
+                    DEFAULT_PRICE_CHEAP, DEFAULT_PRICE_EXPENSIVE,
+                )
+            return DEFAULT_PRICE_CHEAP, DEFAULT_PRICE_EXPENSIVE
+        return cheap, expensive
+
     def _fleet(self) -> list[Device]:
-        """Room devices from the fleet option. A malformed entry is skipped and reported in the dispatch result."""
+        """Room devices from the fleet option. A device without device_id and kind is skipped. Unknown keys are dropped with one warning."""
         devices: list[Device] = []
+        known = {f.name for f in fields(Device)}
         for raw in self.entry.data.get(CONF_FLEET) or []:
+            if not isinstance(raw, dict):
+                continue
+            unknown = sorted(set(raw) - known)
+            if unknown and not self._fleet_warned:
+                self._fleet_warned = True
+                _LOGGER.warning("Fleet device %s has unknown keys %s; they are ignored.", raw.get("device_id"), unknown)
             try:
-                devices.append(Device(**raw))
+                devices.append(Device(**{k: v for k, v in raw.items() if k in known}))
             except TypeError:
                 continue
         return devices

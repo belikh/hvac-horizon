@@ -187,7 +187,9 @@
       "reconfigure_successful": "Settings updated. Stored samples are kept."
     },
     "error": {
-      "invalid_fleet": "Room devices must be a list. Each needs a unique device_id, kind cool or heat, and rated_w.",
+      "invalid_fleet": "Room devices are invalid: {fleet_problem}",
+      "invalid_price": "Enter a price as a number from 0 to 10.",
+      "price_order": "The cheap price threshold must be below the expensive price threshold.",
       "invalid_schedule_blocks": "Schedule blocks must be a list of {start_h, end_h, preset}. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
     }
   },

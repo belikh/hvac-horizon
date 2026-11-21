@@ -3,13 +3,17 @@ humidity and energy sensors. The reconfigure step edits the same fields without 
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
+from .fleet import Device
 from .const import (
+    DEFAULT_PRICE_CHEAP,
+    DEFAULT_PRICE_EXPENSIVE,
     CONF_AWAY_DELAY_MIN,
     CONF_COIL_DRY,
     CONF_DRY_FOR_HUMIDITY,
@@ -112,6 +116,31 @@ MISSING = object()  # marks a key() call with no schema default
 SCHEDULE_PRESETS = ("comfort", "eco", "boost", "away")
 
 
+FLEET_KEYS = frozenset(f.name for f in dataclasses.fields(Device))
+
+
+def _number_ok(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and 0 <= value <= 10
+
+
+def _price_errors(data: dict[str, Any]) -> dict[str, str]:
+    """Return a form error for each invalid price threshold.
+
+    Each threshold is a number from 0 to 10. When both are set, price_cheap must be below price_expensive.
+    """
+    errors: dict[str, str] = {}
+    for name in (CONF_PRICE_CHEAP, CONF_PRICE_EXPENSIVE):
+        if data.get(name) is not None and not _number_ok(data[name]):
+            errors[name] = "invalid_price"
+    cheap = data.get(CONF_PRICE_CHEAP, DEFAULT_PRICE_CHEAP) if data.get(CONF_PRICE_CHEAP) is not None else DEFAULT_PRICE_CHEAP
+    expensive = (
+        data.get(CONF_PRICE_EXPENSIVE) if data.get(CONF_PRICE_EXPENSIVE) is not None else DEFAULT_PRICE_EXPENSIVE
+    )
+    if not errors and cheap >= expensive:
+        errors[CONF_PRICE_CHEAP] = "price_order"
+    return errors
+
+
 def _fleet_problem(value: Any) -> str | None:
     """Return why a room device list is invalid, or None when it is valid.
 
@@ -130,6 +159,9 @@ def _fleet_problem(value: Any) -> str | None:
             return f"kind must be cool or heat: {device['kind']}"
         if not device.get("rated_w"):
             return f"a device needs rated_w, the watts it draws while running: {device['device_id']}"
+        unknown = sorted(set(device) - FLEET_KEYS)
+        if unknown:
+            return f"unknown key {', '.join(repr(k) for k in unknown)} in device {device['device_id']}; allowed keys: {', '.join(sorted(FLEET_KEYS))}"
         entity = device.get("entity_id")
         if entity is not None:
             domain = str(entity).split(".", 1)[0]
@@ -358,7 +390,14 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
                     step_id="user", data_schema=_schema(user_input), errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
                 )
             if _fleet_problem(user_input.get(CONF_FLEET, [])):
-                return self.async_show_form(step_id="user", data_schema=_schema(user_input), errors={CONF_FLEET: "invalid_fleet"})
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_schema(user_input),
+                    errors={CONF_FLEET: "invalid_fleet"},
+                    description_placeholders={"fleet_problem": _fleet_problem(user_input.get(CONF_FLEET, []))},
+                )
+            if price_errors := _price_errors(user_input):
+                return self.async_show_form(step_id="user", data_schema=_schema(user_input), errors=price_errors)
             await self.async_set_unique_id(user_input[CONF_CLIMATE])
             self._abort_if_unique_id_configured()
             climate = self.hass.states.get(user_input[CONF_CLIMATE])
@@ -375,6 +414,15 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
                     data_schema=_schema(user_input),
                     errors={CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"},
                 )
+            if _fleet_problem(user_input.get(CONF_FLEET, [])):
+                return self.async_show_form(
+                    step_id="reconfigure",
+                    data_schema=_schema(user_input),
+                    errors={CONF_FLEET: "invalid_fleet"},
+                    description_placeholders={"fleet_problem": _fleet_problem(user_input.get(CONF_FLEET, []))},
+                )
+            if price_errors := _price_errors(user_input):
+                return self.async_show_form(step_id="reconfigure", data_schema=_schema(user_input), errors=price_errors)
             # data_updates merges, so a field left out of the submit would keep its old value. Build the
             # whole data dict instead. The lock PIN is kept when the PIN box is left blank.
             data = {k: v for k, v in entry.data.items() if k not in FORM_FIELDS}
