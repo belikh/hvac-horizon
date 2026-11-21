@@ -3757,7 +3757,7 @@ async def test_fan_is_left_alone_with_control_off(hass, enable_custom_integratio
     assert await _fan_mode_run(hass, config_data, room="27.0", fan_mode="auto", control=False) == []
 
 
-async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0", extra=None, precool_now=True):
+async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan=None, no_prices=False, outdoor="30.0", extra=None, precool_now=True, schedule=None, away=False, power_kw=None, fit_c=0.5):
     """Control on, a fixed MPC plan and a pre-cool start now. Returns the entry and the AC mode commands.
 
     The price sensor stays set, so the target is 24.04 C and the cool threshold is 24.04 C. The
@@ -3769,17 +3769,22 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
 
     # The price fixture starts at 08:10 UTC. Slots that have ended are dropped, so the clock sits before them.
     freezer.move_to("2026-11-20T08:00:00+00:00")
-    monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=0.5, g=0.0)))
+    monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=fit_c, g=0.0)))
     if precool_now:
         monkeypatch.setattr(HorizonCoordinator, "_precool_start", lambda self, now, rooms: 0.0)
     if plan is not None:
         monkeypatch.setattr(coordinator_module, "mpc_plan", lambda *args, **kwargs: list(plan))
     if no_prices:
         monkeypatch.setattr(HorizonCoordinator, "_price_forecast", lambda self, now: [])
+    if power_kw is not None:
+        monkeypatch.setattr(coordinator_module, "running_power_kw", lambda entries, now, *a, **k: power_kw)
     set_inputs(hass)
     _set_ac_rooms(hass, room)
     hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
     hass.states.async_set(CLIMATE, "off", {"temperature": 22.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    if schedule is not None:
+        hass.states.async_set("sensor.test_schedule", "on", {"next_event": schedule})
+        extra = dict(extra or {}, schedule="sensor.test_schedule")
     modes = []
 
     async def record_mode(call):
@@ -3796,6 +3801,9 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
+    if away:
+        await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "away"}, blocking=True)
+        await refresh(hass, entry)
     return entry, modes
 
 
@@ -4974,3 +4982,41 @@ async def test_store_payload_holds_no_pin_and_old_payloads_load(hass, enable_cus
     assert coordinator._locked is False
     assert coordinator._shed_loads == set()
     assert coordinator._timed_preset is None
+
+
+_SOON = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)  # 60 minutes after the frozen 08:00 UTC clock
+
+
+async def _schedule_run(hass, config_data, monkeypatch, freezer, schedule, away=False, caplog=None):
+    return await _mpc_run(
+        hass, config_data, monkeypatch, freezer, room="27.0", outdoor="30.0", precool_now=False,
+        schedule=schedule, away=away, power_kw=1.1, no_prices=True, fit_c=3.0,
+    )
+
+
+@pytest.mark.parametrize("form", ["datetime", "iso", "timestamp"])
+async def test_schedule_next_event_starts_the_pre_cool(hass, enable_custom_integrations, config_data, monkeypatch, freezer, form):
+    # Room 27 C, target 24 C, outdoor 30 C, deadline 60 minutes away. A real schedule helper stores a datetime.
+    value = {"datetime": _SOON, "iso": _SOON.isoformat(), "timestamp": _SOON.timestamp()}[form]
+    entry, modes = await _schedule_run(hass, config_data, monkeypatch, freezer, value)
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"
+    assert entry.runtime_data.data["precool_status"] == "start in 0 min"
+
+
+async def test_unparseable_next_event_gives_no_pre_cool_and_a_warning(hass, enable_custom_integrations, config_data, monkeypatch, freezer, caplog):
+    entry, modes = await _schedule_run(hass, config_data, monkeypatch, freezer, "tomorrow morning")
+    # Someone is home and the room is warm, so the AC cools anyway. The reason shows the pre-cool plan did not act.
+    assert entry.runtime_data.data["action"] != "cool: pre-cool starts now"
+    assert entry.runtime_data.data["precool_status"].startswith("no deadline: next_event 'tomorrow morning'")
+    assert sum("Pre-cool ignored" in r.message for r in caplog.records if r.levelname == "WARNING") == 1
+    await refresh(hass, entry)
+    assert sum("Pre-cool ignored" in r.message for r in caplog.records if r.levelname == "WARNING") == 1
+
+
+@pytest.mark.parametrize("form", ["datetime", "iso"])
+async def test_schedule_next_event_starts_the_pre_cool_when_away(hass, enable_custom_integrations, config_data, monkeypatch, freezer, form):
+    value = _SOON if form == "datetime" else _SOON.isoformat()
+    entry, modes = await _schedule_run(hass, config_data, monkeypatch, freezer, value, away=True)
+    assert modes == ["cool"]
+    assert entry.runtime_data.data["action"] == "cool: pre-cool starts now"

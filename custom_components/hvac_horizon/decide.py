@@ -98,14 +98,18 @@ def decide(state: RoomState, settings: Settings, ac_cooling: bool = False) -> Ac
         return Action(Mode.OFF, None, gate)
     if state.night_precool_c is not None and state.room_c > state.night_precool_c:
         return Action(Mode.COOL, state.night_precool_c, "night pre-cool")
+    precool_now = state.precool_start_in_min is not None and state.precool_start_in_min <= 0
     if not state.someone_home:
+        # Away with a near deadline and a room above the comfort target: pre-cool so the room is ready on arrival.
+        if precool_now and _cool_wanted(state.room_c, settings.comfort_c, ac_cooling):
+            return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
         # Away: hold the setback only when the room is above it. Never switch on for a cooler room.
         away_target = cool_above_c(settings, False)
         if _cool_wanted(state.room_c, away_target, ac_cooling):
             reason = "eco when unoccupied" if settings.eco_c is not None else "away setback"
             return Action(Mode.COOL, away_target, reason)
         return Action(Mode.OFF, None, "away, room within setback")
-    if state.precool_start_in_min is not None and state.precool_start_in_min <= 0:
+    if precool_now:
         return Action(Mode.COOL, settings.comfort_c, "pre-cool starts now")
     target = cool_above_c(settings, True)
     if _cool_wanted(state.room_c, target, ac_cooling):

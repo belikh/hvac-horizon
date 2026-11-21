@@ -24,6 +24,18 @@ class DecideTests(unittest.TestCase):
         a = decide(state(window_open_min=12.0, precool_start_in_min=0.0), S)
         self.assertEqual(a.mode, Mode.OFF)
 
+    def test_away_precool_cools_to_comfort_when_room_is_above_it(self):
+        a = decide(state(someone_home=False, room_c=26.0, precool_start_in_min=0.0), S)
+        self.assertEqual((a.mode, a.setpoint_c, a.reason), (Mode.COOL, 24.0, "pre-cool starts now"))
+
+    def test_away_precool_waits_when_planner_says_later(self):
+        a = decide(state(someone_home=False, room_c=26.0, precool_start_in_min=30.0), S)
+        self.assertEqual(a.mode, Mode.OFF)
+
+    def test_away_precool_idle_when_room_is_at_target(self):
+        a = decide(state(someone_home=False, room_c=23.8, precool_start_in_min=0.0), S)
+        self.assertEqual(a.mode, Mode.OFF)
+
     def test_away_uses_away_setpoint(self):
         a = decide(state(someone_home=False, room_c=28.0), S)
         self.assertEqual((a.mode, a.setpoint_c), (Mode.COOL, 27.0))

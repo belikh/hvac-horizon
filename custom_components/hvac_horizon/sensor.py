@@ -19,6 +19,7 @@ from .coordinator import HorizonCoordinator
 STATUS_KEYS: dict[str, str] = {
     "day_type": "Day type",
     "night_plan": "Night plan",
+    "precool_status": "Pre-cool status",
     "daily_briefing": "Daily briefing",
     "window_advice": "Window advice",
     "ventilation": "Ventilation",

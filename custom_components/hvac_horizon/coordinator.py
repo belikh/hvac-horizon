@@ -219,6 +219,35 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_deadline(raw: Any) -> tuple[float | None, str | None]:
+    """Epoch seconds of a schedule next_event, and a problem text when the value cannot be read.
+
+    Accepts a datetime, an ISO string or a timestamp in seconds. An empty, unknown or unavailable value is no deadline
+    and no problem. A naive time is read in the Home Assistant time zone.
+    """
+    if raw is None or (isinstance(raw, str) and raw.strip().lower() in ("", "unknown", "unavailable", "none")):
+        return None, None
+    try:
+        if isinstance(raw, datetime):
+            when = raw
+        elif isinstance(raw, bool):
+            raise TypeError("bool")
+        elif isinstance(raw, (int, float)):
+            return float(raw), None
+        elif isinstance(raw, str):
+            try:
+                return float(raw), None
+            except ValueError:
+                when = datetime.fromisoformat(raw.strip())
+        else:
+            raise TypeError(type(raw).__name__)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=dt_util.get_default_time_zone())
+        return when.timestamp(), None
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None, f"next_event {raw!r} is not a datetime, ISO string or timestamp"
 _ENTRY_FIELDS = {f.name for f in fields(Entry)}
 
 
@@ -353,6 +382,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._timed_duration_min: float = 0.0
         self._last_written_mode: str | None = None
         self._window_paused = False
+        self._precool_status: str | None = None
+        self._precool_warned: str | None = None
         self._lock_notified = False
         self._inhibit_until_min: float | None = None
         self._inhibited_for_setpoint: float | None = None  # the manual value that last armed the inhibition
@@ -1262,6 +1293,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         result["day_type"] = self._day_type()
         result["forecast_days"] = weather_day_summary(self._forecast_highs) if self._forecast_highs else None
         result["night_plan"] = self._night_plan()
+        result.setdefault("precool_status", self._precool_status)
         result["learning_suggestion"] = suggestion_visible(
             self._learning_suggestion(),
             dismissed_for_k=self._dismissed_for_k,
@@ -1864,6 +1896,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "HVAC Horizon paused control: a window is open.", "HVAC Horizon resumed control: the window is closed.",
         )
         precool = self._precool_start(now, rooms)
+        result["precool_status"] = self._precool_status
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         # The night plan acts only with its flag on. Its pre-cool target and hold use the comfort setpoint.
         night = result.get("night_plan") if self.entry.data.get(CONF_NIGHT_PLAN_ACT, False) else None
@@ -2347,32 +2380,51 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Pre-cool start from the planner. Needs a schedule entity whose next_event attribute is an ISO time."""
         schedule = self._optional(CONF_SCHEDULE)
         active = self._active_fit()
-        if schedule is None or active is None:
+        if schedule is None:
+            self._precool_status = "no schedule entity"
+            return None
+        if active is None:
+            self._precool_status = "no room model yet"
             return None
         raw = schedule.attributes.get("next_event")
-        try:
-            deadline = datetime.fromisoformat(raw).timestamp() if raw else None
-        except (TypeError, ValueError):
+        deadline, problem = _parse_deadline(raw)
+        if problem is not None:
+            if self._precool_warned != problem:
+                self._precool_warned = problem
+                _LOGGER.warning("Pre-cool ignored: %s", problem)
+            self._precool_status = f"no deadline: {problem}"
             return None
+        self._precool_warned = None
         if deadline is None:
+            self._precool_status = "no deadline: schedule has no next_event"
             return None
         climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         setpoint = self.comfort_c
         if climate is None or outdoor is None or not rooms:
+            self._precool_status = "no climate, outdoor or room reading"
             return None
         power_kw = running_power_kw(self._entries, now) or 0.0
         if power_kw <= 0:
+            self._precool_status = "no running power learned yet"
             return None
-        return precool_start_in_min(
+        minutes = (deadline - now) / 60.0
+        start = precool_start_in_min(
             active,
             statistics.median(rooms),
             setpoint,
             outdoor,
             power_kw,
-            (deadline - now) / 60.0,
+            minutes,
             self._price_forecast(now),
         )
+        if minutes <= 0:
+            self._precool_status = "no deadline: next_event is in the past"
+        elif start is None:
+            self._precool_status = f"no plan reaches the setpoint in {minutes:.0f} min"
+        else:
+            self._precool_status = f"start in {start:.0f} min"
+        return start
 
     def _forecast_model(self, active: Fit, power_kw: float, now: float) -> tuple[Fit, float]:
         """With a second AC and a valid two-device fit, the forecast uses the combined fit and both running powers.
