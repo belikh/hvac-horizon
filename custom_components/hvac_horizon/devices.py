@@ -12,6 +12,7 @@ A device that never ran has no variation, so its coefficient is 0 and it does no
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from itertools import combinations
 
 from .model import MIN_OUTDOOR_SPREAD_K, MIN_SAMPLES, Fit, NotEnoughData, _least_squares
 
@@ -67,13 +68,28 @@ def fit_room(samples: list[RoomSample], kinds: dict[str, str]) -> RoomFit:
             row.append(sign * s.device_kw.get(dev, 0.0))
         rows.append(row)
 
+    # Device coefficients stay at or above zero. The plain fit is used when it has none negative. Otherwise each set of
+    # device columns is tried, and the one with the smallest squared error and no negative device coefficient is used.
     active = list(range(len(names)))
-    while True:
-        coef = _least_squares(rows, y, active)
-        negative = [i for i, v in zip(active, coef) if v < 0 and i >= 2]  # device columns only
-        if not negative:
-            break
-        active = [i for i in active if i != negative[0]]
+    coef = _least_squares(rows, y, active)
+    if any(v < 0 for i, v in zip(active, coef) if i >= 2):
+        best: tuple[float, list[int], list[float]] | None = None
+        device_columns = active[2:]
+        for size in range(len(device_columns) - 1, -1, -1):
+            for kept in combinations(device_columns, size):
+                subset = [0, 1, *kept]
+                try:
+                    found = _least_squares(rows, y, subset)
+                except NotEnoughData:
+                    continue
+                if any(v < 0 for i, v in zip(subset, found) if i >= 2):
+                    continue
+                error = sum((t - sum(row[j] * v for j, v in zip(subset, found))) ** 2 for row, t in zip(rows, y))
+                if best is None or error < best[0]:
+                    best = (error, subset, found)
+        if best is None:
+            raise NotEnoughData("samples are collinear; cannot separate the coefficients")
+        active, coef = best[1], best[2]
     values = dict(zip(active, coef))
 
     k = max(values.get(0, 0.0), 0.0)

@@ -149,3 +149,40 @@ class FitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SolverTests(unittest.TestCase):
+    def test_solve_satisfies_random_systems(self):
+        from custom_components.hvac_horizon.model import _solve
+
+        rng = random.Random(7)
+        for _ in range(500):
+            n = rng.choice([1, 2, 3])
+            a = [[rng.uniform(-50.0, 50.0) for _ in range(n)] for _ in range(n)]
+            for i in range(n):
+                a[i][i] += 200.0  # diagonally dominant, so the system has one solution
+            b = [rng.uniform(-100.0, 100.0) for _ in range(n)]
+            x = _solve(a, b)
+            for row, target in zip(a, b):
+                self.assertAlmostEqual(sum(v * xi for v, xi in zip(row, x)), target, places=6)
+
+    def test_clamped_fit_is_the_best_fit_with_k_and_c_at_or_above_zero(self):
+        """The clamped solver matches a search over every set of columns it may drop."""
+        from custom_components.hvac_horizon.model import _least_squares, _residuals, _solve_clamped
+
+        def sse(rows, y, active, coef):
+            return sum(r * r for r in _residuals(rows, y, active, coef))
+
+        rng = random.Random(11)
+        for _ in range(300):
+            k, c, g = rng.uniform(-0.2, 0.4), rng.uniform(-2.0, 4.0), rng.uniform(-1.0, 1.0)
+            rows = [[rng.uniform(-5.0, 15.0), -rng.choice([0.0, rng.uniform(0.3, 2.0)]), 1.0] for _ in range(60)]
+            y = [k * r[0] + c * r[1] + g + rng.gauss(0.0, 0.3) for r in rows]
+            active, coef = _solve_clamped(rows, y)
+            best = None
+            for subset in ([0, 1, 2], [1, 2], [0, 2], [2]):
+                found = _least_squares(rows, y, subset)
+                if all(v >= 0 for idx, v in zip(subset, found) if idx in (0, 1)):
+                    error = sse(rows, y, subset, found)
+                    best = error if best is None else min(best, error)
+            self.assertLessEqual(sse(rows, y, active, coef), best * (1 + 1e-9) + 1e-9)

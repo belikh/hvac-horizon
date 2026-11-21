@@ -17,7 +17,7 @@ from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTR
 from custom_components.hvac_horizon.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.model import Fit
 from custom_components.hvac_horizon.features import house_mode_from_store
-from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _float, _entry_from_dict
+from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _entries_from_store, _float, _stored_dict, _stored_number
 
 
 class StoreMixin:
@@ -153,46 +153,50 @@ class StoreMixin:
         return mean
 
     async def async_load(self) -> None:
-        data = await self._store.async_load() or {}
-        self._entries = [_entry_from_dict(e) for e in data.get("entries", [])]
+        # A damaged field takes its default, so one bad value does not keep the entry from loading.
+        data = _stored_dict(await self._store.async_load())
+        self._entries = _entries_from_store(data.get("entries"))
         stored = data.get("investigation_report")
         if isinstance(stored, dict):
             # The last on-demand report and its time survive a restart. Keys missing from the store stay None.
             self._report = {key: stored.get(key) for key in self._report}
-        self._heater_gains = data.get("heater_gains")
-        override = data.get("target_override_c")
-        self._target_override_c = float(override) if override is not None else None
+        gains = {key: _stored_number(_stored_dict(data.get("heater_gains")).get(key)) for key in ("kp", "ki", "kd")}
+        self._heater_gains = gains if all(v is not None for v in gains.values()) else None
+        override = _stored_number(data.get("target_override_c"))
+        self._target_override_c = override if override is not None and 0.0 <= override <= 50.0 else None
         self._user_off = bool(data.get("user_off", False))
         self._user_mode = data.get("user_mode") if data.get("user_mode") in USER_MODES else "auto"
-        self._auto_tpi_gain = float((data.get("auto_tpi_gains") or {}).get("cool", 1.0))
-        self._auto_heat_gain = float((data.get("auto_tpi_gains") or {}).get("heat", 1.0))
+        auto_gains = _stored_dict(data.get("auto_tpi_gains"))
+        self._auto_tpi_gain = _stored_number(auto_gains.get("cool")) or 1.0
+        self._auto_heat_gain = _stored_number(auto_gains.get("heat")) or 1.0
         self._locked = bool(data.get("locked", False))
         house_mode = data.get("house_mode")
         if house_mode in ("home", "away"):
             self.hass.data.setdefault(DOMAIN, {})["house_mode"] = house_mode
         now_min = dt_util.utcnow().timestamp() / 60.0
-        inhibit = data.get("inhibit_until_min")
-        self._inhibit_until_min = float(inhibit) if inhibit is not None and float(inhibit) > now_min else None
+        inhibit = _stored_number(data.get("inhibit_until_min"))
+        self._inhibit_until_min = inhibit if inhibit is not None and inhibit > now_min else None
         timed = data.get("timed_preset")
         self._timed_preset = None
         self._timed_started_min = None
         self._timed_duration_min = 0.0
         if isinstance(timed, dict) and timed.get("name") is not None:
-            started, duration = float(timed["started_min"]), float(timed["duration_min"])
-            if started + duration > now_min:
+            started, duration = _stored_number(timed.get("started_min")), _stored_number(timed.get("duration_min"))
+            if started is not None and duration is not None and started + duration > now_min:
                 self._timed_preset = str(timed["name"])
                 self._timed_started_min = started
                 self._timed_duration_min = duration
-        self._shed_loads = {str(e) for e in data.get("shed_loads", [])}
+        shed_loads = data.get("shed_loads")
+        self._shed_loads = {e for e in shed_loads if isinstance(e, str)} if isinstance(shed_loads, list) else set()
         self._load_commanded(data.get("commanded"))
         self._loaded_at = dt_util.utcnow().timestamp()
-        self._shed_at = {str(k): float(v) for k, v in (data.get("shed_at") or {}).items() if str(k) in self._shed_loads and isinstance(v, (int, float))}
+        self._shed_at = {str(k): float(v) for k, v in _stored_dict(data.get("shed_at")).items() if str(k) in self._shed_loads and _stored_number(v) is not None}
         self._shed_context = {}
         self._actuator_opened_by_us = bool(data.get("actuator_opened_by_us", False))
         self._device_rates = {
-            str(k): {"rate": float(v["rate"]), "samples": float(v.get("samples", 0))}
-            for k, v in (data.get("device_rates") or {}).items()
-            if isinstance(v, dict) and v.get("rate")
+            str(k): {"rate": float(v["rate"]), "samples": _stored_number(v.get("samples")) or 0.0}
+            for k, v in _stored_dict(data.get("device_rates")).items()
+            if isinstance(v, dict) and _stored_number(v.get("rate"))
         }
         self._outdoor_bias = OutdoorBias.from_dict(data.get("outdoor_bias"))
         self._refit()
@@ -238,18 +242,19 @@ class StoreMixin:
         """Restore what was last commanded. A payload from before this key, or a malformed one, leaves the defaults."""
         stored = stored if isinstance(stored, dict) else {}
         setpoint = stored.get("setpoint")
-        self._last_written_setpoint = float(setpoint) if isinstance(setpoint, (int, float)) else None
+        self._last_written_setpoint = _stored_number(setpoint)
         mode = stored.get("mode")
-        self._last_written_mode = str(mode) if mode is not None else None
+        self._last_written_mode = mode if isinstance(mode, str) else None
         heater_on = stored.get("heater_on")
         self._heater_commanded_on = bool(heater_on) if heater_on is not None else None
         switch = stored.get("heater_switch")
-        self._heater_switch_driven = str(switch) if switch else None
-        self._switches_on = {str(e) for e in stored.get("switches_on") or []}
+        self._heater_switch_driven = switch if isinstance(switch, str) and switch else None
+        switches = stored.get("switches_on")
+        self._switches_on = {e for e in switches if isinstance(e, str)} if isinstance(switches, list) else set()
         self._second_ac_commanded_on = bool(stored.get("second_ac_on", False))
         self._coil_dry_sent = bool(stored.get("coil_dry", False))
         valve = stored.get("valve")
-        self._valve_driven = str(valve) if valve else None
+        self._valve_driven = valve if isinstance(valve, str) and valve else None
         pct = stored.get("valve_pct")
         self._valve_commanded_pct = float(pct) if isinstance(pct, (int, float)) else 0.0
         self._saved_commanded = self._commanded_state()

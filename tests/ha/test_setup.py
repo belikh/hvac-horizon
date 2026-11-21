@@ -7956,3 +7956,49 @@ async def test_removing_an_entry_deletes_its_stored_data(hass, enable_custom_int
     assert await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert key not in hass_storage
+
+
+def _damaged(payload, key, value):
+    return {**payload, "user_off": True, key: value}
+
+
+_GARBAGE = ("text", -1, 1e308, [], {}, [1, "a"], {"a": None}, None, True)
+
+
+@pytest.mark.parametrize("key", [
+    "entries", "investigation_report", "heater_gains", "target_override_c", "user_off", "user_mode", "auto_tpi_gains", "locked", "house_mode",
+    "inhibit_until_min", "timed_preset", "shed_loads", "commanded", "shed_at", "actuator_opened_by_us", "device_rates", "outdoor_bias",
+])
+async def test_a_stored_field_with_a_wrong_type_still_loads_and_sends_no_start(hass, enable_custom_integrations, config_data, hass_storage, key):
+    """A damaged store field takes its default. The entry loads, and a room held off before stays off."""
+    entry, calls = await setup_heater(hass, config_data)
+    payload = dict(await _stored_payload(hass, entry, hass_storage))
+    damaged = [_damaged(payload, key, value) for value in _GARBAGE]
+    whole = {
+        "commanded": {"setpoint": 22.0, "mode": "cool", "heater_on": True, "heater_switch": HEATER, "switches_on": [HEATER], "second_ac_on": True, "coil_dry": True, "valve": "valve.x", "valve_pct": 50.0},
+        "timed_preset": {"name": "boost", "started_min": 1e9, "duration_min": 60.0},
+        "outdoor_bias": {"means": [0.0] * 24, "counts": [1] * 24, "overall": 1.0, "total": 24},
+        "auto_tpi_gains": {"cool": 1.2, "heat": 0.9},
+        "heater_gains": {"kp": 30.0, "ki": 0.1, "kd": 5.0},
+        "device_rates": {"d": {"rate": 1.0, "samples": 5}},
+        "shed_at": {"switch.x": 1.0},
+        "entries": [{"t": 1.0, "room_c": 20.0, "outdoor_c": 10.0, "power_w": 0.0, "rooms_c": [20.0]}],
+    }.get(key)
+    if isinstance(whole, dict):
+        damaged += [_damaged(payload, key, dict(whole, **{inner: value})) for inner in whole for value in _GARBAGE]
+        damaged += [_damaged(payload, key, {"d": value}) for value in _GARBAGE]
+    if isinstance(whole, list):
+        damaged += [_damaged(payload, key, [dict(whole[0], **{inner: value})]) for inner in whole[0] for value in _GARBAGE]
+        damaged += [_damaged(payload, key, [value]) for value in _GARBAGE]
+    for data in damaged:
+        value = data[key]
+        calls.clear()
+        hass_storage[f"hvac_horizon.{entry.entry_id}"] = {"version": 4, "minor_version": 1, "key": f"hvac_horizon.{entry.entry_id}", "data": data}
+        assert await hass.config_entries.async_setup(entry.entry_id), f"{key}={value!r}"
+        await hass.async_block_till_done()
+        await refresh(hass, entry)
+        assert entry.runtime_data.data is not None, f"{key}={value!r}"
+        if key != "user_off":
+            assert not [c for c in calls if c[0] == "turn_on"], f"{key}={value!r}: {calls}"
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()

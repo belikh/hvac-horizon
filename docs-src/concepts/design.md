@@ -32,7 +32,7 @@ dT/dt = k (T_out - T) - c P + g
 - It drops outliers: residuals beyond 3.5 median absolute deviations, at most 10 % of the readings.
 - It rejects a fit whose normal matrix has a condition number above 1000.
 - It returns a standard error for each value. The error of `c` gives the low and high minutes and the confidence label.
-- A negative `k` or `c` is set to zero and the other values are refit.
+- `k` and `c` stay at or above zero. When the plain fit gives a negative `k` or `c`, the fit tries `k` at zero, `c` at zero and both at zero, and uses the one with the smallest squared error.
 
 Readings where the AC heats, dries or runs its fan only are left out. A reading is not stored while the outdoor sensor is stalled.
 

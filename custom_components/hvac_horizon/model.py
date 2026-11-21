@@ -149,14 +149,29 @@ def _condition(xtx: list[list[float]]) -> float:
 
 
 def _solve_clamped(rows: list[list[float]], y: list[float]) -> tuple[list[int], list[float]]:
-    """Least squares over k, c and g. A negative k or c is set to zero and the rest refit."""
+    """Least squares over k, c and g with k and c at or above zero.
+
+    The plain fit is used when its k and c are not negative. Otherwise k, c or both are set to zero, and the
+    choice with the smallest squared error among those with no negative k or c is used.
+    """
     active = [0, 1, 2]
-    while True:
-        coef = _least_squares(rows, y, active)
-        negative = [idx for idx, v in zip(active, coef) if v < 0 and idx in (0, 1)]
-        if not negative:
-            return active, coef
-        active = [idx for idx in active if idx != negative[0]]
+    coef = _least_squares(rows, y, active)
+    if all(v >= 0 for idx, v in zip(active, coef) if idx in (0, 1)):
+        return active, coef
+    best: tuple[float, list[int], list[float]] | None = None
+    for subset in ([1, 2], [0, 2], [2]):
+        try:
+            found = _least_squares(rows, y, subset)
+        except NotEnoughData:
+            continue
+        if any(v < 0 for idx, v in zip(subset, found) if idx in (0, 1)):
+            continue
+        error = sum(r * r for r in _residuals(rows, y, subset, found))
+        if best is None or error < best[0]:
+            best = (error, subset, found)
+    if best is None:
+        raise NotEnoughData("samples are collinear; cannot separate the coefficients")
+    return best[1], best[2]
 
 
 def _residuals(rows: list[list[float]], y: list[float], active: list[int], coef: list[float]) -> list[float]:

@@ -2,6 +2,15 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.5.6 (unreleased)
+
+- A damaged field in the stored data takes its default. Before, a text or a list where a number belongs in one of
+  7 stored fields kept the entry from loading. A test now loads every stored field, and every key inside it, with 9
+  wrong values, and checks that a room held off sends no start.
+- The room fit with `k` and `c` at or above zero is the best such fit. Before, a negative coefficient was dropped one
+  at a time, and on some data that gave a fit with a larger error than another allowed one. The two-device room fit
+  follows the same rule.
+
 ## 0.5.5 (2026-11-22)
 
 - Free cooling is given up when it cools too little. With the window open or the whole-house fan on, a room above the

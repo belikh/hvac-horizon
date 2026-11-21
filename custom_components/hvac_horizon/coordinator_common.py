@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import logging
 from typing import Any
 from datetime import datetime
@@ -67,6 +69,30 @@ def _entry_from_dict(raw: dict[str, Any]) -> Entry:
     if "rooms_c" in clean:
         clean["rooms_c"] = tuple(clean["rooms_c"])
     return Entry(**clean)
+
+
+def _entries_from_store(raw: Any) -> list[Entry]:
+    """The stored readings. A record that is not a dict, or lacks a number for a required field, is left out."""
+    out = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or any(_stored_number(item.get(key)) is None for key in ("t", "room_c", "outdoor_c", "power_w")):
+            continue
+        try:
+            out.append(_entry_from_dict(item))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _stored_number(value: Any) -> float | None:
+    """A finite number from the store, or None for any other value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _stored_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 MPC_STEP_MIN = 15.0
 OUTDOOR_AHEAD_H = (1, 3, 6)  # hours ahead published as outdoor_forecast_next_c
