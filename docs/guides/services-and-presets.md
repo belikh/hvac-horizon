@@ -69,7 +69,7 @@ Every service except `set_house_mode` takes `entry_id`. The services marked resp
 | :--- | :--- | :--- |
 | `hvac_horizon.start_timed_preset` | `preset`, `minutes` | Runs the preset for `minutes`. |
 | `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint and heat to 16 °C. |
-| `hvac_horizon.set_lock` | `locked`, `pin` | Locks or unlocks control. |
+| `hvac_horizon.set_lock` | `locked`, `pin` | Locks or unlocks control. Admin. |
 | `hvac_horizon.start_autotune` | `setpoint` | Starts a relay test of the heater and stores PID gains from it. Admin. |
 | `hvac_horizon.cancel_autotune` | none | Ends a running relay test and turns the heater off. |
 | `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current heat-gain rate as the baseline. `false` hides the suggestion until the rate changes. Admin. |
@@ -88,6 +88,8 @@ The lock stops normal commands, so nobody changes the room by accident.
 1. Open **Reconfigure**, select **Advanced** and enter a value in **Lock PIN**. Select **Submit**, then **Save and close**.
 2. Call `hvac_horizon.set_lock` with `locked: true`.
 3. To unlock, call it with `locked: false` and `pin` set to the PIN.
+
+`set_lock` needs an administrator, to lock and to unlock.
 
 While locked, HVAC Horizon sends no AC setpoint, valve, cover or window command, and holds the heater output at 0. The room thermostat refuses a new target, preset or mode. A stalled sensor, a window open longer than `window_delay_min` or an away house still turns the AC and the room devices off. The lock is stored and stays on after a restart.
 

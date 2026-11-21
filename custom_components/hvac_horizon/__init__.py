@@ -94,7 +94,7 @@ def _register_services(hass: HomeAssistant) -> None:
     from homeassistant.helpers.service import async_register_admin_service
 
     # Admin only: these clear or export the stored history, drive the heater outside normal control, change the
-    # learned baseline or spend the model-call budget.
+    # learned baseline, spend the model-call budget or lock control.
     import voluptuous as vol
 
     fields = vol.Schema({}, extra=vol.ALLOW_EXTRA)  # each handler reads and checks its own fields
@@ -104,10 +104,10 @@ def _register_services(hass: HomeAssistant) -> None:
     async_register_admin_service(hass, DOMAIN, SERVICE_AUTOTUNE, autotune, schema=fields)
     async_register_admin_service(hass, DOMAIN, SERVICE_RESPOND, respond, schema=fields)
     async_register_admin_service(hass, DOMAIN, SERVICE_INVESTIGATION_REPORT, investigation_report, schema=fields)
-    # Any user: what a wall thermostat offers. Cancelling a relay test only turns the heater off. Unlocking needs the PIN.
+    async_register_admin_service(hass, DOMAIN, SERVICE_LOCK, set_lock, schema=fields)
+    # Any user: what a wall thermostat offers. Cancelling a relay test only turns the heater off.
     hass.services.async_register(DOMAIN, SERVICE_CANCEL_AUTOTUNE, cancel_autotune)
     hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_LOCK, set_lock)
     hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
     hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
 

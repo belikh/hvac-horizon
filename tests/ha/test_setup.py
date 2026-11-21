@@ -7887,7 +7887,7 @@ async def test_services_that_reset_export_or_drive_the_heater_need_an_admin(hass
     for service, data, response in (
         ("reset_learning", {}, False), ("export_samples", {}, True), ("export_csv", {}, True),
         ("start_autotune", {"setpoint": 24.0}, False), ("respond_suggestion", {"accept": True}, False),
-        ("generate_investigation_report", {}, False),
+        ("generate_investigation_report", {}, False), ("set_lock", {"locked": True}, False),
     ):
         with pytest.raises(Unauthorized):
             await hass.services.async_call(DOMAIN, service, {"entry_id": entry.entry_id, **data}, blocking=True, context=user, return_response=response)

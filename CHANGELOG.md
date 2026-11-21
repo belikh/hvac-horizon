@@ -2,6 +2,10 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+- `set_lock` needs an administrator.
+
 ## 0.5.2 (2026-11-21)
 
 HACS pre-submission audit:
