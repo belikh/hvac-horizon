@@ -68,6 +68,9 @@ The control step writes one action text per tick. The `investigation` attribute 
 | `locked` | Control is locked. |
 | `locked: off, <reason>` | Control is locked and a stall, an open window or an away house turned the AC off. |
 | `off: user turned the room off` | You set the room climate entity to `off`. |
+| `off: mode is heat: no cooling` or `off: mode is dry: no cooling` | The room is above the cool threshold and the mode on the room entity does not cool. Choose `cool` or `auto`. |
+| `dry: waiting for restart delay` | A dry start is held by the restart delay `min_off_min`. |
+| `off: dry paused, room below heat threshold` | Dry mode cooled the room to 1 K below the heat threshold. Drying resumes when the room is back at the threshold. |
 | `off: night hold: AC does not start` | `night_plan_act` is on and the night plan is `hold`. |
 
 ## Repair issues

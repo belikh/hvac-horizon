@@ -73,7 +73,7 @@ from custom_components.hvac_horizon.features import (
     whole_house_fan_allowed,
     window_open_pause,
 )
-from custom_components.hvac_horizon.coordinator_common import _float
+from custom_components.hvac_horizon.coordinator_common import DRY_FLOOR_BELOW_HEAT_K, _float
 
 
 def _attr_float(state: State, name: str) -> float | None:
@@ -89,6 +89,7 @@ class AcMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _ac_cooling_tick: bool
     _coil_dry_sent: bool
+    _dry_floor_hold: bool
     _cool_above_c: float
     _dry_started_min: float | None
     _heat_on_below_c: float
@@ -273,6 +274,20 @@ class AcMixin:
         dry_wanted = humidity.action == "dehumidify" or (self.dry_mode and room_humidity is None)
         # The AC dries in dry mode, and in cool or auto when the dry_for_humidity option is on.
         ac_dry_allowed = self.dry_mode or (bool(self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted)
+        # Drying cools the room. Without a heater that keeps up, the AC pauses DRY_FLOOR_BELOW_HEAT_K below the heat
+        # threshold and resumes once the room is back at the threshold.
+        dry_rooms = self._rooms()
+        if not self.dry_mode or not dry_rooms:
+            self._dry_floor_hold = False
+        else:
+            dry_room_c = statistics.median(dry_rooms)
+            if dry_room_c < self._heat_on_below_c - DRY_FLOOR_BELOW_HEAT_K:
+                self._dry_floor_hold = True
+            elif dry_room_c >= self._heat_on_below_c:
+                self._dry_floor_hold = False
+        if self._dry_floor_hold:
+            ac_dry_allowed = False
+            result["action"] = "off: dry paused, room below heat threshold"
         # A CO2 rate between 0 and 1 runs the fan for that share of each PWM window. PM2.5 still forces it on.
         # At 0 or 1 the fan follows the on-off rule above.
         co2_rate = ventilation_rate_from_co2(_float(self._optional(CONF_CO2)))
@@ -290,7 +305,7 @@ class AcMixin:
         started = self._inputs_seen  # no switch starts before the first valid room and outdoor readings
         await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on and started, track=True)
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), dry_wanted and started and not self._user_off, track=True)
-        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started and not self._user_off, track=True)
         heat_ok = result.get("heating_allowed", True)
         await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
         outdoor_now = self._outdoor_now()
@@ -368,7 +383,12 @@ class AcMixin:
                 and climate.state != "dry"
                 and self._group_start_ok(now)
             ):
-                # A dry start runs the compressor, so it waits for the group clock like a cool start.
+                # A dry start runs the compressor, so it waits for the restart delay and the group clock like a cool start.
+                wait = self._restart_wait(climate.state in ("cool", "heat", "dry"), climate, self._state_changed_at, now)
+                if wait > 0:
+                    self._hold_start(wait, None)
+                    result["action"] = "dry: waiting for restart delay"
+                    return
                 self._record_group_start(now)
                 await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0

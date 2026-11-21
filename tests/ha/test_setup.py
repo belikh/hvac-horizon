@@ -7358,6 +7358,8 @@ MODE_CONTRACT = [
     ("heat", "cold", False, True),
     ("auto", "hot", True, False),
     ("auto", "cold", False, True),
+    ("dry", "hot", False, False),
+    ("dry", "cold", False, True),
     ("off", "hot", False, False),
     ("off", "cold", False, False),
 ]
@@ -7620,10 +7622,52 @@ async def test_dry_mode_runs_the_heater_while_the_ac_dries(hass, enable_custom_i
     )
     await _set_room_mode(hass, entity_id, "dry")
     assert hass.states.get(CLIMATE).state == "dry"
+    cool_room = f"{entry.runtime_data._heat_on_below_c - 0.4:.2f}"  # below the heat threshold, above the dry floor
     for _ in range(3):
-        await _dry_tick(hass, entry, freezer, "19.0", "12.0", rh="75")
+        await _dry_tick(hass, entry, freezer, cool_room, "12.0", rh="75")
     assert hass.states.get(CLIMATE).state == "dry", calls
     assert ("turn_on", HEATER, None) in calls
+
+
+async def test_dry_mode_pauses_when_the_room_gets_cold_and_resumes(hass, enable_custom_integrations, config_data, freezer):
+    """No heater: drying ends 1 K below the heat threshold and starts again at the threshold."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "75")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(CLIMATE).state == "dry"
+    threshold = entry.runtime_data._heat_on_below_c
+    await _dry_tick(hass, entry, freezer, f"{threshold - 0.5:.2f}", "20.0", rh="75")
+    assert hass.states.get(CLIMATE).state == "dry"
+    await _dry_tick(hass, entry, freezer, f"{threshold - 1.2:.2f}", "20.0", rh="75")
+    assert hass.states.get(CLIMATE).state == "off"
+    assert entry.runtime_data.data["action"] == "off: dry paused, room below heat threshold"
+    await _dry_tick(hass, entry, freezer, f"{threshold - 0.5:.2f}", "20.0", rh="75")
+    assert hass.states.get(CLIMATE).state == "off"  # inside the band the pause holds
+    await _dry_tick(hass, entry, freezer, f"{threshold + 0.1:.2f}", "20.0", rh="75")
+    assert hass.states.get(CLIMATE).state == "dry"
+
+
+async def test_a_dry_start_after_off_waits_for_the_restart_delay(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data)  # 26 C room: the AC cools; default 3 minute delay
+    assert hass.states.get(CLIMATE).state == "cool"
+    freezer.tick(timedelta(minutes=1))
+    await _set_room_mode(hass, entity_id, "dry")  # a running AC changes mode at once
+    assert hass.states.get(CLIMATE).state == "dry"
+    freezer.tick(timedelta(minutes=1))
+    await _room_off(hass, entity_id)
+    assert hass.states.get(CLIMATE).state == "off"
+    freezer.tick(timedelta(minutes=1))
+    calls.clear()
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(CLIMATE).state == "off"
+    assert _starts(calls) == []
+    assert "restart delay" in hass.states.get(entity_id).attributes["pending"]
+    freezer.tick(timedelta(minutes=3))
+    set_room(hass, "26.0")
+    await refresh(hass, entry)
+    assert hass.states.get(CLIMATE).state == "dry"
 
 
 async def test_dry_mode_without_a_humidity_sensor_dries_until_the_mode_changes(hass, enable_custom_integrations, config_data, freezer):

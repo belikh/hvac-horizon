@@ -228,6 +228,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         # Optional switches (fan, humidifier, dehumidifier, boiler, whole-house fan) this entry last commanded on. The safety stop turns them off.
         self._switches_on: set[str] = set()
         self._second_ac_commanded_on = False  # the second AC was last commanded to cool
+        self._dry_floor_hold = False  # dry mode paused the AC because the room fell DRY_FLOOR_BELOW_HEAT_K below the heat threshold
         self._coil_dry_sent = False  # this entry put the first AC in dry mode and has not turned it off
         self._valve_driven: str | None = None  # valve entity and the opening last sent to it
         self._valve_commanded_pct: float = 0.0

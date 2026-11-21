@@ -27,7 +27,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_CLIMATE, CONF_CONTROL, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
+from .const import CONF_CLIMATE, CONF_CONTROL, CONF_DEHUMIDIFIER, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
 from .coordinator import HorizonCoordinator
 
 PRESETS = ["comfort", "eco", "boost", "away"]
@@ -79,7 +79,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     def _device_entity_ids(self) -> list[str]:
         """The entities whose state decides hvac_action: the AC, its power sensor, the heater switch and the fleet devices."""
         data = self._entry.data
-        ids = [data.get(CONF_CLIMATE), data.get(CONF_POWER), data.get(CONF_HEATER_SWITCH)]
+        ids = [data.get(CONF_CLIMATE), data.get(CONF_POWER), data.get(CONF_HEATER_SWITCH), data.get(CONF_DEHUMIDIFIER)]
         for device in data.get(CONF_FLEET) or []:
             if isinstance(device, dict):
                 ids += [device.get("entity_id"), device.get("power_sensor")]

@@ -73,7 +73,7 @@ The mode decides which devices may run. A device starts only when the room needs
 
 Cooling devices are the AC, the second AC, the AC's dry mode for humidity and cooling fleet devices. Heating devices are the heater switch, the AC in heat mode and heating fleet devices. Changing to `heat` while the AC cools sends off to the AC at once.
 
-In `dry` the AC runs in its dry mode and never cools. With `room_humidity` set, it dries while the room is above 60 % and goes off at 55 %. With no humidity sensor it dries until you change the mode. An entry with `dehumidifier` runs that switch and leaves the AC off. Dry mode cools the room, so the heater switch may run at the same time to hold the heat target. An AC that is drying cannot heat, so `ac_heat` is left out in `dry`. A room run by fleet climates offers `dry` only with `dehumidifier`.
+In `dry` the AC runs in its dry mode and never cools. With `room_humidity` set, it dries while the room is above 60 % and goes off at 55 %. With no humidity sensor it dries until you change the mode. An entry with `dehumidifier` runs that switch and leaves the AC off. Dry mode cools the room, so the heater switch may run at the same time to hold the heat target. The heater obeys its usual gates, including the outdoor heating limit, so on a mild day it stays off. When the room falls 1 K below the heat threshold, the AC pauses and resumes once the room is back at the threshold. An AC that is drying cannot heat, so `ac_heat` is left out in `dry`. A room run by fleet climates offers `dry` only with `dehumidifier`.
 
 Setting `off` holds the room off: every device goes off and nothing starts. The `climate.turn_on` service ends the hold and returns to the mode chosen before it. The mode is kept across restarts.
 

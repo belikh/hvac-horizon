@@ -2,8 +2,10 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## Unreleased
+## 0.5.1 (2026-11-21)
 
+- A dry start waits for the restart delay `min_off_min`. Dry mode pauses the AC 1 K below the heat threshold and resumes at the threshold.
+- The humidifier switch stays off while the room is held off.
 - New `dry` mode on the room entity. The AC runs in dry mode and never cools, and the heater may run at the same time to hold the heat target. The action reads `drying`.
 - The dehumidifier switch stays off while the room is held off.
 - Fix: the room entity's mode now decides which devices run. In 0.5.0 the mode was only stored, so the AC cooled a warm room in `heat` mode. `cool` runs cooling devices only, `heat` runs heating devices only.
