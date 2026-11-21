@@ -647,6 +647,31 @@ async def test_diagnostics_redacts_entity_ids(hass, enable_custom_integrations, 
     assert "samples" in diag
 
 
+async def test_diagnostics_redacts_lock_pin_and_keeps_keys(hass, enable_custom_integrations, config_data):
+    import json
+
+    from custom_components.hvac_horizon.diagnostics import async_get_config_entry_diagnostics
+
+    set_inputs(hass)
+    data = dict(config_data, lock_pin="7391", fleet=[{"device_id": "dev_abc", "power_sensor": "sensor.fleet_w", "rated_w": 900}])
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, options={"lock_pin": "7391"}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entry.runtime_data.data = dict(entry.runtime_data.data or {}, nested={"lock_pin": "7391", "items": [{"climate": CLIMATE}]})
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = json.dumps(diag, default=str)
+    assert "7391" not in text
+    assert CLIMATE not in text
+    assert "sensor.fleet_w" not in text
+    assert diag["config"]["lock_pin"] == "**REDACTED**"
+    assert diag["config"]["climate"] == "**REDACTED**"
+    assert diag["options"]["lock_pin"] == "**REDACTED**"
+    assert diag["status"]["nested"]["lock_pin"] == "**REDACTED**"
+    assert diag["status"]["nested"]["items"][0]["climate"] == "**REDACTED**"
+    assert diag["config"]["fleet"] == "**REDACTED**"
+
+
 async def test_reset_learning_service_clears_samples(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
