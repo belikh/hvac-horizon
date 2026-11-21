@@ -37,10 +37,11 @@ class SafetyMixin:
     async def async_safety_stop(self) -> None:
         """Turn off everything this instance last commanded on. Used at Home Assistant stop and unload.
 
-        Ignores the lock and the minimum on and off times. Cancels the PWM timers and the refresh timer,
+        Ignores the lock and the restart delay. Cancels the PWM timers and the refresh timer,
         so no tick turns a device on again.
         """
         self._unschedule_refresh()
+        self._cancel_recheck()
         await self.async_heater_off()
         await self._fleet_all_off(dt_util.utcnow().timestamp())
         if not self.entry.data.get(CONF_CONTROL):

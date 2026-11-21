@@ -76,6 +76,7 @@ STATUS_KEYS: dict[str, str] = {
     "room_fit": "Two-device room fit",
     "forecast_days": "Forecast day counts",
     "dispatch": "Room dispatch",
+    "pending": "Pending action",
     "minutes_low": "Minutes to setpoint, low",
     "minutes_high": "Minutes to setpoint, high",
 }
@@ -93,7 +94,7 @@ DIAGNOSTIC_ENABLED_KEYS = frozenset(
         "sensors_stalled", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
         "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
         "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
-        "learning_suggestion", "external_change",
+        "learning_suggestion", "external_change", "pending",
     }
 )
 # Diagnostic sensors that are internal detail. They are created disabled; enable one in the entity settings.

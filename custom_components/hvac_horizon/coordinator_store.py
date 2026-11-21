@@ -48,6 +48,7 @@ class StoreMixin:
     _shed_at: dict[str, float]
     _shed_context: dict[str, str]
     _shed_loads: set[str]
+    _store_loaded: bool
     _store: Store[dict[str, Any]]
     _switches_on: set[str]
     _t_at_sample: float
@@ -191,6 +192,7 @@ class StoreMixin:
             if isinstance(v, dict) and v.get("rate")
         }
         self._refit()
+        self._store_loaded = True
 
     def save_soon(self) -> None:
         """Queue a store write now. Used by the set_house_mode service."""

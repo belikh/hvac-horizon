@@ -2,6 +2,13 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+- Off is immediate. Turning the room off from the room entity sends off to the first AC, the second AC, the heater switch and every fleet device in the same call. No minimum on time, inhibit window or sensor gate delays it.
+- `min_on_min` no longer delays any stop and is ignored. `min_off_min` is now the restart delay: a start waits that long after the device stopped, and 0 disables it.
+- A start held by the restart delay is re-checked when the delay ends instead of at the next 5 minute tick. The room entity has the attribute `pending` (for example `start in 2 min: restart delay`) and there is a `Pending action` sensor.
+- The room-rate fit now publishes `fit_residual_k_per_h`, the standard errors, `fit_confidence` and the `minutes_low` and `minutes_high` range. They were empty when too few AC-on samples existed for the single fit.
+
 ## 0.4.0 (2026-11-21)
 
 Changes since 0.3.0.

@@ -122,10 +122,14 @@ def humidity_action(
     return HumidityAction("none", "within band")
 
 
-def minimum_time_ok(current_state: bool, since_change_min: float, min_on_min: float, min_off_min: float) -> bool:
-    """True when the device may change state now. A compressor or heater must run or rest for its minimum time."""
-    minimum = min_on_min if current_state else min_off_min
-    return since_change_min >= minimum
+def restart_wait_min(since_stop_min: float, min_off_min: float) -> float:
+    """Minutes a start must still wait after the device stopped. 0 when the delay is disabled (min_off_min of 0 or less) or has passed.
+
+    A stop is never held. Only the start that follows a stop waits.
+    """
+    if min_off_min <= 0:
+        return 0.0
+    return max(0.0, min_off_min - since_stop_min)
 
 
 def timed_preset_active(started_at_min: float | None, now_min: float, duration_min: float) -> bool:

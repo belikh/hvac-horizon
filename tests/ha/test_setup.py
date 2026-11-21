@@ -1889,9 +1889,9 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
     assert primary == PRIMARY_KEYS and len(primary) == 11
-    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 23
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 24
     assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 32
-    assert len(sensors) == 66
+    assert len(sensors) == 67
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -3054,8 +3054,8 @@ def _set_ac_rooms(hass, temp: str) -> None:
         hass.states.async_set(entity, temp, {"unit_of_measurement": "°C", "device_class": "temperature"})
 
 
-async def test_heat_then_cool_inside_the_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
-    # Heat starts at 10:00. Cool is wanted at 10:04. Heat counts as running, so the 5 minute minimum on time holds the switch.
+async def test_heat_then_cool_switches_at_once_without_a_restart_delay(hass, enable_custom_integrations, config_data, freezer):
+    # Heat starts at 10:00. Cool is wanted at 10:04. The compressor never stopped, so no restart delay applies.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, modes, _ = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
     assert modes == ["heat"]
@@ -3064,25 +3064,15 @@ async def test_heat_then_cool_inside_the_minimum_on_time_is_held(hass, enable_cu
     _set_ac_rooms(hass, "26.0")
     hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
     await refresh(hass, entry)
-    assert "cool" not in modes
-    freezer.tick(timedelta(minutes=2))
-    _set_ac_rooms(hass, "26.0")
-    hass.states.async_set(OUTDOOR, "30.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
-    await refresh(hass, entry)
     assert modes[-1] == "cool"
 
 
-async def test_heat_stop_inside_the_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
-    # Heat starts at 10:00. The room reaches the dead band at 10:01, where neither heat nor cool is wanted.
-    # The 5 minute minimum on time holds the heat switch until 10:05.
+async def test_heat_stop_is_not_held(hass, enable_custom_integrations, config_data, freezer):
+    # Heat starts at 10:00. The room reaches the dead band at 10:01, where neither heat nor cool is wanted. The stop goes out at once.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, modes, _ = await _setup_ac_only(hass, config_data, room="20.0", outdoor="10.0")
     assert modes == ["heat"]
     freezer.tick(timedelta(minutes=1))
-    _set_ac_rooms(hass, "23.8")
-    await refresh(hass, entry)
-    assert "off" not in modes
-    freezer.tick(timedelta(minutes=5))
     _set_ac_rooms(hass, "23.8")
     await refresh(hass, entry)
     assert modes[-1] == "off"
@@ -3853,8 +3843,8 @@ async def test_target_uses_the_last_good_price_when_the_price_sensor_drops(hass,
     assert entry.runtime_data.data["target_c"] == 24.0
 
 
-async def test_second_ac_stop_inside_minimum_on_time_is_held(hass, enable_custom_integrations, config_data, freezer):
-    # The second AC starts at 10:00. A stop at 10:02 is inside the 5 minute minimum on time, so it waits until 10:06.
+async def test_second_ac_stop_is_not_held(hass, enable_custom_integrations, config_data, freezer):
+    # The second AC starts at 10:00. A stop at 10:02 goes out at once.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)  # outdoor 30 C, so cooling is allowed
     second = "climate.test_ac_2"
@@ -3882,13 +3872,8 @@ async def test_second_ac_stop_inside_minimum_on_time_is_held(hass, enable_custom
     freezer.tick(timedelta(minutes=2))
     _set_ac_rooms(hass, "22.0")  # below the 24 C comfort target, so the decision is off
     await refresh(hass, entry)
-    assert (second, "off") not in modes
-    assert entry.runtime_data.data["second_ac"] == "waiting for minimum time"
-
-    freezer.tick(timedelta(minutes=4))
-    _set_ac_rooms(hass, "22.0")
-    await refresh(hass, entry)
     assert (second, "off") in modes
+    assert entry.runtime_data.data["second_ac"] == "driven"
 
 
 async def test_stall_turns_the_second_ac_off_inside_its_minimum_on_time(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
@@ -6017,22 +6002,14 @@ async def test_no_command_before_the_first_valid_readings(hass, enable_custom_in
     assert ("switch", "turn_on", STOP_FAN, None) in calls
 
 
-async def test_ac_switched_on_by_hand_is_held_until_the_minimum_on_time(hass, enable_custom_integrations, config_data, freezer):
-    # The user turned the AC on 2 minutes ago. The entry wants it off, but the 5 minute minimum on time counts from that change.
+async def test_ac_switched_on_by_hand_is_stopped_at_once_when_the_entry_wants_it_off(hass, enable_custom_integrations, config_data, freezer):
+    # The user turned the AC on 2 minutes ago. The room is cold, so the entry wants it off and no minimum on time holds the stop.
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, calls = await _setup_recording(hass, config_data, climate="cool", extra={"ac_heat": False}, climate_age_s=120)
-    assert ("climate", "set_hvac_mode", CLIMATE, "off") not in calls
-    freezer.tick(timedelta(minutes=2))
-    set_room(hass, "20.0")
-    await refresh(hass, entry)
-    assert ("climate", "set_hvac_mode", CLIMATE, "off") not in calls
-    freezer.tick(timedelta(minutes=2))
-    set_room(hass, "20.0")
-    await refresh(hass, entry)
     assert ("climate", "set_hvac_mode", CLIMATE, "off") in calls
 
 
-async def test_ac_the_entry_started_is_not_stopped_early_after_a_reload(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+async def test_ac_the_entry_started_is_stopped_at_once_after_a_reload(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
     hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC"})
@@ -6064,10 +6041,6 @@ async def test_ac_the_entry_started_is_not_stopped_early_after_a_reload(hass, en
     monkeypatch.setattr(type(entry.runtime_data), "async_safety_stop", no_stop)
     await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
-    set_room(hass, "20.0")
-    await refresh(hass, entry)
-    assert calls == ["cool"]
-    freezer.tick(timedelta(minutes=4))
     set_room(hass, "20.0")
     await refresh(hass, entry)
     assert calls == ["cool", "off"]
@@ -6414,3 +6387,200 @@ async def test_fit_quality_is_published_after_a_store_restore(hass, enable_custo
     entity_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_status")
     attributes = hass.states.get(entity_id).attributes
     assert attributes["c_stderr"] == data["c_stderr"] and attributes["fit_confidence"] == data["fit_confidence"]
+
+
+# ---- immediate off and the restart delay -------------------------------------------------------------------
+
+
+def _device_services(hass):
+    """Fake climate and switch services for the room's devices.
+
+    Each call is recorded as (service, entity, value) and the new state is mirrored with the current time, as a real device does.
+    Calls for the room's own climate entity go to the real services.
+    """
+    calls = []
+    services = hass.services.async_services_internal()["climate"]
+    real = {name: services[name] for name in ("set_hvac_mode", "set_temperature")}
+
+    def stamp():
+        return dt_util.utcnow().timestamp()
+
+    def target_of(call):
+        target = call.data["entity_id"]
+        return target[0] if isinstance(target, list) else target
+
+    def climate_handler(name):
+        async def handler(call):
+            target = target_of(call)
+            if target.startswith("climate.hvac_horizon"):
+                return await hass.async_run_hass_job(real[name].job, call)
+            state = hass.states.get(target)
+            if name == "set_hvac_mode":
+                calls.append((name, target, call.data["hvac_mode"]))
+                hass.states.async_set(target, call.data["hvac_mode"], dict(state.attributes), timestamp=stamp())
+            else:
+                calls.append((name, target, call.data["temperature"]))
+                hass.states.async_set(target, state.state, {**state.attributes, "temperature": call.data["temperature"]}, timestamp=stamp())
+
+        return handler
+
+    def switch_handler(name, new_state):
+        async def handler(call):
+            target = target_of(call)
+            calls.append((name, target, None))
+            hass.states.async_set(target, new_state, timestamp=stamp())
+
+        return handler
+
+    schemas = {name: services[name].schema for name in real}
+    for name in real:
+        hass.services.async_register("climate", name, climate_handler(name), schema=schemas[name])
+    hass.services.async_register("switch", "turn_on", switch_handler("turn_on", "on"))
+    hass.services.async_register("switch", "turn_off", switch_handler("turn_off", "off"))
+    return calls
+
+
+async def _setup_with_devices(hass, config_data, *, room="26.0", outdoor="30.0", states=None, extra=None):
+    """A control-on entry with fake device services. `states` sets other entities before setup. Returns the entry, the room entity id and the calls."""
+    set_inputs(hass)
+    calls = _device_services(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    set_room(hass, room)
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    for entity, (state, attributes) in (states or {}).items():
+        hass.states.async_set(entity, state, attributes)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "control": True, **(extra or {})}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    entity_id = er.async_get(hass).async_get_entity_id("climate", DOMAIN, ROOM_CLIMATE_UNIQUE.format(entry.entry_id))
+    return entry, entity_id, calls
+
+
+async def _room_off(hass, entity_id):
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)
+    await hass.async_block_till_done()
+
+
+async def test_room_off_stops_both_acs_at_once_inside_the_minimum_on_time(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    second = "climate.test_ac_2"
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, states={CLIMATE: ("cool", {"temperature": 24.0, "target_temp_step": 1.0}), second: ("off", {"temperature": 24.0})},
+        extra={"climate_2": second, "min_on_min": 30},
+    )
+    assert ("set_hvac_mode", second, "cool") in calls
+    freezer.tick(timedelta(seconds=96))  # the owner's case: 1.6 minutes after the AC entered cool
+    calls.clear()
+    await _room_off(hass, entity_id)
+    assert ("set_hvac_mode", CLIMATE, "off") in calls
+    assert ("set_hvac_mode", second, "off") in calls
+    assert hass.states.get(CLIMATE).state == "off" and hass.states.get(second).state == "off"
+    assert hass.states.get(entity_id).state == "off"
+    assert entry.runtime_data.data["action"] == "off: user turned the room off"
+
+
+async def test_room_off_turns_the_heater_switch_off_at_once(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="20.0", outdoor="10.0", states={HEATER: ("off", {})}, extra={CONF_HEATER_SWITCH: HEATER}
+    )
+    assert ("turn_on", HEATER, None) in calls
+    freezer.tick(timedelta(minutes=1))
+    calls.clear()
+    await _room_off(hass, entity_id)
+    assert ("turn_off", HEATER, None) in calls
+    assert hass.states.get(HEATER).state == "off"
+
+
+async def test_room_off_turns_every_fleet_device_off_at_once(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    fleet = [
+        {"device_id": "small", "kind": "cool", "entity_id": SMALL_AC, "rate_k_per_h_per_kw": 2.0, "rated_w": 900.0},
+        {"device_id": "ir", "kind": "heat", "entity_id": IR_HEATER, "rate_k_per_h_per_kw": 1.5, "rated_w": 1500.0},
+    ]
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, states={SMALL_AC: ("off", {"temperature": 30.0}), IR_HEATER: ("off", {})}, extra={"fleet": fleet, "dispatch_mode": "fast"}
+    )
+    assert ("set_hvac_mode", SMALL_AC, "cool") in calls
+    hass.states.async_set(IR_HEATER, "on")  # left on by hand
+    freezer.tick(timedelta(minutes=1))
+    calls.clear()
+    await _room_off(hass, entity_id)
+    assert ("set_hvac_mode", SMALL_AC, "off") in calls
+    assert ("turn_off", IR_HEATER, None) in calls
+
+
+async def test_room_off_goes_out_inside_the_inhibit_window(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data)
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls
+    entry.runtime_data._inhibit_until_min = dt_util.utcnow().timestamp() / 60.0 + 30.0
+    calls.clear()
+    await _room_off(hass, entity_id)
+    assert ("set_hvac_mode", CLIMATE, "off") in calls
+
+
+async def test_stop_is_not_held_by_the_minimum_on_time_and_restart_waits_for_the_off_time(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, extra={"min_on_min": 30})
+    assert calls[0] == ("set_hvac_mode", CLIMATE, "cool")
+    freezer.tick(timedelta(minutes=2))
+    set_room(hass, "22.0")  # below the threshold: the decision is off
+    await refresh(hass, entry)
+    assert calls[-1] == ("set_hvac_mode", CLIMATE, "off")
+    assert entry.runtime_data.data["pending"] is None
+    # One minute later the room is hot again. The AC stopped 1 minute ago and the restart delay is 3 minutes.
+    freezer.tick(timedelta(minutes=1))
+    set_room(hass, "26.0")
+    calls.clear()
+    await refresh(hass, entry)
+    assert calls == []
+    assert entry.runtime_data.data["action"] == "cool: waiting for restart delay"
+    assert entry.runtime_data.data["pending"] == "start in 2 min: restart delay"
+    assert hass.states.get(entity_id).attributes["pending"] == "start in 2 min: restart delay"
+    # The re-check fires when the delay ends. No tick runs in between.
+    freezer.tick(timedelta(seconds=121))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert calls == [("set_hvac_mode", CLIMATE, "cool")]
+    assert entry.runtime_data.data["pending"] is None
+    assert hass.states.get(entity_id).attributes["pending"] is None
+
+
+async def test_restart_delay_of_zero_is_disabled(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, extra={"min_off_min": 0})
+    freezer.tick(timedelta(minutes=1))
+    set_room(hass, "22.0")
+    await refresh(hass, entry)
+    assert calls[-1] == ("set_hvac_mode", CLIMATE, "off")
+    freezer.tick(timedelta(seconds=30))
+    set_room(hass, "26.0")
+    await refresh(hass, entry)
+    assert calls[-1] == ("set_hvac_mode", CLIMATE, "cool")
+    assert entry.runtime_data.data["pending"] is None
+
+
+async def test_recheck_is_cancelled_when_the_decision_changes_and_on_unload(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data)
+    coordinator = entry.runtime_data
+    freezer.tick(timedelta(minutes=1))
+    set_room(hass, "22.0")
+    await refresh(hass, entry)
+    freezer.tick(timedelta(seconds=30))
+    set_room(hass, "26.0")
+    await refresh(hass, entry)
+    assert coordinator.data["pending"] is not None and coordinator._recheck_cancel is not None
+    # The room cools, so the decision is off and nothing is pending.
+    set_room(hass, "22.0")
+    await refresh(hass, entry)
+    assert coordinator.data["pending"] is None and coordinator._recheck_cancel is None
+    # A pending start again, then unload.
+    set_room(hass, "26.0")
+    await refresh(hass, entry)
+    assert coordinator._recheck_cancel is not None
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert coordinator._recheck_cancel is None

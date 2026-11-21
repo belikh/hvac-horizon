@@ -40,9 +40,9 @@ Three commands still go out during the window: a stall stop for the AC, every he
 
 The AC mode does not change until the current state has lasted long enough.
 
-- Running means `cool` or `heat`. Stopping the AC, or switching heat to cool, waits for `min_on_min`.
-- Starting cooling waits for `min_off_min`, counted from the last change.
-- The defaults are 5 minutes for `min_on_min` and 3 minutes for `min_off_min`, used when the fields are unset.
+- A stop is never held. Turning the room off from the room entity sends off to every device at once.
+- A start after a stop waits for the restart delay `min_off_min` (default 3 minutes, 0 disables it), counted from the last change. The room entity shows the wait in the attribute `pending`, and the integration re-checks when the delay ends.
+- `min_on_min` stays in the options for compatibility and is ignored.
 - Devices in `fleet` use the same two times. A stall stop and the safety stops ignore them.
 
 Change them in the **Devices and power limits** section of reconfigure. Each accepts 0 to 120 minutes.
@@ -65,7 +65,7 @@ The control step writes one action text per tick. The `investigation` attribute 
 | :-- | :-- |
 | `off: window open N min` | The window has been open for at least `window_delay_min`. |
 | `off: outdoor N C below cooling limit` | Outdoor temperature is below 16 °C. |
-| `off: waiting for minimum time`, `cool: waiting for minimum time` or `heat: waiting for minimum time` | The mode change is held by `min_on_min` or `min_off_min`. The prefix is the wanted mode. |
+| `cool: waiting for restart delay` or `heat: waiting for restart delay` | The start is held by the restart delay `min_off_min`. The attribute `pending` on the room entity says how long. |
 | `cool: waiting for compressor group` | Another entry in the same `compressor_group` started the AC less than 5 minutes ago. |
 | `off: sensor stalled` | A stall is blocking the AC. |
 | `off: no room reading` | No room has a valid reading for the stall window. |

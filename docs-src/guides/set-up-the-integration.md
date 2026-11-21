@@ -118,8 +118,8 @@ The price thresholds use the same unit as the price sensor, per kWh. Between the
 | `output_max` | Maximum heater output (%) | 100 | Upper limit for the heater output. |
 | `output_min_entity` | Minimum heater output number entity (optional) | none | When set, its value overrides `output_min`. |
 | `output_max_entity` | Maximum heater output number entity (optional) | none | When set, its value overrides `output_max`. |
-| `min_on_min` | Minimum AC on time (min) | 5 | Shortest time the AC runs before a mode change. |
-| `min_off_min` | Minimum AC off time (min) | 3 | Shortest time the AC stays off before a mode change. |
+| `min_on_min` | Minimum AC on time (min), deprecated | 5 | Ignored. A stop is never delayed. |
+| `min_off_min` | Restart delay (min) | 3 | Shortest time a device stays off before it starts again. 0 disables the delay. |
 | `stall_window_s` | Seconds without a report before a sensor counts as stalled | 900 | Range 300 to 3600 seconds. See [[guides/troubleshoot]]. |
 | `lock_pin` | Lock PIN (optional) | none | Needed to lock control. See [[guides/troubleshoot]]. |
 | `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel | off | Adds this entry to one shared sidebar panel. |

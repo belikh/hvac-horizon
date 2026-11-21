@@ -104,7 +104,7 @@
       },
       "devices": {
         "title": "Devices and power limits",
-        "description": "A second AC, a list of room devices, whole-house power and load shedding, and compressor minimum times. Submit empty to skip.",
+        "description": "A second AC, a list of room devices, whole-house power and load shedding, and the restart delay. Submit empty to skip.",
         "data": {
           "climate_2": "Second AC in the same room (optional)",
           "power_2": "Second AC power sensor, W (optional, enables the two-device fit)",
@@ -114,8 +114,8 @@
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
           "compressor_group": "Compressor group name (optional). Entries with the same name keep at least 5 minutes between their AC starts.",
-          "min_on_min": "Minimum AC on time (min)",
-          "min_off_min": "Minimum AC off time (min)"
+          "min_on_min": "Minimum AC on time (min), deprecated: a stop is never delayed and this value is ignored",
+          "min_off_min": "Restart delay (min): wait this long after a device stops before it starts again (0 disables the delay)"
         }
       },
       "advanced": {

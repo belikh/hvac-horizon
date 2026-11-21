@@ -18,7 +18,7 @@ from custom_components.hvac_horizon.features import (
     natural_ventilation_window,
     whole_house_fan_allowed,
     window_actuator_command,
-    minimum_time_ok,
+    restart_wait_min,
     ScheduleBlock,
     minutes_until_preset,
     room_devices,
@@ -69,10 +69,13 @@ class FeatureTests(unittest.TestCase):
         self.assertEqual(humidity_action(50.0).action, "none")
         self.assertEqual(humidity_action(None).action, "none")
 
-    def test_minimum_on_and_off_times(self):
-        self.assertFalse(minimum_time_ok(True, 3.0, min_on_min=5.0, min_off_min=3.0))
-        self.assertTrue(minimum_time_ok(True, 5.0, min_on_min=5.0, min_off_min=3.0))
-        self.assertTrue(minimum_time_ok(False, 3.0, min_on_min=5.0, min_off_min=3.0))
+    def test_restart_delay_waits_only_for_the_rest_of_the_off_time(self):
+        self.assertAlmostEqual(restart_wait_min(1.0, 3.0), 2.0)
+        self.assertEqual(restart_wait_min(3.0, 3.0), 0.0)
+        self.assertEqual(restart_wait_min(10.0, 3.0), 0.0)
+
+    def test_restart_delay_of_zero_is_disabled(self):
+        self.assertEqual(restart_wait_min(0.0, 0.0), 0.0)
 
     def test_timed_preset_window(self):
         self.assertFalse(timed_preset_active(None, 10.0, 30.0))

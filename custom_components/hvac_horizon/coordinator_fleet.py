@@ -1,4 +1,4 @@
-"""Fleet dispatch: choosing and driving the climate and switch devices of a fleet, with minimum on and off times."""
+"""Fleet dispatch: choosing and driving the climate and switch devices of a fleet. A stop is immediate; a start waits for the restart delay."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from dataclasses import fields, replace
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State
 
-from .const import CONF_DISPATCH_MODE, CONF_FLEET, CONF_MIN_OFF_MIN, CONF_MIN_ON_MIN, CONF_PRICE, DEFAULT_PRICE_CHEAP
+from .const import CONF_DISPATCH_MODE, CONF_FLEET, CONF_MIN_OFF_MIN, CONF_PRICE, DEFAULT_PRICE_CHEAP
 from custom_components.hvac_horizon.fleet import COOL, Device, FAST, HEAT, choose_devices, device_kw
 from custom_components.hvac_horizon.decide import Mode
 from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
-from custom_components.hvac_horizon.features import minimum_time_ok
+from custom_components.hvac_horizon.features import restart_wait_min
 from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float
 
 
@@ -123,17 +123,21 @@ class FleetMixin:
         changed = self._changed_at(state, own)
         return (now - changed) / 60.0 if changed is not None else 1e9
 
-    def _fleet_minimum_ok(self, device: Device, running: bool, now: float) -> bool:
-        """True when the device may change state now. Fleet devices use the same minimum on and off times as the AC."""
+    def _fleet_restart_wait(self, device: Device, running: bool, now: float) -> float:
+        """Minutes the device must still wait before it may start. 0 when it runs or the restart delay (min_off_min) is disabled or over."""
+        if running:
+            return 0.0
+        raw = self.entry.data.get(CONF_MIN_OFF_MIN)
+        minutes = 3.0 if raw is None or raw == "" else float(raw)
         since_min = self._since_min(self.hass.states.get(device.entity_id), self._fleet_changed_at.get(device.device_id), now)
-        return minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0))
+        return restart_wait_min(since_min, minutes)
 
     async def _drive_fleet(self, now: float, result: dict[str, Any], action: Any, stalled: bool) -> None:
         """Drive the dispatch through the gated paths. Chosen devices run and every other fleet device is turned off.
 
         Cooling follows the cool decision (so window, away, lock, user off, night hold and MPC idle apply). Heating is
-        gated like the heater switch. Climate devices get the cool setpoint or the heat target. Minimum on and off
-        times apply to every change except a stall stop.
+        gated like the heater switch. Climate devices get the cool setpoint or the heat target. A stop is immediate and
+        a start waits for the restart delay.
         """
         cooling = action.mode is Mode.COOL and not stalled
         heating = not stalled and not cooling and not self._heater_gate_closed(result)
@@ -146,25 +150,25 @@ class FleetMixin:
                 continue
             on = device.device_id in wanted
             setpoint = action.setpoint_c if device.kind == COOL else self._heat_target_c
-            if not await self._drive_fleet_device(device, on, setpoint, now, stalled):
+            if not await self._drive_fleet_device(device, on, setpoint, now):
                 waiting.append(device.device_id)
         dispatch["waiting"] = waiting
 
-    async def _drive_fleet_device(self, device: Device, on: bool, setpoint_c: float | None, now: float, stalled: bool) -> bool:
-        """Bring one device to on or off. Returns False when it waits for a minimum time or the compressor group."""
+    async def _drive_fleet_device(self, device: Device, on: bool, setpoint_c: float | None, now: float) -> bool:
+        """Bring one device to on or off. Returns False when a start waits for the restart delay or the compressor group."""
         running = self._fleet_running(device)
         state = self._fleet_state(device)
         if device.domain == "switch":
             if (state == "on") == on:
                 return True
-            if not stalled and not self._fleet_minimum_ok(device, running, now):
+            if on and not self._hold_fleet_start(device, running, now):
                 return False
             self._fleet_changed_at[device.device_id] = now
             await self._drive_switch(device.entity_id, on)
             return True
         mode = "cool" if device.kind == COOL else "heat"
         if state != (mode if on else "off"):
-            if not stalled and not self._fleet_minimum_ok(device, running, now):
+            if on and not self._hold_fleet_start(device, running, now):
                 return False
             if on and device.kind == COOL:
                 if not self._group_start_ok(now):
@@ -182,8 +186,22 @@ class FleetMixin:
                 )
         return True
 
-    async def _fleet_all_off(self, now: float) -> None:
-        """Turn every running fleet device off with no minimum time. Used by the safety stops."""
+    def _hold_fleet_start(self, device: Device, running: bool, now: float) -> bool:
+        """True when the device may start. When the restart delay holds it, record the wait for `pending` and return False."""
+        wait = self._fleet_restart_wait(device, running, now)
+        if wait > 0:
+            self._hold_start(wait, device.device_id)
+            return False
+        return True
+
+    async def _fleet_all_off(self, now: float, *, everything: bool = False) -> None:
+        """Turn fleet devices off at once. Used by the safety stops and by the user's off.
+
+        By default only a running device gets the command. With `everything`, any device that is not off, such as a
+        climate in dry mode, gets it too. An unavailable or unknown device gets none.
+        """
         for device in self._fleet():
-            if device.entity_id and self._fleet_running(device):
-                await self._drive_fleet_device(device, False, None, now, stalled=True)
+            if not device.entity_id:
+                continue
+            if self._fleet_running(device) or (everything and self._fleet_state(device) not in (None, "off", "unavailable", "unknown")):
+                await self._drive_fleet_device(device, False, None, now)

@@ -246,6 +246,9 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._inhibit_until_min: float | None = None
         self._inhibited_for_setpoint: float | None = None  # the manual value that last armed the inhibition
         self._last_written_setpoint: float | None = None
+        self._pending_waits: list[tuple[float, str | None]] = []  # starts the restart delay holds this cycle, for `pending`
+        self._recheck_cancel: Callable[[], None] | None = None  # cancels the re-check set for the end of a restart delay
+        self._store_loaded = False  # the store has been read; no tick runs before it
         # The AC setpoint before a peer request first lowered it. The restore writes it back when the request ends with the AC off.
         self._peer_setpoint_original: float | None = None
         self._autotune_result = None
@@ -255,8 +258,14 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
 
+    async def async_shutdown(self) -> None:
+        self._cancel_recheck()
+        await super().async_shutdown()
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Run one tick. The heater safety step runs on every tick, also when an earlier step raises."""
+        if not self._store_loaded:
+            await self.async_load()  # the stored user hold must be known before any command goes out
         now = dt_util.utcnow().timestamp()
         result: dict[str, Any] = {}
         self._heater_step_done = False

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import math
 import statistics
+from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 from custom_components.hvac_horizon.decide import Action, MPC_DEADBAND_C, Mode, RoomState, Settings, decide
@@ -26,7 +30,6 @@ from .const import (
     CONF_HOUSE_SEALED,
     CONF_HUMIDIFIER,
     CONF_MIN_OFF_MIN,
-    CONF_MIN_ON_MIN,
     CONF_MPC_HEAT_PLAN,
     CONF_NIGHT_PLAN_ACT,
     CONF_OUTDOOR,
@@ -55,9 +58,9 @@ from custom_components.hvac_horizon.features import (
     inhibited,
     keep_alive_due,
     lock_allows_control,
-    minimum_time_ok,
     mpc_idle,
     pwm_on,
+    restart_wait_min,
     round_to_step,
     stagger_allowed,
     ventilation_rate_from_co2,
@@ -83,6 +86,8 @@ class AcMixin:
     _last_written_setpoint: float | None
     _locked: bool
     _peer_setpoint_original: float | None
+    _pending_waits: list[tuple[float, str | None]]
+    _recheck_cancel: Callable[[], None] | None
     _precool_status: str | None
     _second_ac_commanded_on: bool
     _second_changed_at: float | None
@@ -97,7 +102,19 @@ class AcMixin:
     hass: HomeAssistant
 
     async def _async_control(self, now: float, result: dict[str, Any]) -> None:
-        """Send one climate action per cycle. Runs only when the control option is on."""
+        """Send one climate action per cycle. Runs only when the control option is on.
+
+        A start that the restart delay holds is recorded while the cycle runs. The cycle ends by publishing it as `pending`
+        and by scheduling a re-check for the moment the delay ends. Each cycle cancels the previous re-check first.
+        """
+        self._cancel_recheck()
+        self._pending_waits = []
+        try:
+            await self._async_control_cycle(now, result)
+        finally:
+            self._publish_pending(result)
+
+    async def _async_control_cycle(self, now: float, result: dict[str, Any]) -> None:
         climate_id = self.entry.data[CONF_CLIMATE]
         first_ac = self.hass.states.get(climate_id)
         self._ac_cooling_tick = (first_ac is not None and first_ac.state == "cool") or self._fleet_cooling()
@@ -106,8 +123,11 @@ class AcMixin:
             result["action"] = "locked"
             await self._locked_safety_stop(now, result, climate_id, first_ac)
             return
+        if self._user_off:
+            # The user's off goes out first, ahead of every other gate.
+            await self._user_off_stop(now, result)
         now_min = now / 60.0
-        if not self._inputs_seen and not (self._stall_blocks(result) or self._no_room_data_stop(now)):
+        if not self._user_off and not self._inputs_seen and not (self._stall_blocks(result) or self._no_room_data_stop(now)):
             # Room and outdoor readings have not been valid yet (sensors still starting). Send no command until they are.
             # A stalled sensor still goes on to the stop path, which sends off commands only.
             result["action"] = "waiting for first valid readings"
@@ -125,13 +145,14 @@ class AcMixin:
         # A stalled sensor stops the AC even inside the inhibit window. The window sends nothing else.
         stalled = self._stall_blocks(result) or self._no_room_data_stop(now)
         inhibit_on = inhibited(now_min, self._inhibit_until_min)
-        if inhibit_on and not stalled:
+        if inhibit_on and not stalled and not self._user_off:
             result["action"] = "inhibited after a manual change"
             return
         # Keep-alive: resend the last setpoint when the device has not been written to for KEEP_ALIVE_MIN.
         keep_alive_climate = self.hass.states.get(climate_id)
         if (
             not inhibit_on
+            and not self._user_off
             and keep_alive_due(self._last_sent_min, now_min, KEEP_ALIVE_MIN)
             and self._last_written_setpoint is not None
             and keep_alive_climate is not None
@@ -238,7 +259,7 @@ class AcMixin:
         await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), humidity.action == "dehumidify" and started, track=True)
         await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started, track=True)
         heat_ok = result.get("heating_allowed", True)
-        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started, track=True)
+        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off, track=True)
         outdoor_now = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         rooms_wh = self._rooms()
         fan_ok = whole_house_fan_allowed(
@@ -250,6 +271,8 @@ class AcMixin:
         )
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(self.entry.data.get(CONF_WHOLE_HOUSE_FAN), fan_ok and started, track=True)
+        if self._user_off:
+            return  # _user_off_stop already sent the off commands to the ACs, the heater switch and the fleet
         # The first AC's block below returns early on several paths, so the second AC is driven before it.
         if any(d.entity_id for d in self._fleet()):
             # Fleet devices with an entity replace the single-AC path: the dispatch drives every cooler and heater of the room.
@@ -262,21 +285,21 @@ class AcMixin:
         if rooms and not mpc_idled and self._ac_heat_wanted(action, result, statistics.median(rooms), window_open_pause(window_open_min, window_delay_min)):
             result["action"] = "heat: room below heat threshold"
             if await self._drive_ac_heat(climate_id, climate, now):
-                result["action"] = "heat: waiting for minimum time"
+                result["action"] = "heat: waiting for restart delay"
             return
-        # Minimum on and off times: do not change state until the current state has lasted long enough.
-        # Heat counts as running, so stopping heat, or switching heat to cool, waits for the minimum on time.
+        # A stop is never held. A start after a stop waits for the restart delay (min_off_min; 0 disables it).
         wanted_mode = "cool" if action.mode is Mode.COOL else "off"
         if wanted_mode == "cool" and climate.state != "cool" and not self._group_start_ok(now):
             result["action"] = "cool: waiting for compressor group"
             return
         running = climate.state in ("cool", "heat")
         if climate.state != wanted_mode and (running or wanted_mode == "cool"):
-            since_min = self._since_min(climate, self._state_changed_at, now)
-            # A stall stop ignores the minimum times, as the fleet and locked stops do.
-            if not stalled and not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
-                result["action"] = f"{action.mode.value}: waiting for minimum time"
-                return
+            if wanted_mode == "cool":
+                wait = self._restart_wait(climate.state in ("cool", "heat", "dry"), climate, self._state_changed_at, now)
+                if wait > 0:
+                    self._hold_start(wait, None)
+                    result["action"] = "cool: waiting for restart delay"
+                    return
             self._state_changed_at = now
         # Write only what differs from the device's current state, so a manual change is not overwritten every cycle.
         if action.mode is Mode.OFF and self._peer_setpoint_requested() and not stalled:
@@ -385,18 +408,18 @@ class AcMixin:
         )
 
     async def _drive_ac_heat(self, climate_id: str, climate: State, now: float) -> bool:
-        """Heat with the AC: hvac_mode heat, then the heat setpoint. Starting heat waits for the minimum time.
+        """Heat with the AC: hvac_mode heat, then the heat setpoint. A heat start after the AC stopped waits for the restart delay.
 
-        Returns True when the minimum time holds the start.
+        Returns True when the restart delay or the compressor group holds the start.
         """
         modes = climate.attributes.get("hvac_modes")
         if modes is not None and "heat" not in modes:
             # The device has no heat mode, so the AC cannot heat. Do not send a mode it does not list.
             return False
         if climate.state != "heat":
-            since_min = self._since_min(climate, self._state_changed_at, now)
-            running = climate.state in ("cool", "heat")
-            if not minimum_time_ok(running, since_min, self.entry.data.get(CONF_MIN_ON_MIN, 5.0), self.entry.data.get(CONF_MIN_OFF_MIN, 3.0)):
+            wait = self._restart_wait(climate.state in ("cool", "heat", "dry"), climate, self._state_changed_at, now)
+            if wait > 0:
+                self._hold_start(wait, None)
                 return True
             # A heat start is a compressor start too, so it waits for the group clock.
             if not self._group_start_ok(now):
@@ -461,8 +484,10 @@ class AcMixin:
                 # The first AC is in the queue ahead of the second while it is about to start cooling.
                 wanting = ["climate_2"] if first is not None and first.state == "cool" else ["climate_1", "climate_2"]
                 if stagger_allowed("climate_2", wanting, self._last_start_min, now / 60.0) and self._group_start_ok(now):
-                    if not self._second_minimum_ok(second.state, now):
-                        result["second_ac"] = "waiting for minimum time"
+                    wait = self._second_restart_wait(second, now)
+                    if wait > 0:
+                        self._hold_start(wait, "second AC")
+                        result["second_ac"] = "waiting for restart delay"
                         return
                     self._record_group_start(now)
                     self._second_ac_commanded_on = True
@@ -479,9 +504,6 @@ class AcMixin:
                 )
                 result["second_ac"] = "driven"
         elif action.mode is Mode.OFF and second.state != "off":
-            if not stalled and not self._second_minimum_ok(second.state, now):
-                result["second_ac"] = "waiting for minimum time"
-                return
             await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
             self._second_ac_commanded_on = False
             self._second_changed_at = now
@@ -521,12 +543,69 @@ class AcMixin:
         if group is not None:
             self.hass.data.setdefault(DOMAIN, {}).setdefault("compressor_clock", {})[group] = now / 60.0
 
-    def _second_minimum_ok(self, state: str, now: float) -> bool:
-        """True when the second AC may change mode now. It uses the same minimum on and off times as the first AC."""
-        since_min = self._since_min(self.hass.states.get(self.entry.data.get(CONF_CLIMATE_2)), self._second_changed_at, now)
-        return minimum_time_ok(
-            state in ("cool", "heat"),
-            since_min,
-            self.entry.data.get(CONF_MIN_ON_MIN, 5.0),
-            self.entry.data.get(CONF_MIN_OFF_MIN, 3.0),
-        )
+    def _second_restart_wait(self, second: State, now: float) -> float:
+        """Minutes the second AC must still wait before it may start. It uses the restart delay of the first AC."""
+        return self._restart_wait(second.state in ("cool", "heat", "dry"), second, self._second_changed_at, now)
+
+    def _restart_wait(self, running: bool, state: State | None, own_changed_at: float | None, now: float) -> float:
+        """Minutes before a device that is off may start again. 0 when it runs, when the delay is disabled or when it has passed."""
+        if running:
+            return 0.0
+        raw = self.entry.data.get(CONF_MIN_OFF_MIN)
+        minutes = 3.0 if raw is None or raw == "" else float(raw)
+        return restart_wait_min(self._since_min(state, own_changed_at, now), minutes)
+
+    def _hold_start(self, wait_min: float, name: str | None) -> None:
+        """Record a start that the restart delay holds this cycle. `name` labels a device other than the first AC."""
+        self._pending_waits.append((wait_min, name))
+
+    def _publish_pending(self, result: dict[str, Any]) -> None:
+        """Publish the soonest held start as `pending` (None when nothing waits) and schedule a re-check when its delay ends."""
+        if not self._pending_waits:
+            result["pending"] = None
+            return
+        wait_min, name = min(self._pending_waits, key=lambda held: held[0])
+        text = f"start in {max(1, math.ceil(wait_min - 1e-9))} min: restart delay"
+        result["pending"] = text if name is None else f"{text} ({name})"
+        self._recheck_cancel = async_call_later(self.hass, wait_min * 60.0 + 1.0, self._async_recheck)
+
+    async def _async_recheck(self, _when: datetime) -> None:
+        """The restart delay ended. Run a cycle now instead of waiting for the next tick."""
+        self._recheck_cancel = None
+        await self.async_refresh()
+
+    def _cancel_recheck(self) -> None:
+        if self._recheck_cancel is not None:
+            self._recheck_cancel()
+            self._recheck_cancel = None
+
+    async def _user_off_stop(self, now: float, result: dict[str, Any]) -> None:
+        """Send off to the first AC, the second AC, the heater switch and every fleet device. Nothing delays it.
+
+        Called while the user holds the room off. A device that is already off, unavailable or unknown gets no command.
+        The lock is checked by the caller and by set_user_off.
+        """
+        data = self.entry.data
+        climate_id = data[CONF_CLIMATE]
+        for entity_id in (climate_id, data.get(CONF_CLIMATE_2)):
+            state = self.hass.states.get(entity_id) if entity_id else None
+            if state is None or state.state in ("off", "unavailable", "unknown"):
+                continue
+            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)
+            if entity_id == climate_id:
+                self._last_sent_min = now / 60.0
+                self._last_written_mode = "off"
+                self._state_changed_at = now
+            else:
+                self._second_ac_commanded_on = False
+                self._second_changed_at = now
+        self._coil_dry_sent = False
+        self._was_cooling = False
+        self._dry_started_min = None
+        await self._fleet_all_off(now, everything=True)
+        # The heater switch: the logical state is off, and the switch gets its off command with the configured polarity.
+        self._cancel_pwm_timers()
+        self._pwm_on_now = False
+        self._pwm_window_start_s = None
+        await self._drive_heater_switch()
+        result["action"] = "off: user turned the room off"

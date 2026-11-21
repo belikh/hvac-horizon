@@ -77,7 +77,11 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {} if self._entry.data.get(CONF_CONTROL) else {"control": "observe only"}
+        # `pending` names a start that the restart delay holds, for example "start in 2 min: restart delay". None when nothing waits.
+        attributes: dict[str, Any] = {"pending": (self.coordinator.data or {}).get("pending")}
+        if not self._entry.data.get(CONF_CONTROL):
+            attributes["control"] = "observe only"
+        return attributes
 
     @property
     def preset_mode(self) -> str | None:

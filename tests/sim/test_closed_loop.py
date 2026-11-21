@@ -3,13 +3,13 @@
 Every profile runs once with control on and sensors healthy, and once per fault mode with the room sensors
 failing from hour 12 to hour 13. A trace is recorded once per run and shared by the property tests.
 
-Fixed settings: minimum on time 10 min, minimum off time 5 min, tick 5 min, stall window 900 s (the default),
+Fixed settings: restart delay (min_off_min) 5 min, tick 5 min, stall window 900 s (the default),
 cool threshold 24.0 C (the default comfort setpoint), heater PWM window 10 min.
 
 Bounds:
-- Minimum times. An AC changes state only after it held the previous state for the minimum time.
-- AC mode writes. At most one on and one off per 15 min cycle, so 2 * ceil(60 / (min_on + min_off)) = 8 set_hvac_mode
-  calls per clock hour for each AC.
+- Restart delay. A stop is never held. An AC starts only after it stayed off for the restart delay.
+- AC starts. A start needs the restart delay plus one tick after the previous start (the stop is at the earliest the next tick),
+  so at most ceil(60 / (min_off + tick)) = 6 starts per clock hour for each AC, and at most twice that many set_hvac_mode calls.
 - Heater switch writes. The PWM window is 10 min with an on edge and an off edge, so 12 turn_on or turn_off calls per clock hour.
 - Comfort. After hour 3 the room air stays within 1.5 K of the cool threshold for at least 90 percent of the minutes.
 - Stop. With every room sensor stuck or unavailable from the first fault minute, each device is off from
@@ -97,10 +97,9 @@ async def test_no_ac_short_cycling(hass, freezer, name):
         changes = ac_changes(trace, entity)
         previous_minute = None
         for minute, now_on in changes:
-            if previous_minute is not None:
-                held = minute - previous_minute
-                minimum = profile.min_off_min if now_on else profile.min_on_min  # a change to on ends an off period
-                assert held >= minimum, f"{entity} changed to {'on' if now_on else 'off'} at minute {minute} after {held} min"
+            if previous_minute is not None and now_on:
+                held = minute - previous_minute  # a change to on ends an off period; a change to off is never held
+                assert held >= profile.min_off_min, f"{entity} restarted at minute {minute} after {held} min off"
             previous_minute = minute
 
 
@@ -108,14 +107,18 @@ async def test_no_ac_short_cycling(hass, freezer, name):
 async def test_ac_mode_writes_per_hour_are_bounded(hass, freezer, name):
     trace = await traced(hass, freezer, name)
     profile = trace.profile
-    bound = 2 * math.ceil(60 / (profile.min_on_min + profile.min_off_min))
-    assert bound == 8
+    start_bound = math.ceil(60 / (profile.min_off_min + TICK_MIN))
+    assert start_bound == 6
     for entity, _spec in profile.acs:
         per_hour: dict[int, int] = {}
+        starts: dict[int, int] = {}
         for call in trace.calls:
             if call.service == "set_hvac_mode" and call.entity_id == entity:
                 per_hour[call.minute // 60] = per_hour.get(call.minute // 60, 0) + 1
-        assert max(per_hour.values(), default=0) <= bound, per_hour
+                if call.data.get("hvac_mode") != "off":
+                    starts[call.minute // 60] = starts.get(call.minute // 60, 0) + 1
+        assert max(starts.values(), default=0) <= start_bound, starts
+        assert max(per_hour.values(), default=0) <= 2 * start_bound, per_hour
 
 
 @pytest.mark.parametrize("name", NAMES)
