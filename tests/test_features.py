@@ -447,6 +447,14 @@ class VentilationRateTests(unittest.TestCase):
 
 
 class NaturalVentilationTests(unittest.TestCase):
+    def test_cold_room_does_not_open_windows(self):
+        from custom_components.hvac_horizon.features import natural_ventilation_window
+
+        self.assertEqual(natural_ventilation_window(5.0, 19.0, cool_above_c=24.0), "close")
+        self.assertEqual(economizer_phase(5.0, 19.0, 22.0, 0.0, cool_above_c=24.0), "off")
+        self.assertEqual(natural_ventilation_window(18.0, 27.0, cool_above_c=24.0), "open")
+        self.assertEqual(economizer_phase(18.0, 27.0, 24.0, 0.0, cool_above_c=24.0), "open_windows")
+
     def test_open_when_outside_is_cooler(self):
         from custom_components.hvac_horizon.features import natural_ventilation_window
 

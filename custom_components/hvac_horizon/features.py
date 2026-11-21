@@ -343,12 +343,15 @@ def cover_action(solar_gain_kw: float, threshold_kw: float, cover_open: bool) ->
     return "hold"
 
 
-def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0) -> str:
+def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, cool_above_c: float | None = None) -> str:
     """'open' when fresh air will cool the room: outdoors is cooler than indoors by `min_delta_c` and not above `max_outdoor_c`.
     'close' when outdoors is warmer than indoors or above the cap. 'hold' otherwise.
 
+    When `cool_above_c` is given and the room is at or below it, the room needs no cooling and the answer is 'close'.
     Ported from ClimateAdvisor's natural ventilation timing. The decision is for windows, not the AC.
     """
+    if cool_above_c is not None and indoor_c <= cool_above_c:
+        return "close"
     if outdoor_c > max_outdoor_c or outdoor_c >= indoor_c:
         return "close"
     if indoor_c - outdoor_c >= min_delta_c:
@@ -356,15 +359,18 @@ def natural_ventilation_window(outdoor_c: float, indoor_c: float, min_delta_c: f
     return "hold"
 
 
-def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0) -> str:
+def economizer_phase(outdoor_c: float, indoor_c: float, comfort_c: float, minutes_in_open: float, min_delta_c: float = 2.0, max_outdoor_c: float = 24.0, fan_after_min: float = 30.0, cool_above_c: float | None = None) -> str:
     """Two-phase window cooling advice: 'off', 'open_windows' or 'fan_assist'.
 
     'off' when outdoors is above `max_outdoor_c` or less than `min_delta_c` cooler than indoors.
+    Also 'off' when `cool_above_c` is given and the room is at or below it, because the room needs no cooling.
     Otherwise 'fan_assist' when the room is above `comfort_c` after `fan_after_min` minutes of open windows, else 'open_windows'.
     Ported from ClimateAdvisor's economizer FSM. Publishes advice only.
     """
     if min_delta_c < 0 or fan_after_min <= 0:
         raise ValueError("min_delta_c must be >= 0 and fan_after_min must be > 0")
+    if cool_above_c is not None and indoor_c <= cool_above_c:
+        return "off"
     if outdoor_c > max_outdoor_c or outdoor_c > indoor_c - min_delta_c:
         return "off"
     if indoor_c > comfort_c and minutes_in_open >= fan_after_min:

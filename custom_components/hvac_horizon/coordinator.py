@@ -1016,7 +1016,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         outdoor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
         if not rooms or outdoor is None:
             return None
-        return natural_ventilation_window(outdoor, statistics.median(rooms))
+        return natural_ventilation_window(outdoor, statistics.median(rooms), cool_above_c=self._cool_above_c)
 
     def _day_type(self) -> str | None:
         """Day class from the outdoor sensor's reading. Uses the current reading until a forecast is wired in."""
@@ -1238,6 +1238,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 statistics.median(rooms_econ),
                 self.comfort_c,
                 self._minutes_in_open,
+                cool_above_c=self._cool_above_c,
             )
             if phase == "off":
                 self._minutes_in_open = 0.0
@@ -1550,6 +1551,13 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         open_advice = (
             result.get("window_advice") == "open" or result.get("economizer") in ("open_windows", "fan_assist")
         ) and not house_away
+        # Open advice needs a room that wants cooling. A wanted or running heater blocks it.
+        heater_id = self._heater_switch()
+        heater_state = self.hass.states.get(heater_id) if heater_id else None
+        heater_on = heater_state is not None and heater_state.state == "on"
+        room_c = statistics.median(rooms)
+        if room_c <= self._cool_above_c or room_c < self._heat_on_below_c or heater_on:
+            open_advice = False
         command = window_actuator_command(
             open_advice, statistics.median(rooms), outdoor, state.state in ("open", "on"), self._actuator_opened_by_us
         )
