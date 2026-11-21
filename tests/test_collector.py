@@ -2,6 +2,7 @@ import unittest
 
 from custom_components.hvac_horizon.collector import (
     Entry,
+    mode_interval_counts,
     price_slots,
     running_power_kw,
     samples_from_entries,
@@ -200,3 +201,59 @@ class RoomSamplesTests(unittest.TestCase):
         a = Entry(t=0.0, room_c=24.0, outdoor_c=30.0, power_w=1200.0)
         b = Entry(t=1800.0, room_c=23.8, outdoor_c=30.0, power_w=1200.0)
         self.assertEqual(room_samples_from_entries([a, b]), [])
+
+
+import math
+
+from custom_components.hvac_horizon.tpi import learn_room_rates
+
+
+def _series(t0, n, ac_mode, k=0.3, g=0.2, c=1.4, warm_kw=None):
+    """Readings 5 minutes apart. The AC runs 6 steps on and 6 off. While on it is in `ac_mode`.
+
+    With `warm_kw` set, running intervals warm the room at warm_kw * 2 K/h instead of cooling it (a heating AC).
+    """
+    temp, out = 24.0, []
+    for i in range(n):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        on = (i // 6) % 2 == 0
+        out.append(Entry(t=t0 + i * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 if on else 0.0, mode=ac_mode if on else "off"))
+        effect = (2.0 * warm_kw if warm_kw else -c) if on else 0.0
+        temp += (k * (outdoor - temp) + g + effect) * (5 / 60)
+    return out
+
+
+class ModeLabelTests(unittest.TestCase):
+    def test_heat_mode_power_does_not_change_the_cooling_coefficient(self):
+        cool = _series(0, 300, "cool")
+        heat = _series(10**6, 300, "heat", warm_kw=1.0)
+        base = learn_room_rates(samples_from_entries(cool))
+        mixed = learn_room_rates(samples_from_entries(cool + heat))
+        self.assertAlmostEqual(mixed.c, base.c, places=6)
+        self.assertEqual(mixed.samples_on, base.samples_on)
+        self.assertAlmostEqual(base.c, 1.4, delta=0.05)
+
+    def test_dry_mode_power_is_excluded_from_the_cooling_fit(self):
+        cool = _series(0, 300, "cool")
+        dry = _series(10**6, 300, "dry", warm_kw=0.2)
+        base = learn_room_rates(samples_from_entries(cool))
+        mixed = learn_room_rates(samples_from_entries(cool + dry))
+        self.assertAlmostEqual(mixed.c, base.c, places=6)
+        self.assertEqual(mixed.samples_on, base.samples_on)
+
+    def test_pure_cooling_series_fits_as_before(self):
+        fit = learn_room_rates(samples_from_entries(_series(0, 400, "cool")))
+        self.assertAlmostEqual(fit.k, 0.3, delta=0.02)
+        self.assertAlmostEqual(fit.c, 1.4, delta=0.05)
+
+    def test_entries_without_a_mode_count_as_cooling(self):
+        legacy = [Entry(t=e.t, room_c=e.room_c, outdoor_c=e.outdoor_c, power_w=e.power_w) for e in _series(0, 100, "cool")]
+        self.assertEqual(len(samples_from_entries(legacy)), 99)
+
+    def test_interval_counts_per_mode(self):
+        entries = _series(0, 24, "cool") + _series(10**6, 24, "heat", warm_kw=1.0) + _series(2 * 10**6, 24, "dry", warm_kw=0.2)
+        counts = mode_interval_counts(entries)
+        self.assertGreater(counts["cool"], 0)
+        self.assertGreater(counts["heat"], 0)
+        self.assertGreater(counts["dry"], 0)
+        self.assertEqual(len(samples_from_entries(entries)), counts["off"] + counts["cool"])

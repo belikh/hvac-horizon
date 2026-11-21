@@ -28,6 +28,7 @@ from custom_components.hvac_horizon.collector import (
     heat_pairs_from_entries,
     entries_from_history,
     has_enough_cycles,
+    mode_interval_counts,
     price_slots,
     room_samples_from_entries,
     running_power_kw,
@@ -306,6 +307,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fit: Fit | None = None
         self._fit_reason = "not enough data"
         self._samples_since_fit = 0
+        self._mode_counts: dict[str, int] = {}
         self._window_open_since: float | None = None
         self._state_changed_at: float | None = None
         self._fleet_changed_at: dict[str, float] = {}  # device_id -> when the dispatch last changed it, for minimum times
@@ -808,6 +810,7 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _refit(self) -> None:
         samples = samples_from_entries(self._entries)
+        self._mode_counts = mode_interval_counts(self._entries)
         self._refit_room_model()
         self._refit_fleet()
         try:
@@ -2662,6 +2665,8 @@ class HorizonCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "accuracy_pairs": accuracy_pairs(self._backtest_runs),
             "room_fit": self._room_fit,
             "room_rate_coefficients": None if self._tpi is None else {"k_per_h": round(self._tpi.k, 4), "g_k_per_h": round(self._tpi.g, 4), "c_k_per_h_per_kw": round(self._tpi.c, 4), "samples_off": self._tpi.samples_off, "samples_on": self._tpi.samples_on},
+            "samples_heat": self._mode_counts.get("heat", 0),
+            "samples_dry": self._mode_counts.get("dry", 0),
             "auto_tpi_gains": {"cool": round(self._auto_tpi_gain, 4), "heat": round(self._auto_heat_gain, 4)},
         }
         active = self._active_fit()

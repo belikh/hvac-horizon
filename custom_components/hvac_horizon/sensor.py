@@ -37,6 +37,8 @@ STATUS_KEYS: dict[str, str] = {
     "target_c": "Target temperature",
     "preset": "Preset",
     "heating_allowed": "Heating allowed",
+    "samples_heat": "AC heat intervals",
+    "samples_dry": "AC dry intervals",
     "heater_feedback": "Heater feedback",
     "heater_pwm_on": "Heater PWM on",
     "valve_opening_pct": "Valve opening",

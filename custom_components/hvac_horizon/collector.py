@@ -62,8 +62,45 @@ def _interval_power_kw(a: Entry, b: Entry) -> float:
     return _running_kw(a.power_w)
 
 
+HEAT_MODE = "heat"
+DRY_MODE = "dry"
+NON_COOL_MODES = (HEAT_MODE, DRY_MODE, "fan_only")  # AC modes whose running power is not cooling
+
+
+def _interval_kind(a: Entry, b: Entry, kw: float) -> str:
+    """Label one interval: "off" (no AC power), "cool", "heat", "dry" or "other" (fan only).
+
+    An interval with AC power counts as cooling when neither reading is in a non-cool mode. A reading with no
+    mode (older stored records) counts as cool. Heat and dry intervals have their own labels.
+    """
+    if kw <= 0:
+        return "off"
+    modes = {a.mode, b.mode}
+    if HEAT_MODE in modes:
+        return "heat"
+    if DRY_MODE in modes:
+        return "dry"
+    if "fan_only" in modes:
+        return "other"
+    return "cool"
+
+
+def mode_interval_counts(entries: list[Entry]) -> dict[str, int]:
+    """Number of one-step intervals per label: off, cool, heat, dry, other."""
+    ordered = sorted(entries, key=lambda e: e.t)
+    counts = {"off": 0, "cool": 0, "heat": 0, "dry": 0, "other": 0}
+    for a, b in zip(ordered, ordered[1:]):
+        if abs((b.t - a.t) - STEP_S) > TOLERANCE_S:
+            continue
+        counts[_interval_kind(a, b, _interval_power_kw(a, b))] += 1
+    return counts
+
+
 def samples_from_entries(entries: list[Entry]) -> list[Sample]:
-    """Pair consecutive readings that are one step apart. Gaps break the chain."""
+    """Pair consecutive readings that are one step apart. Gaps break the chain.
+
+    Intervals where the AC ran in heat, dry or fan-only mode are left out: they are not passive drift and not cooling.
+    """
     return [sample for sample, _ in heat_pairs_from_entries(entries)]
 
 
@@ -75,12 +112,15 @@ def heat_pairs_from_entries(entries: list[Entry]) -> list[tuple[Sample, float]]:
         gap = b.t - a.t
         if abs(gap - STEP_S) > TOLERANCE_S:
             continue
+        kw = _interval_power_kw(a, b)
+        if _interval_kind(a, b, kw) not in ("off", "cool"):
+            continue
         sample = Sample(
             minutes=gap / 60.0,
             temp_c=a.room_c,
             temp_next_c=b.room_c,
             outdoor_c=a.outdoor_c,
-            power_kw=_interval_power_kw(a, b),
+            power_kw=kw,
         )
         out.append((sample, a.heat_pct or 0.0))
     return out
@@ -97,6 +137,9 @@ def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
         gap = b.t - a.t
         if abs(gap - STEP_S) > TOLERANCE_S:
             continue
+        ac_kw = _interval_power_kw(a, b)
+        if _interval_kind(a, b, ac_kw) not in ("off", "cool"):
+            continue
         second = _running_kw(a.power_2_w) if a.power_2_w is not None else 0.0
         heater_on = 1.0 if (a.heat_pct or 0.0) > 0 else 0.0
         out.append(
@@ -105,7 +148,7 @@ def room_samples_from_entries(entries: list[Entry]) -> list[RoomSample]:
                 temp_c=a.room_c,
                 temp_next_c=b.room_c,
                 outdoor_c=a.outdoor_c,
-                device_kw={"ac": _interval_power_kw(a, b), "ac_2": second, HEATER: heater_on},
+                device_kw={"ac": ac_kw, "ac_2": second, HEATER: heater_on},
             )
         )
     return out

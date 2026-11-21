@@ -3288,6 +3288,49 @@ async def test_learned_room_rate_coefficients_are_published_and_used(hass, enabl
     assert "tpi" not in hass.states.get(entity_id).attributes
 
 
+async def test_heat_and_dry_intervals_stay_out_of_the_cooling_fit_and_are_counted(hass, enable_custom_integrations, config_data, freezer):
+    import math
+
+    from custom_components.hvac_horizon.collector import Entry
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    _register_climate_fakes(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+
+    def series(t0, n, mode, warm):
+        temp, out = 24.0, []
+        for i in range(n):
+            outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+            on = (i // 6) % 2 == 0
+            out.append(Entry(t=t0 + i * 300, room_c=temp, outdoor_c=outdoor, power_w=1000.0 if on else 0.0, mode=mode if on else "off"))
+            temp += (0.3 * (outdoor - temp) + 0.2 + ((2.0 if warm else -1.4) if on else 0.0)) * (5 / 60)
+        return out
+
+    start = now - 100000
+    cool = series(start, 400, "cool", False)
+    coordinator._entries = cool
+    coordinator._refit()
+    await refresh(hass, entry)
+    base = entry.runtime_data.data["room_rate_coefficients"]
+    assert entry.runtime_data.data["samples_heat"] == 0
+    assert entry.runtime_data.data["samples_dry"] == 0
+
+    coordinator._entries = cool + series(start + 200000, 200, "heat", True) + series(start + 400000, 200, "dry", True)
+    coordinator._refit()
+    await refresh(hass, entry)
+    mixed = entry.runtime_data.data["room_rate_coefficients"]
+    assert mixed["c_k_per_h_per_kw"] == pytest.approx(base["c_k_per_h_per_kw"], abs=1e-3)
+    assert mixed["samples_on"] == base["samples_on"]
+    assert entry.runtime_data.data["samples_heat"] > 0
+    assert entry.runtime_data.data["samples_dry"] > 0
+
+
 async def test_online_cool_gain_follows_a_weaker_ac_and_survives_reload(hass, enable_custom_integrations, config_data, freezer):
     # History fits c = 1.4 K/h per kW. The real AC then cools at 0.7, so each live interval warms faster than predicted.
     # The cool gain must fall, stay inside its clamp, publish on the status entity, and come back after a reload.

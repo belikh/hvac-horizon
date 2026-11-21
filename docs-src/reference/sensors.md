@@ -38,6 +38,8 @@ Each entry creates the sensors below. The entity ID is `sensor.<name>` for the e
 | `target_c` | Target temperature | °C |
 | `preset` | Preset | none |
 | `heating_allowed` | Heating allowed | none |
+| `samples_heat` | AC heat intervals | none |
+| `samples_dry` | AC dry intervals | none |
 | `heater_feedback` | Heater feedback | none |
 | `heater_pwm_on` | Heater PWM on | none |
 | `valve_opening_pct` | Valve opening | % |
