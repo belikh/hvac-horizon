@@ -30,6 +30,8 @@ class Sample:
     temp_next_c: float  # room temperature at the end of the interval
     outdoor_c: float  # outdoor temperature during the interval
     power_kw: float  # mean AC power during the interval
+    solar_kw: float | None = None  # solar gain on the window during the interval, kW; None when it is not known
+    humidity_pct: float | None = None  # room relative humidity at the start of the interval; None without a sensor
 
 
 @dataclass(frozen=True)

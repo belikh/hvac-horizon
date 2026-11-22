@@ -63,6 +63,7 @@ DEFAULT_RESIDUAL_PEAK_K = 1.0  # residual rise after a heater stops, kelvin, use
 RESIDUAL_TAU_MIN = 20.0  # decay time constant of the residual rise, minutes
 CONF_HEATER_SWITCH = "heater_switch"  # optional switch for the heater plug
 CONF_HEATER_INVERTED = "heater_inverted"  # bool, default False; on means off for the heater switch
+CONF_HEATER_POWER_W = "heater_power_w"  # rated power of the heater on the heater switch, W; gives the heating forecast its energy and cost
 CONF_HEATER_KP = "heater_kp"  # heater PID proportional gain
 CONF_HEATER_KI = "heater_ki"  # heater PID integral gain, per hour
 CONF_HEATER_KD = "heater_kd"  # heater PID derivative time, hours

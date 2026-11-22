@@ -1893,10 +1893,10 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     primary = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is None and not e.disabled}
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
-    assert primary == PRIMARY_KEYS and len(primary) == 11
-    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 28
-    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 36
-    assert len(sensors) == 75
+    assert primary == PRIMARY_KEYS and len(primary) == 12
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 30
+    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 42
+    assert len(sensors) == 84
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -8060,3 +8060,77 @@ async def test_a_heater_that_ignores_its_command_is_listed_after_two_ticks(hass,
     keep_sensors_fresh(hass, outdoor="10.0", room="20.0")
     await refresh(hass, entry)
     assert entry.runtime_data.data["commands_unconfirmed"] == []
+
+
+def _stub_heat_model(monkeypatch, rate=5.0):
+    """A learned room with no passive drift and a heater that warms it by `rate` K/h."""
+    monkeypatch.setattr(coordinator_learning_module, "learn_room_rates", lambda samples: TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12))
+    monkeypatch.setattr(coordinator_learning_module, "learn_heat_rate", lambda pairs, k, g: rate)
+
+
+async def test_the_forecast_is_a_heating_forecast_in_a_cold_room(hass, enable_custom_integrations, config_data, monkeypatch):
+    """Room 19 C, a heater that warms 5 K/h. The forecast sensors give the minutes to the heat target."""
+    _stub_heat_model(monkeypatch)
+    entry, _ = await setup_heater(hass, config_data, room="19.0")
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    target = entry.runtime_data._heat_target_c
+    assert data["forecast_mode"] == "heat"
+    assert data["forecast_target"] == pytest.approx(target)
+    assert data["status"] == "reachable"
+    assert data["minutes"] == pytest.approx((target - 19.0) / 5.0 * 60.0, abs=1.5)
+    assert data["energy_kwh"] is None and data["cost"] is None  # no heater power is set
+    assert data["heat_model"] == {"source": "heater", "k_per_h": 5.0, "power_kw": None}
+
+
+async def test_heater_power_gives_the_heating_forecast_its_energy(hass, enable_custom_integrations, config_data, monkeypatch):
+    _stub_heat_model(monkeypatch)
+    entry, _ = await setup_heater(hass, config_data, room="19.0", extra={"heater_power_w": 2000})
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["energy_kwh"] == pytest.approx(2.0 * data["minutes"] / 60.0, abs=0.01)
+
+
+async def test_the_heating_forecast_says_learning_without_a_heat_model(hass, enable_custom_integrations, config_data):
+    entry, _ = await setup_heater(hass, config_data, room="19.0")
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert (data["forecast_mode"], data["status"], data["minutes"]) == ("heat", "learning", None)
+    assert data["reason"] == "need 12 heating intervals and a room fit"
+
+
+async def test_a_warm_room_in_auto_keeps_the_cooling_forecast(hass, enable_custom_integrations, config_data, monkeypatch):
+    _stub_heat_model(monkeypatch)
+    entry, _ = await setup_heater(hass, config_data, room="26.0", outdoor="30.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["forecast_mode"] == "cool"
+
+
+async def test_the_forecast_is_a_drying_forecast_in_dry_mode(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    """Dry mode at 75 percent with a learned fall of 6 percent per hour: 180 minutes to 57 percent."""
+    from custom_components.hvac_horizon.mode_models import RateFit
+
+    monkeypatch.setattr(coordinator_learning_module, "learn_dry", lambda rates: RateFit(6.0, 0.5, 24))
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "75")
+    entry, entity_id, _ = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    entry.runtime_data._refit()
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert data["forecast_mode"] == "dry"
+    assert data["forecast_target"] == 57.0
+    assert data["minutes"] == pytest.approx(180.0, abs=1.0)
+    assert data["minutes_low"] < data["minutes"] < data["minutes_high"]
+    assert data["dry_model"] == {"pct_per_h": 6.0, "samples": 24}
+
+
+async def test_the_drying_forecast_says_learning_without_dry_intervals(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "75")
+    entry, entity_id, _ = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    await refresh(hass, entry)
+    data = entry.runtime_data.data
+    assert (data["forecast_mode"], data["status"]) == ("dry", "learning")
+    assert data["reason"] == "need 12 dry intervals with a room humidity reading"

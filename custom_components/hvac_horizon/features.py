@@ -68,6 +68,7 @@ def outdoor_allows(mode: str, outdoor_c: float, cool_min_c: float = 16.0, heat_m
     raise ValueError(f"unknown mode {mode!r}")
 
 
+HUMIDITY_BAND_HIGH_PCT = 60.0  # dehumidifying starts above this
 HUMIDITY_DEADBAND_PCT = 3.0  # percentage points a humidity output stays on past its threshold
 CO2_DEADBAND_PPM = 100.0
 PM25_DEADBAND = 3.0  # ug/m3

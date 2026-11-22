@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -16,6 +17,7 @@ from .const import (
     DEFAULT_HEATER_KD,
     DEFAULT_HEATER_KI,
     DEFAULT_HEATER_KP,
+    KEEP_DAYS,
 )
 from custom_components.hvac_horizon.fleet import COOL, HEAT, calibrate_rates
 from custom_components.hvac_horizon.collector import (
@@ -23,11 +25,15 @@ from custom_components.hvac_horizon.collector import (
     fleet_samples_from_entries,
     has_enough_cycles,
     heat_pairs_from_entries,
+    humidity_rates_from_entries,
     mode_interval_counts,
+    mode_samples_from_entries,
     room_samples_from_entries,
     samples_from_entries,
 )
-from custom_components.hvac_horizon.model import Fit, NotEnoughData, fit
+from custom_components.hvac_horizon.model import Fit, NotEnoughData, Sample, fit
+from custom_components.hvac_horizon.corrections import Corrections, learn_corrections
+from custom_components.hvac_horizon.mode_models import RateFit, learn_ac_heat, learn_dry
 from custom_components.hvac_horizon.devices import HEATER, RoomFit, fit_room
 from custom_components.hvac_horizon.tpi import (
     TpiFit,
@@ -39,12 +45,20 @@ from custom_components.hvac_horizon.tpi import (
 from custom_components.hvac_horizon.backfill import backtest, median_abs_error
 from custom_components.hvac_horizon.features import compliance_score, learning_suggestion, pid_gain
 
+RECENT_FIT_DAYS = 14  # the fit uses the readings of this many days when they are enough
+
 
 class LearningMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
+    _ac_heat_fit: RateFit | None
+    _ac_heat_kw: float | None
     _auto_heat_gain: float
     _auto_tpi_gain: float
     _backtest_runs: list
+    _corrections: Corrections | None
+    _dry_fit: RateFit | None
+    _dry_kw: float | None
+    _fit_window_days: int
     _baseline_k: float | None
     _device_rates: dict[str, dict[str, float]]
     _entries: list[Entry]
@@ -136,7 +150,53 @@ class LearningMixin:
         self._auto_heat_gain = adjust_heat_gain(self._auto_heat_gain, sample, duty, self._heat_rate, self._tpi.k, self._tpi.g)
 
     def _refit(self) -> None:
-        samples = samples_from_entries(self._entries)
+        self._refit_cooling()
+        self._refit_modes()
+
+    def _refit_modes(self) -> None:
+        """Fit the AC's heating per kW, the drying rate and the corrections for sun, outdoor temperature and humidity."""
+        self._ac_heat_fit = self._dry_fit = self._corrections = None
+        self._ac_heat_kw = self._dry_kw = None
+        base = self._tpi or self._fit
+        if base is not None:
+            heat = mode_samples_from_entries(self._entries, "heat")
+            try:
+                self._ac_heat_fit = learn_ac_heat(heat, base.k, base.g)
+                self._ac_heat_kw = statistics.fmean(s.power_kw for s in heat) if heat else None
+            except NotEnoughData:
+                pass
+        dry = humidity_rates_from_entries(self._entries, "dry")
+        try:
+            self._dry_fit = learn_dry(dry)
+            self._dry_kw = statistics.fmean(kw for kw, _ in dry) if dry else None
+        except NotEnoughData:
+            pass
+        active = self._active_fit()
+        if active is not None:
+            self._corrections = learn_corrections(samples_from_entries(self._entries), active)
+
+    def _recent_samples(self, samples: list[Sample]) -> tuple[list[Sample], int]:
+        """The samples of the last RECENT_FIT_DAYS when they alone give a fit, else every sample. Returns the days used.
+
+        A room changes with the season, so readings from this fortnight describe it better than older ones.
+        """
+        if not self._entries:
+            return samples, KEEP_DAYS
+        newest = max(e.t for e in self._entries)
+        if newest - min(e.t for e in self._entries) <= RECENT_FIT_DAYS * 86400.0:
+            return samples, KEEP_DAYS
+        recent = samples_from_entries([e for e in self._entries if e.t >= newest - RECENT_FIT_DAYS * 86400.0])
+        if not has_enough_cycles(recent):
+            return samples, KEEP_DAYS
+        try:
+            fit(recent)
+        except NotEnoughData:
+            return samples, KEEP_DAYS
+        return recent, RECENT_FIT_DAYS
+
+    def _refit_cooling(self) -> None:
+        every = samples_from_entries(self._entries)
+        samples, self._fit_window_days = self._recent_samples(every)
         self._mode_counts = mode_interval_counts(self._entries)
         self._refit_room_model()
         self._refit_fleet()
@@ -163,7 +223,7 @@ class LearningMixin:
             self._fit_reason = str(err)
             return
         target = self.comfort_c
-        self._backtest_runs = backtest(samples, target_c=target, min_train=60, margin_c=1.0)
+        self._backtest_runs = backtest(every, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)
 
     def _compliance(self, now: float, band_action_value: str | None) -> float | None:

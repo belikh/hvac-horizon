@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 import statistics
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -14,6 +15,8 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_CLIMATE,
     CONF_CONTROL,
+    CONF_HEATER_POWER_W,
+    CONF_HEATER_SWITCH,
     CONF_HEATWAVE_WARNING,
     CONF_IRRADIANCE,
     CONF_OUTDOOR,
@@ -21,6 +24,7 @@ from .const import (
     CONF_PRICE,
     CONF_PRICE_CHEAP,
     CONF_PRICE_EXPENSIVE,
+    CONF_ROOM_HUMIDITY,
     CONF_SCHEDULE,
     CONF_WEATHER,
     CONF_WINDOW_AREA_M2,
@@ -45,9 +49,16 @@ from custom_components.hvac_horizon.tpi import TpiFit, heat_up_minutes
 from custom_components.hvac_horizon.backfill import accuracy_pairs, range_coverage
 from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, condition_factor, solar_elevation_azimuth, window_irradiance
 from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
-from custom_components.hvac_horizon.forecast import forecast, forecast_range
+from custom_components.hvac_horizon.forecast import Forecast, forecast, forecast_range
+from custom_components.hvac_horizon.corrections import Corrections, apply
+from custom_components.hvac_horizon.mode_models import RateFit, dry_forecast, heat_forecast
 from custom_components.hvac_horizon.control import precool_start_in_min
-from custom_components.hvac_horizon.coordinator_common import PRECOOL_LATE_MAX_MIN, _LOGGER, _parse_deadline, _round_or_none, _float
+from custom_components.hvac_horizon.coordinator_common import PRECOOL_LATE_MAX_MIN, _LOGGER, _parse_deadline, _round_or_none, _float, _stored_number as _float_or_none
+from custom_components.hvac_horizon.features import HUMIDITY_BAND_HIGH_PCT, HUMIDITY_DEADBAND_PCT
+from custom_components.hvac_horizon.mode_models import MIN_MODE_SAMPLES
+
+SOLAR_SHARE_MIN_KW = 0.05  # below this clear-sky gain the share of sun the room gets is not measured
+DRY_TARGET_PCT = HUMIDITY_BAND_HIGH_PCT - HUMIDITY_DEADBAND_PCT  # dry mode ends here
 
 
 class ForecastMixin:
@@ -76,6 +87,14 @@ class ForecastMixin:
     _room_fit: dict[str, Any] | None
     _room_model: RoomFit | None
     _tpi: TpiFit | None
+    _ac_heat_fit: RateFit | None
+    _ac_heat_kw: float | None
+    _corrections: Corrections | None
+    _dry_fit: RateFit | None
+    _dry_kw: float | None
+    _fit_window_days: int
+    _heat_target_c: float
+    _user_off: bool
     entry: ConfigEntry
     hass: HomeAssistant
 
@@ -227,12 +246,12 @@ class ForecastMixin:
         modelled = self._modelled_solar_kw()
         return None if factor is None or modelled is None else round(modelled * factor, 3)
 
-    def _modelled_solar_kw(self) -> float | None:
-        """Clear-sky gain in kW on the window from the sun position at the house location. None without a window area."""
+    def _modelled_solar_kw(self, ahead_min: float = 0.0) -> float | None:
+        """Clear-sky gain in kW on the window from the sun position at the house location, `ahead_min` minutes from now. None without a window area."""
         area = self.entry.data.get(CONF_WINDOW_AREA_M2)
         if area is None:
             return None
-        utc = dt_util.utcnow()
+        utc = dt_util.utcnow() + timedelta(minutes=ahead_min)
         elevation, azimuth = solar_elevation_azimuth(
             self.hass.config.latitude, self.hass.config.longitude,
             utc.hour + utc.minute / 60.0, utc.timetuple().tm_yday,
@@ -373,7 +392,131 @@ class ForecastMixin:
             return active, power_kw
         return combined
 
+    def _solar_ahead(self) -> Callable[[float], float]:
+        """Solar gain in kW at minutes from now: the clear-sky model times the share of it the room gets now."""
+        now_kw, clear_kw = self._solar_gain(), self._modelled_solar_kw()
+        share = 1.0 if now_kw is None or not clear_kw or clear_kw < SOLAR_SHARE_MIN_KW else min(now_kw / clear_kw, 1.5)
+        return lambda minute: (self._modelled_solar_kw(minute) or 0.0) * share
+
     def _forecast(self, now: float, target_c: float | None = None) -> dict[str, Any]:
+        """The forecast for what the room is doing: cooling to the cool threshold, heating to the heat target, or drying.
+
+        The cooling forecast is the base. The heating forecast replaces it when the mode heats and the room is below
+        the heat target. The drying forecast replaces it in dry mode. forecast_mode names the one published.
+        """
+        result = self._cool_forecast(now, target_c)
+        result["forecast_mode"] = "cool"
+        corrections = self._corrections
+        result["fit_corrections"] = None if corrections is None or not corrections.terms else {
+            "terms": list(corrections.terms), "solar_k_per_h_per_kw": round(corrections.s, 4),
+            "c_per_k_outdoor": round(corrections.c_out, 4), "c_per_pct_humidity": round(corrections.c_rh, 4),
+            "improvement_pct": corrections.improvement_pct,
+        }
+        result["fit_window_days"] = self._fit_window_days
+        result["heat_model"] = self._heat_model_summary()
+        result["dry_model"] = None if self._dry_fit is None else {"pct_per_h": round(self._dry_fit.rate, 2), "samples": self._dry_fit.samples}
+        other = self._dry_forecast(now) if self._mode_now() == "dry" else self._heat_forecast(now)
+        if other is not None:
+            result.update(other)
+        return result
+
+    def _mode_now(self) -> str | None:
+        """What the room is asked to do. With control on it is the thermostat's mode, and None while it is off. In observe-only it is the AC's own mode."""
+        if self.entry.data.get(CONF_CONTROL):
+            return None if self._user_off else self.user_mode
+        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        return None if climate is None else climate.state
+
+    def _heat_source_model(self) -> tuple[float, float | None, float | None, str] | None:
+        """(heat rate in K/h, its standard error, electric power in kW, source) of the device that heats, or None with no model.
+
+        A heater switch with a learned rate comes first. The AC's heat mode is next.
+        """
+        if self.entry.data.get(CONF_HEATER_SWITCH) and self._heat_rate is not None:
+            watts = self.entry.data.get(CONF_HEATER_POWER_W)
+            return self._heat_rate * self._auto_heat_gain, None, float(watts) / 1000.0 if watts else None, "heater"
+        if self._ac_heat_fit is not None and self._ac_heat_kw:
+            stderr = None if self._ac_heat_fit.stderr is None else self._ac_heat_fit.stderr * self._ac_heat_kw
+            return self._ac_heat_fit.rate * self._ac_heat_kw, stderr, self._ac_heat_kw, "ac"
+        return None
+
+    def _heat_model_summary(self) -> dict[str, Any] | None:
+        model = self._heat_source_model()
+        if model is None:
+            return None
+        rate, _, power_kw, source = model
+        return {"source": source, "k_per_h": round(rate, 3), "power_kw": _round_or_none(power_kw, 3)}
+
+    @staticmethod
+    def _forecast_fields(found: Forecast, low: float | None, high: float | None, mode: str, target: float) -> dict[str, Any]:
+        return {
+            "forecast_mode": mode,
+            "forecast_target": round(target, 2),
+            "status": "reachable" if found.reachable else "unreachable",
+            "minutes": _round_or_none(found.minutes, 1),
+            "minutes_low": _round_or_none(low, 1),
+            "minutes_high": _round_or_none(high, 1),
+            "energy_kwh": _round_or_none(found.energy_kwh, 3),
+            "cost": _round_or_none(found.cost, 3),
+            "reason": found.reason,
+        }
+
+    @staticmethod
+    def _forecast_learning(mode: str, target: float, reason: str) -> dict[str, Any]:
+        return {"forecast_mode": mode, "forecast_target": round(target, 2), "status": "learning", "minutes": None, "minutes_low": None, "minutes_high": None, "energy_kwh": None, "cost": None, "reason": reason}
+
+    def _heat_forecast(self, now: float) -> dict[str, Any] | None:
+        """The heating forecast, or None when the room is not being heated: the mode, the entry or the temperature rules it out."""
+        mode = self._mode_now()
+        control = bool(self.entry.data.get(CONF_CONTROL))
+        if mode != "heat" and not (control and mode == "auto"):
+            return None
+        if control and not self.has_heat:
+            return None
+        rooms, outdoor = self._rooms(), self._outdoor_now()
+        if not rooms or outdoor is None:
+            return None
+        if control:
+            target = self._heat_target_c
+        else:
+            climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+            setpoint = _float_or_none(climate.attributes.get("temperature")) if climate else None
+            if setpoint is None:
+                return None
+            target = setpoint
+        room = statistics.median(rooms)
+        if room >= target:
+            return None if mode == "auto" else {**self._forecast_fields(Forecast(True, 0.0, 0.0, 0.0, math.nan, "already at or above the heat target"), 0.0, 0.0, "heat", target), "status": "at setpoint"}
+        base = self._tpi or self._fit
+        model = self._heat_source_model()
+        if base is None or model is None:
+            return self._forecast_learning("heat", target, f"need {MIN_MODE_SAMPLES} heating intervals and a room fit")
+        rate, stderr, power_kw, _ = model
+        prices, series = self._price_forecast(now), self._outdoor_series()
+        found = heat_forecast(base.k, base.g, rate, power_kw, room, target, outdoor, prices, outdoor_series=series)
+        low = high = None
+        if found.reachable and stderr is not None:
+            low = heat_forecast(base.k, base.g, rate + stderr, power_kw, room, target, outdoor, prices, outdoor_series=series).minutes
+            high = heat_forecast(base.k, base.g, max(rate - stderr, 1e-6), power_kw, room, target, outdoor, prices, outdoor_series=series).minutes
+        return self._forecast_fields(found, low, high, "heat", target)
+
+    def _dry_forecast(self, now: float) -> dict[str, Any] | None:
+        """The drying forecast in dry mode: minutes, energy and cost until the room humidity is at the end of the dry band."""
+        humidity = _float(self._optional(CONF_ROOM_HUMIDITY))
+        target = DRY_TARGET_PCT
+        if humidity is None:
+            return self._forecast_learning("dry", target, "no room humidity sensor")
+        if self._dry_fit is None:
+            return self._forecast_learning("dry", target, f"need {MIN_MODE_SAMPLES} dry intervals with a room humidity reading")
+        found = dry_forecast(self._dry_fit.rate, humidity, target, self._dry_kw, self._price_forecast(now))
+        low = high = None
+        if found.reachable and self._dry_fit.stderr is not None:
+            low = dry_forecast(self._dry_fit.rate + self._dry_fit.stderr, humidity, target, self._dry_kw, []).minutes
+            high = dry_forecast(max(self._dry_fit.rate - self._dry_fit.stderr, 1e-6), humidity, target, self._dry_kw, []).minutes
+        fields = self._forecast_fields(found, low, high, "dry", target)
+        return {**fields, "status": "at setpoint"} if humidity <= target else fields
+
+    def _cool_forecast(self, now: float, target_c: float | None = None) -> dict[str, Any]:
         # Observe-only values: the control path overwrites target_c and preset with the full decision.
         # `target_c` is the effective cool threshold from _plan_control. It replaces the comfort target when control is on.
         comfort_default = self.comfort_c if target_c is None else target_c
@@ -450,10 +593,16 @@ class ForecastMixin:
             result.update(status="no running power yet")
             return result
 
+        single = active
         active, power_kw = self._forecast_model(active, power_kw, now)
         series = self._outdoor_series()
-        f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series)
-        low, high = forecast_range(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series) if f.reachable else (None, None)
+        fit_at = None
+        if active is single and self._corrections is not None and self._corrections.terms:
+            # The corrections were fitted on the single-device fit, so they apply to it only.
+            corrections, solar, room_rh = self._corrections, self._solar_ahead(), _float(self._optional(CONF_ROOM_HUMIDITY))
+            fit_at = lambda minute, outdoor_at: apply(single, corrections, outdoor_at, solar(minute), room_rh)  # noqa: E731
+        f = forecast(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series, fit_at=fit_at)
+        low, high = forecast_range(active, room, target, outdoor, power_kw, self._price_forecast(now), outdoor_series=series, fit_at=fit_at) if f.reachable else (None, None)
         result.update(
             status="reachable" if f.reachable else "unreachable",
             minutes=None if f.minutes is None else round(f.minutes, 1),

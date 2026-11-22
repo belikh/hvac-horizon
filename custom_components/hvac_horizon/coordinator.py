@@ -72,6 +72,8 @@ from .const import (
 )
 from custom_components.hvac_horizon.collector import Entry, running_power_kw
 from custom_components.hvac_horizon.model import Fit
+from custom_components.hvac_horizon.corrections import Corrections
+from custom_components.hvac_horizon.mode_models import RateFit
 from custom_components.hvac_horizon.pid import Pid
 from custom_components.hvac_horizon.decide import Preset, Settings, cool_above_c, raise_cool_thresholds
 from custom_components.hvac_horizon.autotune import RelayTuner
@@ -204,6 +206,12 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._report_budget = CallBudget()  # on-demand report calls per day; separate from the mode-change budget
         self._report: dict[str, Any] = {"investigation_report": None, "investigation_report_source": None, "investigation_report_at": None}
         self._tpi: TpiFit | None = None  # room rate coefficients k, g, c; the forecast uses them when present
+        self._ac_heat_fit: RateFit | None = None  # the AC's heating per kW, from heat-mode intervals
+        self._ac_heat_kw: float | None = None  # mean AC power in those intervals
+        self._dry_fit: RateFit | None = None  # fall of room humidity per hour in dry mode
+        self._dry_kw: float | None = None  # mean AC power in dry mode
+        self._corrections: Corrections | None = None  # sun, outdoor temperature and humidity terms on top of the fit
+        self._fit_window_days = KEEP_DAYS  # days of readings the fit used
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored

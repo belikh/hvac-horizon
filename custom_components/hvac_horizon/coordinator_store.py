@@ -210,6 +210,9 @@ class StoreMixin:
         """Forget the stored samples and the fit. The next cycles start learning again."""
         self._entries = []
         self._fit = None
+        self._tpi = None
+        self._heat_rate = None
+        self._ac_heat_fit = self._dry_fit = self._corrections = None
         self._auto_tpi_gain = 1.0
         self._auto_heat_gain = 1.0
         self._fit_reason = "learning reset"

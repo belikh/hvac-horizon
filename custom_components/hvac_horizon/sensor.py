@@ -50,6 +50,12 @@ STATUS_KEYS: dict[str, str] = {
     "sensors_stalled": "Stalled sensors",
     "commands_unconfirmed": "Unconfirmed commands",
     "free_cooling": "Free cooling",
+    "forecast_mode": "Forecast mode",
+    "forecast_target": "Forecast target",
+    "fit_corrections": "Fit corrections",
+    "fit_window_days": "Fit window",
+    "heat_model": "Heat model",
+    "dry_model": "Dry model",
     "watchdog_trips": "Watchdog trips",
     "rooms_max_age_s": "Room reading age",
     "safety_output_pct": "Safety output",
@@ -96,7 +102,7 @@ STATUS_KEYS: dict[str, str] = {
 PRIMARY_KEYS = frozenset(
     {
         "minutes_to_setpoint", "energy_kwh", "cost", "status", "forecast_error_min", "target_c", "preset",
-        "cool_on_above_c", "heat_on_below_c", "minutes_low", "minutes_high",
+        "cool_on_above_c", "heat_on_below_c", "minutes_low", "minutes_high", "forecast_mode",
     }
 )
 # Diagnostic sensors that stay enabled: a user reads or acts on them.
@@ -115,7 +121,7 @@ DIAGNOSTIC_DISABLED_KEYS = frozenset(
         "mpc_plan", "mpc_heat_steps", "shed", "restored", "room_fit", "backtest_runs", "rooms_max_age_s", "samples_heat",
         "samples_dry", "forecast_days", "outdoor_forecast_next_c", "solar_factor", "outdoor_bias_now_k", "outdoor_bias_pairs", "trv_offset_k", "valve_opening_pct", "solar_scale", "solar_gain_kw",
         "ventilation_rate", "fan_speed", "band_action", "house_cooling", "heat_up_min", "boiler_demand", "second_ac",
-        "economizer", "free_cooling", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
+        "economizer", "free_cooling", "fit_corrections", "fit_window_days", "heat_model", "dry_model", "forecast_target", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
     }
 )
 STATUS_UNITS = {
@@ -129,6 +135,7 @@ STATUS_UNITS = {
     "heater_output_pct": "%",
     "tpi_output_pct": "%",
     "heat_up_min": "min",
+    "fit_window_days": "d",
     "minutes_low": "min",
     "minutes_high": "min",
     "rooms_max_age_s": "s",

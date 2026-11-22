@@ -263,6 +263,8 @@ class InputsMixin:
             energy_kwh=_float(self._optional(CONF_ENERGY)),
             heat_pct=self._pwm_pct_now,
             device_kw=self._fleet_kw(),
+            room_humidity_pct=_float(self._optional(CONF_ROOM_HUMIDITY)),
+            solar_kw=self._solar_gain(),
         )
 
     def median_room_c(self) -> float | None:

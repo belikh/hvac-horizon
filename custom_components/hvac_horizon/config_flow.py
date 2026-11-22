@@ -43,6 +43,7 @@ from .const import (
     HEATER_ALGORITHM_TPI,
     CONF_HEATER_KI,
     CONF_HEATER_KP,
+    CONF_HEATER_POWER_W,
     CONF_HEATER_SWITCH,
     CONF_RADIATORS,
     CONF_HOUSE_SEALED,
@@ -266,6 +267,9 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_HEATER_SWITCH): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             key(CONF_RADIATORS, default=defaults.get(CONF_RADIATORS, False)): selector.BooleanSelector(),
+            key(CONF_HEATER_POWER_W): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=10000, step=10, unit_of_measurement="W")
+            ),
             key(CONF_HEATER_KP): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=200, step=0.5)),
             key(CONF_HEATER_KI): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=500, step=1)),
             key(CONF_HEATER_KD): selector.NumberSelector(selector.NumberSelectorConfig(min=0, max=50, step=0.1)),
@@ -393,7 +397,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     ),
     "price": (CONF_PRICE, CONF_PRICE_CHEAP, CONF_PRICE_EXPENSIVE, CONF_ENERGY),
     "heater": (
-        CONF_HEATER_SWITCH, CONF_HEATER_INVERTED, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
+        CONF_HEATER_SWITCH, CONF_HEATER_INVERTED, CONF_HEATER_POWER_W, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
         CONF_HEATER_KI, CONF_HEATER_KD, CONF_TPI_COEF_INT, CONF_TPI_COEF_EXT, CONF_TPI_THRESHOLD_HIGH,
         CONF_TPI_THRESHOLD_LOW, CONF_MAX_ON_PERCENT, CONF_OUTPUT_MIN, CONF_OUTPUT_MAX, CONF_OUTPUT_MIN_ENTITY,
         CONF_OUTPUT_MAX_ENTITY, CONF_VALVE, CONF_TRV_TEMPERATURE, CONF_BOILER, CONF_AC_HEAT, CONF_MPC_HEAT_PLAN,

@@ -37,6 +37,8 @@ class Entry:
     heat_pct: float | None = None  # heater output in percent during the tick before this reading
     power_2_w: float | None = None  # power of the second AC at this reading, W; None when no second power sensor
     device_kw: dict[str, float] | None = None  # kW of each fleet device at this reading, by device_id; None without a fleet
+    room_humidity_pct: float | None = None  # room relative humidity; None without a room humidity sensor
+    solar_kw: float | None = None  # solar gain on the window, kW; None without a window area
 
 
 def _running_kw(power_w: float) -> float:
@@ -121,8 +123,38 @@ def heat_pairs_from_entries(entries: list[Entry]) -> list[tuple[Sample, float]]:
             temp_next_c=b.room_c,
             outdoor_c=a.outdoor_c,
             power_kw=kw,
+            solar_kw=a.solar_kw,
+            humidity_pct=a.room_humidity_pct,
         )
         out.append((sample, a.heat_pct or 0.0))
+    return out
+
+
+def mode_samples_from_entries(entries: list[Entry], kind: str) -> list[Sample]:
+    """Samples of the intervals in which the AC ran in one mode, "heat" or "dry", with the heater off."""
+    ordered = sorted(entries, key=lambda e: e.t)
+    out: list[Sample] = []
+    for a, b in zip(ordered, ordered[1:]):
+        gap = b.t - a.t
+        if abs(gap - STEP_S) > TOLERANCE_S or (a.heat_pct or 0.0) > 0:
+            continue
+        kw = _interval_power_kw(a, b)
+        if _interval_kind(a, b, kw) == kind:
+            out.append(Sample(minutes=gap / 60.0, temp_c=a.room_c, temp_next_c=b.room_c, outdoor_c=a.outdoor_c, power_kw=kw))
+    return out
+
+
+def humidity_rates_from_entries(entries: list[Entry], kind: str) -> list[tuple[float, float]]:
+    """(AC power in kW, change of room humidity in percent per hour) for each interval of one kind that has both humidity readings."""
+    ordered = sorted(entries, key=lambda e: e.t)
+    out: list[tuple[float, float]] = []
+    for a, b in zip(ordered, ordered[1:]):
+        gap = b.t - a.t
+        if abs(gap - STEP_S) > TOLERANCE_S or a.room_humidity_pct is None or b.room_humidity_pct is None:
+            continue
+        kw = _interval_power_kw(a, b)
+        if _interval_kind(a, b, kw) == kind:
+            out.append((kw, (b.room_humidity_pct - a.room_humidity_pct) / (gap / 3600.0)))
     return out
 
 

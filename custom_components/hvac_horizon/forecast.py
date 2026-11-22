@@ -87,13 +87,20 @@ def forecast(
     prices: list[PriceSlot],
     horizon_min: float = HORIZON_MIN,
     outdoor_series: Callable[[float], float] | None = None,
+    fit_at: Callable[[float, float], Fit] | None = None,
 ) -> Forecast:
     """Return the time, energy and cost to cool from `temp_c` down to `target_c`.
 
     `outdoor_series` maps minutes from now to the outdoor temperature. Each step uses the value at its midpoint.
     Without it, `outdoor_c` holds for the whole run. With it, the run is unreachable only when the room cannot
     reach the setpoint at the lowest outdoor value of the horizon.
+
+    `fit_at` maps minutes from now and the outdoor temperature to the fit for that step. It carries the corrections
+    for sun, outdoor temperature and humidity. Without it `fit` holds for the whole run.
     """
+    varying = fit_at
+    if varying is not None:
+        fit = varying(0.0, outdoor_c)
     if running_power_kw <= 0 or fit.c <= 0:
         return Forecast(False, None, None, None, math.nan, "no cooling effect learned")
 
@@ -122,7 +129,8 @@ def forecast(
             price = price_at(prices, minute)
             cost = None if price is None else cost + step_energy * price
         outdoor_step = outdoor_c if outdoor_series is None else outdoor_series(minute + STEP_MIN / 2.0)
-        temp = max(_step_temperature(fit, temp, outdoor_step, running_power_kw, dt_h), target_c - 1e-9)
+        step_fit = fit if varying is None else varying(minute + STEP_MIN / 2.0, outdoor_step)
+        temp = max(_step_temperature(step_fit, temp, outdoor_step, running_power_kw, dt_h), target_c - 1e-9)
         minute += STEP_MIN
 
     return Forecast(True, minute, energy, cost, t_eq, "reachable")
@@ -137,6 +145,7 @@ def forecast_range(
     prices: list[PriceSlot],
     horizon_min: float = HORIZON_MIN,
     outdoor_series: Callable[[float], float] | None = None,
+    fit_at: Callable[[float, float], Fit] | None = None,
 ) -> tuple[float | None, float | None]:
     """Minutes to the setpoint with c one standard error above (low) and below (high) the fit.
 
@@ -145,8 +154,19 @@ def forecast_range(
     """
     if fit.c_stderr is None:
         return None, None
-    faster = replace(fit, c=fit.c + fit.c_stderr)
-    slower = replace(fit, c=max(fit.c - fit.c_stderr, MIN_RANGE_C))
-    low = forecast(faster, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series).minutes
-    high = forecast(slower, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series).minutes
+    stderr = fit.c_stderr
+    faster = replace(fit, c=fit.c + stderr)
+    slower = replace(fit, c=max(fit.c - stderr, MIN_RANGE_C))
+    faster_at = slower_at = None
+    if fit_at is not None:
+        def faster_at(minute: float, outdoor: float) -> Fit:
+            at = fit_at(minute, outdoor)
+            return replace(at, c=at.c + stderr)
+
+        def slower_at(minute: float, outdoor: float) -> Fit:
+            at = fit_at(minute, outdoor)
+            return replace(at, c=max(at.c - stderr, MIN_RANGE_C))
+
+    low = forecast(faster, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series, faster_at).minutes
+    high = forecast(slower, temp_c, target_c, outdoor_c, running_power_kw, prices, horizon_min, outdoor_series, slower_at).minutes
     return low, high

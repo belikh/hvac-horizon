@@ -47,6 +47,7 @@
           "heater_inverted": "Heater switch is inverted (on means off)",
           "radiators": "Heater is radiators or underfloor heat (residual heat after it stops)",
           "heater_algorithm": "Heater algorithm",
+          "heater_power_w": "Heater power, W (optional, gives the heating forecast its energy and cost)",
           "heater_kp": "Heater PID proportional gain",
           "heater_ki": "Heater PID integral gain (per hour)",
           "heater_kd": "Heater PID derivative time (hours)",

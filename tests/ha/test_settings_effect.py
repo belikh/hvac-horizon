@@ -160,6 +160,7 @@ SETTINGS: dict[str, dict[str, Any]] = {
     "heater_switch": {"level": "control", "alt": {"drop": ["heater_switch"]}},
     "radiators": {"level": "control", "alt": {"add": {"radiators": True}}},
     "heater_kp": {"level": "control", "alt": {"add": {"heater_kp": 2.0}}},
+    "heater_power_w": {"level": "published", "alt": {"add": {"heater_power_w": 2000}}, "why": "energy and cost of the heating forecast"},
     "heater_ki": {"level": "control", "alt": {"add": {"heater_ki": 1.0}}},
     "heater_kd": {"level": "control", "alt": {"add": {"heater_kd": 8.0}}},
     "heater_algorithm": {"level": "control", "alt": {"add": {"heater_algorithm": "tpi"}}},
