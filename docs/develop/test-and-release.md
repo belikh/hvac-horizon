@@ -23,7 +23,7 @@ python3 -m venv .venv
 PYTHON=.venv/bin/python scripts/check.sh
 ```
 
-The script runs `python -m pytest -q` and exits non-zero on any failure. The full suite takes about 8 minutes: the settings audit takes 5 of them.
+The script runs `python -m pytest -q` and exits non-zero on any failure. The full suite takes about 11 minutes: the settings audit takes 6 of them.
 
 **Run everything except the settings audit**
 
@@ -42,7 +42,7 @@ A passing run ends with a line like this:
 **Output**
 
 ```text
-1322 passed, 2 xfailed, 5 warnings
+1549 passed, 2 xfailed
 ```
 
 The 2 expected failures are simulation profiles. See [Known limits of control](../concepts/limits.md#known-limits-of-control).
@@ -67,7 +67,7 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 
 ## Guard tests
 
-Three tests exist to stop work that looks done and does nothing.
+Four groups of tests exist to stop work that looks done and does nothing.
 
 **The thermostat contract.** `test_room_mode_decides_which_devices_may_run` in `tests/ha/test_setup.py` runs each mode against a hot room and a cold room. It asserts which devices receive a start command. It was added after the AC cooled a room in `heat` mode: the mode was stored and shown, and control never read it.
 
@@ -125,9 +125,9 @@ Commit `docs-src/` and the regenerated `docs/*.md` together. `docs/feature-matri
 **Tag and publish**
 
 ```sh
-git tag v0.5.1
-git push origin v0.5.1
-gh release create v0.5.1 --title "0.5.1" --notes-file notes.md
+git tag v0.6.2
+git push origin v0.6.2
+gh release create v0.6.2 --title "0.6.2" --notes-file notes.md
 ```
 
 HACS offers the newest release to users. A user installs it from HACS and restarts Home Assistant.

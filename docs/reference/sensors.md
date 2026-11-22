@@ -4,7 +4,7 @@
 
 ## Entities per entry
 
-Each entry creates one device named `HVAC Horizon <AC name>`. The device holds one `climate` entity for the room and 85 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
+Each entry creates one device named `HVAC Horizon <AC name>`, or after the heater switch in a room with no AC. The device holds one `climate` entity for the room and 85 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
 
 A sensor's entity ID is `sensor.hvac_horizon_<ac name>_<name>`. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
 
@@ -41,7 +41,7 @@ These 30 sensors have the entity category `diagnostic` and are enabled. They sho
 | `window_advice` | Window advice | none | `open`, `close` or `hold` for windows, from the room, the outdoor temperature and the outdoor humidity. |
 | `ventilation` | Ventilation | none | Why the room fan runs or not, from CO2 and PM2.5. |
 | `humidity` | Humidity action | none | `dehumidify`, `humidify` or `within band`, from room humidity. |
-| `drying_needed` | Drying needed | none | True when room humidity is above 60 % and the room needs no cooling. |
+| `drying_needed` | Drying needed | none | True when room humidity is above the humidity target (60 % by default) and the room needs no cooling. |
 | `mould_risk` | Mould risk | none | True when the estimated surface humidity is 80 % or more. Raises every cool threshold by 1 K. |
 | `compliance_pct` | Comfort compliance | % | Share of stored readings inside the comfort band. |
 | `heatwave` | Heatwave | none | On when `heatwave_warning` is on or the daily highs reach 30 °C three days running. It changes no device command. |

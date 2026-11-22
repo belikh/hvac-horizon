@@ -2,6 +2,14 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+- The room thermostat has a `fan_only` mode when the first AC has one. The AC runs its fan, and nothing cools or
+  heats. `hvac_action` reads `fan`.
+- The room thermostat has a humidity target when the entry has a room humidity sensor and a device that dries. The
+  dehumidifier and the AC's dry mode run above it and go off 3 points below it. The range is 35 to 75 %, the default
+  is 60 % and the value is stored. Before, the limit was fixed at 60 %.
+
 ## 0.6.2 (2026-11-22)
 
 - A target set on the room thermostat applies at once. The room returns to the `comfort` preset: a timed preset ends

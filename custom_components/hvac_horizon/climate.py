@@ -10,10 +10,12 @@ to the comfort preset, so the value applies at once. In auto, a room that can he
 low one and cools above the high one.
 
 Fan mode, swing mode and humidity: the fan and swing modes are the first AC's own, and a change goes to that AC. The
-current humidity is the room humidity sensor's reading.
+current humidity is the room humidity sensor's reading. The humidity target is the level above which the room dries: a
+dehumidifier runs above it in every mode, and the AC dries above it in dry mode or with the dry_for_humidity option.
 
 hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose
-(auto by default). Cool lets only cooling devices run, heat lets only heating devices run, auto lets both run. hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
+(auto by default). Cool lets only cooling devices run, heat lets only heating devices run, auto lets both run. Fan runs the AC's fan and
+nothing heats or cools. hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
 RUNNING_MIN_KW), idle while the AC runs the fan only. With control off the mode reads off and the `control` attribute
 reads "observe only".
 """
@@ -32,6 +34,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_CLIMATE, CONF_CONTROL, CONF_DEHUMIDIFIER, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, CONF_ROOM_HUMIDITY, DOMAIN
 from .coordinator import HorizonCoordinator
+from .engine.features import HUMIDITY_TARGET_MAX_PCT, HUMIDITY_TARGET_MIN_PCT
 
 PRESETS = ["comfort", "eco", "boost", "away"]
 
@@ -50,6 +53,8 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     _attr_target_temperature_step = 0.5
     _attr_min_temp = 16.0
     _attr_max_temp = 32.0
+    _attr_min_humidity = HUMIDITY_TARGET_MIN_PCT
+    _attr_max_humidity = HUMIDITY_TARGET_MAX_PCT
     _attr_preset_modes = PRESETS
     _BASE_FEATURES = (
         ClimateEntityFeature.TARGET_TEMPERATURE
@@ -83,7 +88,22 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
             features |= ClimateEntityFeature.FAN_MODE
         if self._ac_attribute("swing_modes"):
             features |= ClimateEntityFeature.SWING_MODE
+        if self._has_humidity_target:
+            features |= ClimateEntityFeature.TARGET_HUMIDITY
         return features
+
+    @property
+    def _has_humidity_target(self) -> bool:
+        """A humidity target needs a room humidity sensor and a device that dries: a dehumidifier or an AC with a dry mode."""
+        return bool(self._entry.data.get(CONF_ROOM_HUMIDITY)) and self.coordinator.can_dry
+
+    @property
+    def target_humidity(self) -> float | None:
+        return self.coordinator.humidity_target_pct if self._has_humidity_target else None
+
+    async def async_set_humidity(self, humidity: int) -> None:
+        self.coordinator.set_humidity_target(humidity)
+        await self.coordinator.async_refresh()
 
     @property
     def fan_modes(self) -> list[str] | None:
@@ -124,7 +144,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
-        """Off, cool, auto, heat when the entry can heat, and dry when it can dehumidify. A room with heating only has off and heat."""
+        """Off, cool, auto, heat when the entry can heat, dry when it can dehumidify and fan when the AC has a fan mode. A room with heating only has off and heat."""
         modes = [HVACMode.OFF]
         if self.coordinator.has_cool:
             modes.append(HVACMode.COOL)
@@ -134,6 +154,8 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
             modes.append(HVACMode.AUTO)
         if self.coordinator.can_dry:
             modes.append(HVACMode.DRY)
+        if self.coordinator.can_fan:
+            modes.append(HVACMode.FAN_ONLY)
         return modes
 
     def _device_entity_ids(self) -> list[str]:
@@ -210,6 +232,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
             "cooling": HVACAction.COOLING,
             "heating": HVACAction.HEATING,
             "drying": HVACAction.DRYING,
+            "fan": HVACAction.FAN,
             "idle": HVACAction.IDLE,
         }.get(self.coordinator.device_action(), HVACAction.OFF)
 

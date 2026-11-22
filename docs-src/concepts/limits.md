@@ -50,9 +50,9 @@ dT/dt = k (T_out - T) - c P + g
 
 - Setpoint regulation covers the first AC. A second AC and fleet climates get the plain target.
 - A PID heater settles up to 0.5 K below the heat target, because it stops one deadband below it.
-- In `dry` the room thermostat shows one temperature, the cool target.
-- The room thermostat has no `fan_only` mode and no humidity target. Its fan and swing modes are those of the first AC.
-- Dry mode has fixed humidity limits: on above 60 %, off at 57 %.
+- In `dry` and `fan_only` the room thermostat shows one temperature, the cool target.
+- The thermostat's fan mode, swing mode and `fan_only` mode are those of the first AC. A second AC and fleet devices have none.
+- The humidity target sets the level the room dries above. The humidifier limit follows it and has no control of its own.
 - The Heatwave sensor is information only. It changes no device command.
 - Two profiles of the simulation suite fail by design and are marked as expected failures: an 8 kW AC overshoots a small room, and the small unit's fitted rate collapses in `economy` mode with two ACs.
 - The watchdog and the tick run in the same Home Assistant process. A process that hangs or loses power runs neither. A device that must fail off needs its own thermostat or timer.

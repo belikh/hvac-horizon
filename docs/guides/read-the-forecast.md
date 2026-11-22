@@ -4,13 +4,13 @@
 
 ## Forecast sensors
 
-The forecast covers cooling. It answers one question: with the AC running at its usual power, when does the room reach the cool threshold?
+The forecast answers one question: with the AC running at its usual power, when does the room reach the cool threshold? While the room heats or dries, the same sensors show the heating or the drying forecast. See [Heating and drying](#heating-and-drying).
 
 | Sensor | Unit | Meaning |
 | :--- | :--- | :--- |
 | Minutes to setpoint | min | Time for the room to reach the threshold |
 | Minutes to setpoint, low and high | min | The range around that time, from the uncertainty of the cooling rate |
-| Energy to setpoint | kWh | AC energy for that time |
+| Energy to setpoint | kWh | AC energy for that time. An estimate when the AC has `ac_rated_w` and no power sensor. |
 | Cost to setpoint | price unit | That energy priced slot by slot. Needs a price sensor with a `forecast` attribute. |
 | Status | text | The state of the forecast. See the next table. |
 | Forecast error | min | Median error of the forecasts replayed against past cool-downs |
@@ -64,13 +64,13 @@ The Forecast mode sensor names what the forecast sensors show.
 
 | `forecast_mode` | When | Minutes to setpoint counts down to |
 | :--- | :--- | :--- |
-| `cool` | Every other time | The cool threshold |
+| `cool` | Every other time, including `fan_only` | The cool threshold |
 | `heat` | The mode is `heat`, or `auto` with the room below the heat target | The heat target |
-| `dry` | The mode is `dry` | 57 % room humidity |
+| `dry` | The mode is `dry` | 3 points below the humidity target (57 % by default) |
 
 In observe-only the mode is the AC's own mode. The `forecast_target` sensor holds the target of the forecast shown.
 
-- **Heater switch.** The minutes come from the learned heat rate. Set `heater_power_w` in **Heating** to get the energy and the cost. Without it both are empty.
+- **Heater switch.** The minutes come from the learned heat rate. Set `heater_power_w` in **Heater** to get the energy and the cost. Without it both are empty.
 - **AC heat mode.** The minutes, the energy and the cost come from heat-mode intervals of the AC. The low and high minutes come from the standard error of that rate.
 - **Dry mode.** It needs a room humidity sensor. The energy uses the mean AC power of the dry intervals.
 

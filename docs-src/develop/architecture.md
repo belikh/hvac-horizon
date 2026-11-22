@@ -9,6 +9,8 @@ status: draft
 
 ## Layout
 
+::diagram system The whole system. Inputs on the left: room sensors, outdoor sensors and weather, AC power and price, the house's presence and modes, and your choices on the thermostat. The centre is one entry: the store, the Home Assistant adapter with its coordinator mixins, the control engine and the room model, each calling the one below. Outputs on the right: the entities, and with control on the cooling devices, the heating devices and the air and load devices.
+
 The code is in `custom_components/hvac_horizon/` and has three layers.
 
 | Layer | Where | Modules | May import |
@@ -54,7 +56,7 @@ Both packages sit inside the integration folder, because HACS installs that fold
 | `coordinator_store.py` | `StoreMixin` | The stored payload, the commanded-state record, recorder backfill. |
 | `coordinator_learning.py` | `LearningMixin` | Model and fleet refits, online gains, the gain suggestion. |
 | `coordinator_forecast.py` | `ForecastMixin` | Weather, solar and price inputs, the forecast, pre-cool and preheat timing. |
-| `coordinator_user.py` | `UserMixin` | The thermostat's mode, target and presets, the lock, what-if and the relay test. |
+| `coordinator_user.py` | `UserMixin` | The thermostat's mode, targets, humidity target and presets, the lock, what-if and the relay test. |
 | `coordinator_ac.py` | `AcMixin` | `_async_control`: the AC action, setpoint and mode writes, AC heat, dry mode, the second AC. |
 | `coordinator_heater.py` | `HeaterMixin` | Heater gates, PWM windows, the heater switch and output limits. |
 | `coordinator_fleet.py` | `FleetMixin` | Fleet choice and driving. |
@@ -71,7 +73,7 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 | Module | Job |
 | :-- | :-- |
 | `__init__.py` | Registers the services, sets up the coordinator and the platforms, runs the safety stop on unload. |
-| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. |
+| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. The two list settings, `schedule_blocks` and `fleet`, have their own steps with `_schedule_schema()` and `_fleet_schema()`. |
 | `const.py` | Setting keys, defaults and limits. |
 | `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |
 | `sensor.py` | `STATUS_KEYS` and the sensor entities. |

@@ -18,6 +18,7 @@ from homeassistant import config_entries, data_entry_flow
 from homeassistant.components import sensor
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.const import EntityCategory
+from homeassistant.components.climate import ClimateEntityFeature
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -5254,14 +5255,14 @@ async def test_climate_entity_reports_room_temperature_and_target(hass, enable_c
     assert state.attributes["current_temperature"] == pytest.approx(26.1)
     assert state.attributes["temperature"] == 24.0
     assert state.attributes["target_temp_step"] == 0.5
-    assert state.attributes["hvac_modes"] == ["off", "cool", "auto", "dry"]
+    assert state.attributes["hvac_modes"] == ["off", "cool", "auto", "dry", "fan_only"]
     assert state.attributes["preset_modes"] == ["comfort", "eco", "boost", "away"]
     assert state.state == "off"  # control is off
 
 
 async def test_climate_lists_heat_with_a_heater_switch(hass, enable_custom_integrations, config_data):
     _, entity_id, _ = await _setup_room_climate(hass, config_data, **{CONF_HEATER_SWITCH: "switch.heater"})
-    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "auto", "dry"]
+    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "auto", "dry", "fan_only"]
 
 
 async def test_climate_set_temperature_sets_the_comfort_target(hass, enable_custom_integrations, config_data, freezer):
@@ -8490,3 +8491,70 @@ async def test_an_ac_with_no_power_sensor_takes_its_rated_power_while_it_runs(ha
     coordinator._refit()
     await refresh(hass, entry)
     assert coordinator._fit is not None and coordinator.data["status"] != "learning"
+
+
+async def test_fan_mode_runs_the_ac_fan_and_never_cools_or_heats(hass, enable_custom_integrations, config_data, freezer):
+    """Fan mode: the AC goes to fan_only and stays there in a hot room and in a cold room. Off ends it."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, entity_id, calls = await _setup_with_devices(
+        hass, config_data, room="27.0", outdoor="30.0", extra={CONF_HEATER_SWITCH: HEATER, "min_off_min": 0},
+        states={HEATER: ("off", {})},
+    )
+    assert "fan_only" in hass.states.get(entity_id).attributes["hvac_modes"]
+    assert ("set_hvac_mode", CLIMATE, "cool") in calls  # auto cools the hot room
+    calls.clear()
+    await _set_room_mode(hass, entity_id, "fan_only")
+    state = hass.states.get(entity_id)
+    assert state.state == "fan_only" and state.attributes["hvac_action"] == "fan"
+    assert calls == [("set_hvac_mode", CLIMATE, "fan_only")]
+    assert entry.runtime_data.data["action"] == "fan: the AC runs its fan only"
+    calls.clear()
+    await _dry_tick(hass, entry, freezer, "29.0", "32.0")
+    await _dry_tick(hass, entry, freezer, "15.0", "5.0")
+    assert hass.states.get(CLIMATE).state == "fan_only"
+    assert not [c for c in calls if c[0] in ("set_hvac_mode", "turn_on")]
+    assert hass.states.get(HEATER).state == "off"
+    await _room_off(hass, entity_id)
+    assert hass.states.get(CLIMATE).state == "off"
+
+
+async def test_fan_mode_is_not_offered_when_the_ac_has_none(hass, enable_custom_integrations, config_data):
+    """An AC that lists its modes without fan_only: the thermostat has no fan mode, and a stored fan_only reads auto."""
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "hvac_modes": ["off", "cool", "heat"]})
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "control": True}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert "fan_only" not in hass.states.get(_room_climate_id(hass, entry)).attributes["hvac_modes"]
+    entry.runtime_data._user_mode = "fan_only"
+    assert entry.runtime_data.user_mode == "auto"
+
+
+async def test_humidity_target_moves_the_level_the_room_dries_above(hass, enable_custom_integrations, config_data, freezer):
+    """The thermostat's humidity target replaces the 60 % limit: a 55 % room dries with a 50 % target, down to 47 %. The target is stored."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "55")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    state = hass.states.get(entity_id)
+    assert state.attributes["humidity"] == 60 and state.attributes["current_humidity"] == 55
+    assert (state.attributes["min_humidity"], state.attributes["max_humidity"]) == (35, 75)
+    await _set_room_mode(hass, entity_id, "dry")
+    assert ("set_hvac_mode", CLIMATE, "dry") not in calls  # 55 % is below the default 60 %
+    await hass.services.async_call("climate", "set_humidity", {"entity_id": entity_id, "humidity": 50}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(entity_id).attributes["humidity"] == 50
+    assert ("set_hvac_mode", CLIMATE, "dry") in calls
+    assert entry.runtime_data.data["humidity"] == "55 % above 50 %"
+    assert entry.runtime_data._save_payload()["humidity_target_pct"] == 50.0
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="48")
+    assert hass.states.get(CLIMATE).state == "dry"  # inside the 3 point deadband
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="46")
+    assert hass.states.get(CLIMATE).state == "off"
+
+
+async def test_humidity_target_needs_a_room_humidity_sensor(hass, enable_custom_integrations, config_data):
+    _, entity_id, _ = await _setup_with_devices(hass, config_data)
+    attributes = hass.states.get(entity_id).attributes
+    assert "humidity" not in attributes
+    assert not attributes["supported_features"] & ClimateEntityFeature.TARGET_HUMIDITY

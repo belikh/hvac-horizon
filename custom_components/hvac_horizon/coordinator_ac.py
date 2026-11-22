@@ -294,6 +294,8 @@ class AcMixin:
         dry_running = climate is not None and climate.state == "dry" and not self.entry.data.get(CONF_DEHUMIDIFIER)
         humidity = humidity_action(
             room_humidity,
+            low=self.humidify_below_pct,
+            high=self.humidity_target_pct,
             dehumidifying=self._switch_on(self.entry.data.get(CONF_DEHUMIDIFIER)) or dry_running,
             humidifying=self._switch_on(self.entry.data.get(CONF_HUMIDIFIER)),
         )
@@ -381,6 +383,15 @@ class AcMixin:
         if action.mode is Mode.OFF:
             self._regulation_drop_k = 0.0
             # A stall means the AC goes off. Dry mode would keep it running, so it is skipped then.
+            if self.fan_only_mode and not stalled:
+                # Fan mode: the AC runs its fan. The fan starts no compressor, so no restart delay applies.
+                if climate.state != "fan_only":
+                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "fan_only"}, blocking=True)
+                    self._last_sent_min = now / 60.0
+                    self._last_written_mode = "fan_only"
+                    self._coil_dry_sent = False
+                result["action"] = "fan: the AC runs its fan only"
+                return
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
             # No cooling needed. If the room is too humid and the AC has a dry mode, dry the room with it.

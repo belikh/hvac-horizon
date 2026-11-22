@@ -37,13 +37,13 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
 
 3. In the **What next** menu, select **Finish now**.
 
-Home Assistant creates one device named `HVAC Horizon <AC name>`. The device holds the room thermostat and the sensors. One AC can have one entry. A second entry for the same AC stops with `This AC is already set up.`
+Home Assistant creates one device named `HVAC Horizon <AC name>`, or after the heater switch in a room with no AC. The device holds the room thermostat and the sensors. One AC or heater switch can have one entry. A second entry for the same device stops with `This device is already set up.`
 
 ## First run
 
 The entry starts in observe-only mode. It takes a reading every 5 minutes and sends no commands. At setup it also reads up to 10 days of recorder history.
 
-The Status sensor reads `learning` until the room model has enough data: 3 hours with the AC on, 3 hours with it off, and 3 separate AC runs. See [[guides/read-the-forecast]].
+The Status sensor reads `learning` until the room model has enough data: 3 hours with the AC on, 3 hours with it off, and 3 separate AC runs. A room with heating only needs 12 intervals with the heater on. See [[guides/read-the-forecast]].
 
 ## Turn on control
 

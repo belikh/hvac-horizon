@@ -54,11 +54,10 @@ from custom_components.hvac_horizon.room_model.corrections import Corrections, a
 from custom_components.hvac_horizon.room_model.mode_models import RateFit, dry_forecast, heat_forecast
 from custom_components.hvac_horizon.engine.control import precool_start_in_min
 from custom_components.hvac_horizon.coordinator_common import PRECOOL_LATE_MAX_MIN, _LOGGER, _parse_deadline, _round_or_none, _float, _stored_number as _float_or_none
-from custom_components.hvac_horizon.engine.features import HUMIDITY_BAND_HIGH_PCT, HUMIDITY_DEADBAND_PCT
+from custom_components.hvac_horizon.engine.features import HUMIDITY_DEADBAND_PCT
 from custom_components.hvac_horizon.room_model.mode_models import MIN_MODE_SAMPLES
 
 SOLAR_SHARE_MIN_KW = 0.05  # below this clear-sky gain the share of sun the room gets is not measured
-DRY_TARGET_PCT = HUMIDITY_BAND_HIGH_PCT - HUMIDITY_DEADBAND_PCT  # dry mode ends here
 
 
 class ForecastMixin:
@@ -504,7 +503,7 @@ class ForecastMixin:
     def _dry_forecast(self, now: float) -> dict[str, Any] | None:
         """The drying forecast in dry mode: minutes, energy and cost until the room humidity is at the end of the dry band."""
         humidity = _float(self._optional(CONF_ROOM_HUMIDITY))
-        target = DRY_TARGET_PCT
+        target = self.humidity_target_pct - HUMIDITY_DEADBAND_PCT  # dry mode ends here
         if humidity is None:
             return self._forecast_learning("dry", target, "no room humidity sensor")
         if self._dry_fit is None:

@@ -1,0 +1,24 @@
+<svg viewBox="0 0 720 280" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <marker id="to" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M1.5 1.5 L7.5 4.5 L1.5 7.5"/></marker>
+    <marker id="acc" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M1.5 1.5 L7.5 4.5 L1.5 7.5" stroke="var(--jp-accent)"/></marker>
+  </defs>
+  <path d="M120 266 V16" marker-end="url(#to)"/>
+  <text x="134" y="22" font-size="13" fill="var(--jp-text-muted)">room temperature</text>
+  <path d="M120 70 H400" stroke="var(--jp-info)"/>
+  <text x="108" y="75" font-size="13" fill="currentColor" text-anchor="end">24.5</text>
+  <text x="414" y="75" font-size="13" fill="currentColor">AC starts</text>
+  <path d="M120 112 H400" stroke="var(--jp-info)"/>
+  <text x="108" y="117" font-size="13" fill="currentColor" text-anchor="end">24.0</text>
+  <text x="414" y="117" font-size="13" fill="currentColor">High target: the AC stops here</text>
+  <path d="M120 182 H400" stroke="var(--jp-warn)"/>
+  <text x="108" y="187" font-size="13" fill="currentColor" text-anchor="end">21.0</text>
+  <text x="414" y="187" font-size="13" fill="currentColor">Low target: the heater aims here</text>
+  <path d="M120 224 H400" stroke="var(--jp-warn)"/>
+  <text x="108" y="229" font-size="13" fill="currentColor" text-anchor="end">20.5</text>
+  <text x="414" y="229" font-size="13" fill="currentColor">Heater starts</text>
+  <text x="140" y="50" font-size="14" fill="var(--jp-info)">AC cools</text>
+  <text x="140" y="96" font-size="13" fill="var(--jp-text-muted)">a running AC keeps cooling</text>
+  <text x="140" y="152" font-size="13" fill="var(--jp-text-muted)">nothing runs</text>
+  <text x="140" y="254" font-size="14" fill="var(--jp-warn)">heater heats</text>
+</svg>

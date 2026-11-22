@@ -106,7 +106,7 @@ MPC_STEPS = 16  # 4 hours
 # Picked by a sweep of 1 to 119 on one room at 23.4 C. It is not calibrated against metered data.
 MPC_HEAT_COST_WEIGHT = 50.0
 
-USER_MODES = ("cool", "heat", "auto", "dry")
+USER_MODES = ("cool", "heat", "auto", "dry", "fan_only")
 PRECOOL_LATE_MAX_MIN = 120.0  # a pre-cool with no plan that meets the event starts at once when the event is this close
 AUTO_CHANGEOVER_MIN = 60.0  # in auto, minutes after the heater ran before the AC may cool
 AUTO_CHANGEOVER_OVERRIDE_K = 2.0  # a room this far above the cool threshold cools at once

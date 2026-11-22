@@ -1,0 +1,42 @@
+<svg viewBox="0 0 720 228" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <marker id="to" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M1.5 1.5 L7.5 4.5 L1.5 7.5"/></marker>
+    <marker id="acc" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M1.5 1.5 L7.5 4.5 L1.5 7.5" stroke="var(--jp-accent)"/></marker>
+  </defs>
+  <rect x="10" y="8" width="200" height="46"/>
+  <text x="24" y="29" font-size="14" font-weight="700">Room sensors</text>
+  <text x="24" y="48" font-size="13" fill="var(--jp-text-muted)">temperature, humidity</text>
+  <path d="M210 31 H268" marker-end="url(#to)"/>
+  <rect x="10" y="64" width="200" height="46"/>
+  <text x="24" y="85" font-size="14" font-weight="700">Outdoor sensor</text>
+  <text x="24" y="104" font-size="13" fill="var(--jp-text-muted)">and weather forecast</text>
+  <path d="M210 87 H268" marker-end="url(#to)"/>
+  <rect x="10" y="120" width="200" height="46"/>
+  <text x="24" y="141" font-size="14" font-weight="700">AC power</text>
+  <text x="24" y="160" font-size="13" fill="var(--jp-text-muted)">sensor or rated watts</text>
+  <path d="M210 143 H268" marker-end="url(#to)"/>
+  <rect x="10" y="176" width="200" height="46"/>
+  <text x="24" y="197" font-size="14" font-weight="700">Price sensor</text>
+  <text x="24" y="216" font-size="13" fill="var(--jp-text-muted)">optional</text>
+  <path d="M210 199 H268" marker-end="url(#to)"/>
+  <rect x="270" y="8" width="180" height="214"/>
+  <text x="284" y="29" font-size="14" font-weight="700">HVAC Horizon</text>
+  <text x="284" y="48" font-size="13" fill="var(--jp-text-muted)">one room</text>
+  <text x="284" y="66" font-size="13" fill="var(--jp-text-muted)"></text>
+  <text x="284" y="84" font-size="13" fill="var(--jp-text-muted)">learns the room</text>
+  <text x="284" y="102" font-size="13" fill="var(--jp-text-muted)">forecasts</text>
+  <text x="284" y="120" font-size="13" fill="var(--jp-text-muted)">decides every</text>
+  <text x="284" y="138" font-size="13" fill="var(--jp-text-muted)">5 minutes</text>
+  <rect x="510" y="8" width="200" height="56"/>
+  <text x="524" y="29" font-size="14" font-weight="700">Room thermostat</text>
+  <text x="524" y="48" font-size="13" fill="var(--jp-text-muted)">mode, target, preset</text>
+  <path d="M510 36 H452" marker-end="url(#to)"/>
+  <rect x="510" y="86" width="200" height="56"/>
+  <text x="524" y="107" font-size="14" font-weight="700">85 sensors</text>
+  <text x="524" y="126" font-size="13" fill="var(--jp-text-muted)">minutes, kWh, cost</text>
+  <path d="M450 114 H508" marker-end="url(#to)"/>
+  <rect x="510" y="164" width="200" height="58" stroke="var(--jp-accent)"/>
+  <text x="524" y="185" font-size="14" font-weight="700">Devices</text>
+  <text x="524" y="204" font-size="13" fill="var(--jp-text-muted)">AC, heater, fan, valve</text>
+  <path d="M450 193 H508" stroke="var(--jp-accent)" marker-end="url(#acc)"/>
+</svg>

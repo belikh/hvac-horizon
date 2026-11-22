@@ -23,9 +23,10 @@ The mode decides which devices may run. A device starts only when the room needs
 | `cool` | Run above the cool threshold | Stay off |
 | `heat` | Stay off | Run below the heat threshold |
 | `dry` | The AC runs in its dry mode and does not cool | Run below the heat threshold |
+| `fan_only` | The AC runs its fan and does not cool | Stay off |
 | `off` | Stay off | Stay off |
 
-`auto` is the default. The thermostat lists `heat` when the entry can heat: a heater switch, `ac_heat`, `mpc_heat_plan` or a heating fleet device. It lists `dry` when the AC has a dry mode or the entry has a dehumidifier switch.
+`auto` is the default. The thermostat lists `heat` when the entry can heat: a heater switch, `ac_heat`, `mpc_heat_plan` or a heating fleet device. It lists `dry` when the AC has a dry mode or the entry has a dehumidifier switch. It lists `fan_only` when the first AC has that mode and the room has no fleet devices.
 
 Cooling devices are the AC, the second AC, cooling fleet devices, the whole-house fan and the window actuator. Heating devices are the heater switch, the AC in heat mode, the boiler, the valve and heating fleet devices.
 
@@ -41,11 +42,15 @@ To leave `off`, choose a mode. The `climate.turn_on` service returns to the mode
 
 In `dry` the AC runs in its own dry mode.
 
-- With a room humidity sensor, the AC dries while the room is above 60 % and goes off at 57 %.
+- With a room humidity sensor, the AC dries while the room is above the humidity target (60 % by default) and goes off 3 points below it.
 - With no room humidity sensor, the AC dries until you change the mode.
 - An entry with a dehumidifier switch runs that switch and leaves the AC off.
 
 Drying cools the room. The heater may run at the same time to hold the heat target. In `dry` the heater obeys the outdoor heating limit, so it stays off when outdoors is above 22 °C. When the room falls 1 K below the heat threshold, the AC pauses. It dries again once the room is back at the threshold.
+
+### Fan
+
+In `fan_only` the first AC runs in its own fan mode. Nothing cools and nothing heats, at any room temperature. The fan starts with no restart delay, because no compressor starts. A stalled room sensor turns the AC off.
 
 ## Restart delay
 
@@ -55,7 +60,7 @@ A start after a stop waits for the restart delay, 3 minutes by default. The ther
 start in 3 min: restart delay
 ```
 
-The device starts by itself when the delay ends. Set the delay with `min_off_min` in the **Devices and power limits** section. 0 turns it off.
+The device starts by itself when the delay ends. Set the delay with `min_off_min` in the **Expert tuning** section. 0 turns it off.
 
 ## Outdoor limits
 
@@ -86,12 +91,14 @@ The thermostat shows the target you set, with these exceptions:
 
 - A preset other than `comfort` shows its own setpoint.
 - While the vacation switch is on, it shows `vacation_c`.
-- In `heat` mode it shows the heat target. In `cool`, `dry` and `off` it shows the cool target.
+- In `heat` mode it shows the heat target. In `cool`, `dry`, `fan_only` and `off` it shows the cool target.
 - In `auto`, a room that can heat shows two targets. See below.
 
 The threshold the AC cools above can sit above the cool target. A high price raises it by up to 1 K, and the comfort-versus-energy weight and the mould bump raise it too. A low price does not lower it. The Cool above sensor shows the threshold. See [[guides/services-and-presets]].
 
 The AC cools when the room is above the cool threshold. The heater heats when the room is 0.5 K or more below the heat target. The sensors Cool above and Heat below show both values.
+
+::diagram thresholds Example in auto with a low target of 21 and a high target of 24. The AC starts at 24.5 and cools down to 24. Nothing runs between 24 and 20.5. The heater starts at 20.5 and aims at 21.
 
 ## Low and high target in auto
 
@@ -104,6 +111,16 @@ Setting one temperature, in any mode, sets both targets to it. `cool` mode shows
 The card lists the fan modes and swing modes of the first AC, when the AC has them. A change goes to that AC at once. With `auto_fan` on, the integration sets the fan mode again on its next tick.
 
 With a room humidity sensor set, the card shows the room humidity.
+
+## Humidity target
+
+The card has a humidity target when the entry has a room humidity sensor and a device that dries: a dehumidifier switch or an AC with a dry mode. Set it on the card or with `climate.set_humidity`. The range is 35 to 75 % and the default is 60 %. The target is stored.
+
+| Device | When it runs |
+| :-- | :-- |
+| Dehumidifier switch | Above the target, in every mode. Off 3 points below it. |
+| AC dry mode | Above the target, in `dry` mode or with `dry_for_humidity` on. Off 3 points below it. |
+| Humidifier switch | Below 40 %, or below the target minus 20 when the target is under 60 %. |
 
 ## Presets
 
@@ -125,7 +142,8 @@ The `hvac_action` attribute shows what the devices do now.
 | `cooling` | The AC is in cool mode and draws 0.2 kW or more, or a cooling fleet device runs |
 | `heating` | The heater switch is on, the AC heats, or a heating fleet device runs |
 | `drying` | The AC is in dry mode and draws 0.2 kW or more, or the dehumidifier runs in `dry` mode |
-| `idle` | Nothing runs, or the AC runs its fan only |
+| `fan` | The AC is in its fan mode and nothing heats or cools |
+| `idle` | Nothing runs, or the AC is in cool, heat or dry mode and draws under 0.2 kW |
 | `off` | The room is held off |
 
 The action follows the devices as they change. The mode is your choice and does not change when a device starts or stops.

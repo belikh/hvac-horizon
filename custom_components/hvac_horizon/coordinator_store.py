@@ -17,7 +17,7 @@ from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTR
 from custom_components.hvac_horizon.room_model.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.room_model.model import Fit
 from custom_components.hvac_horizon.room_model import kept
-from custom_components.hvac_horizon.engine.features import house_mode_from_store
+from custom_components.hvac_horizon.engine.features import HUMIDITY_TARGET_MAX_PCT, HUMIDITY_TARGET_MIN_PCT, house_mode_from_store
 from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _entries_from_store, _float, _stored_dict, _stored_number
 
 
@@ -58,6 +58,7 @@ class StoreMixin:
     _t_at_sample: float
     _target_override_c: float | None
     _heat_override_c: float | None
+    _humidity_target_pct: float | None
     _timed_duration_min: float
     _timed_preset: str | None
     _timed_started_min: float | None
@@ -174,6 +175,8 @@ class StoreMixin:
         self._target_override_c = override if override is not None and 0.0 <= override <= 50.0 else None
         low = _stored_number(data.get("heat_override_c"))
         self._heat_override_c = low if low is not None and 0.0 <= low <= 50.0 else None
+        humidity = _stored_number(data.get("humidity_target_pct"))
+        self._humidity_target_pct = humidity if humidity is not None and HUMIDITY_TARGET_MIN_PCT <= humidity <= HUMIDITY_TARGET_MAX_PCT else None
         self._user_off = bool(data.get("user_off", False))
         self._user_mode = data.get("user_mode") if data.get("user_mode") in USER_MODES else "auto"
         auto_gains = _stored_dict(data.get("auto_tpi_gains"))
@@ -291,6 +294,7 @@ class StoreMixin:
             "investigation_report": self._report,
             "target_override_c": self._target_override_c,
             "heat_override_c": self._heat_override_c,
+            "humidity_target_pct": self._humidity_target_pct,
             "user_off": self._user_off,
             "user_mode": self._user_mode,
             "locked": self._locked,  # the PIN stays in the config entry and is never stored here

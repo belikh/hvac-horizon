@@ -6,6 +6,8 @@
 
 An entry models one room. Every 5 minutes it runs one tick: read the sensors, store a reading, refit the model when due, forecast, plan the targets and drive the devices. The tick is `HorizonCoordinator._async_update_data()`. See [Architecture](../develop/architecture.md).
 
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../diagrams/tick-dark.svg"><img alt="The eight steps of one tick: read the sensors, store one reading, refit every 12 readings, forecast, set the targets, decide for the AC and the heater, drive the devices with control on, and publish to the sensors." src="../diagrams/tick-light.svg"></picture></p>
+
 ## Room model
 
 One equation describes the room:
@@ -31,7 +33,9 @@ dT/dt = k (T_out - T) - c P + g
 - It returns a standard error for each value. The error of `c` gives the low and high minutes and the confidence label.
 - `k` and `c` stay at or above zero. When the plain fit gives a negative `k` or `c`, the fit tries `k` at zero, `c` at zero and both at zero, and uses the one with the smallest squared error.
 
-Readings where the AC heats, dries or runs its fan only are left out. A reading is not stored while the outdoor sensor is stalled.
+Readings where the AC heats, dries or runs its fan only are left out. Intervals with the heater on are left out of the passive drift. A reading is not stored while the outdoor sensor is stalled.
+
+A room with no AC has no `c`. `learn_passive_rates()` in `tpi.py` fits `k` and `g` from the intervals with the heater off, and the heating model below adds the heater's rate.
 
 The fit uses the readings of the last 14 days when they alone give a fit, and all 30 days otherwise. The `fit_window_days` sensor shows which.
 
@@ -106,7 +110,7 @@ The preset, your target, the price shift, occupancy, vacation and the mould bump
 
 A running AC keeps cooling until the room is at the threshold. An AC that is off starts once the room is 0.5 K above it.
 
-The coordinator then applies the rules that sit above `decide()`: the room thermostat's mode, off from the thermostat, free cooling, the night hold and the cooling plan. Free cooling comes first: while the entry holds the window open or runs the whole-house fan, the AC stays off.
+The coordinator then applies the rules that sit above `decide()`: the room thermostat's mode (in `fan_only` the AC runs its fan and never cools), off from the thermostat, free cooling, the night hold and the cooling plan. Free cooling comes first: while the entry holds the window open or runs the whole-house fan, the AC stays off.
 
 ### Setpoint regulation
 
@@ -144,7 +148,7 @@ These hold on every tick, above every other decision.
 
 ## Storage
 
-The entry stores its readings, the room model, the thermostat's mode and target, the lock, the house mode and the commanded device states with Home Assistant's `Store`, version 4. `_HorizonStore` in `coordinator_common.py` migrates older versions.
+The entry stores its readings, the room model, the kept models, the thermostat's mode, targets and humidity target, the lock, the house mode and the commanded device states with Home Assistant's `Store`, version 4. `_HorizonStore` in `coordinator_common.py` migrates older versions.
 
 ## Terms
 

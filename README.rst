@@ -12,13 +12,12 @@
 .. meta::
    :description: Learns how a room cools and heats, forecasts the time, energy and cost to a target, and controls the room's AC and heater.
 
-HVAC Horizon is a Home Assistant custom integration for one room. It learns how fast the room cools and heats from measured AC power, room and outdoor temperature and the electricity price. It forecasts the minutes, energy and cost to reach a target. With control on, it also drives the AC, an optional heater switch and other room devices.
+HVAC Horizon is a Home Assistant custom integration for one room. It learns how fast the room cools and heats from the AC's power, the room temperature and the outdoor temperature. It forecasts the minutes, energy and cost to reach a target. With control on, it also drives the AC, an optional heater switch and other room devices.
 
 Each entry creates one device with these entities:
 
-- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``auto``, ``heat`` (with a heater) and ``dry`` (with an AC dry mode or a dehumidifier).
-- Forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error.
-- 69 status sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 36 of them are disabled until you enable them.
+- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``auto``, ``heat`` (with a heater), ``dry`` (with an AC dry mode or a dehumidifier) and ``fan_only`` (with an AC fan mode). In ``auto`` it has a low and a high target, and with a room humidity sensor a humidity target.
+- 85 sensors. 12 are forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error among them. 73 are diagnostic sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 43 of those are disabled until you enable them.
 
 Services cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
 

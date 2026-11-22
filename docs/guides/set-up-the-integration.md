@@ -23,7 +23,7 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 | Comfort and presets | Setpoints for each preset, the vacation switch |
 | Schedule blocks | Presets by time of day, one block per submit |
 | Price | The price sensor and the cheap and expensive thresholds |
-| Heater | The heater's power and algorithm, a valve, a boiler, AC heat |
+| Heater | The heater's power and algorithm, a valve, a boiler, AC heat. The heater switch itself is in Room |
 | Occupancy and windows | Presence, motion, window sensors, a cover, a window actuator, the weather entity |
 | Air quality and humidity | Humidity, CO2 and PM2.5 sensors, fans, a dehumidifier, a humidifier |
 | Devices and power limits | A second AC, the dispatch mode, load shedding |
@@ -35,10 +35,10 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 
 ## Add a heater
 
-1. Open **Heater** and select the heater's switch in **Heater switch**.
+1. Open **Room** and select the heater's switch in **Heater switch**.
 2. Select **Submit**, then **Save and close**.
 
-The room thermostat now lists `heat`. The heater runs when the room is 0.5 K or more below the heat target. In `auto` it also needs outdoors at or below 22 °C. `heat` has no outdoor limit. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
+The room thermostat now lists `heat`. The options in the table below are in **Heater**. The heater runs when the room is 0.5 K or more below the heat target. In `auto` it also needs outdoors at or below 22 °C. `heat` has no outdoor limit. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
 
 | To | Set |
 | :--- | :--- |
@@ -46,7 +46,7 @@ The room thermostat now lists `heat`. The heater runs when the room is 0.5 K or 
 | Heat with the AC and no heater switch | `ac_heat` |
 | Account for radiators that stay warm after they stop | `radiators` |
 | Use the TPI algorithm in place of PID | `heater_algorithm` to `tpi` |
-| Limit the heater output | `output_min`, `output_max` |
+| Limit the heater output | `output_min`, `output_max` in **Expert tuning** |
 
 The PID gains come from a relay test when you run one. See `start_autotune` in [Services and presets](services-and-presets.md).
 
@@ -55,7 +55,11 @@ The PID gains come from a relay test when you run one. See `start_autotune` in [
 1. Open **Price** and select the price sensor. Its unit is per kWh.
 2. Set **Cheap price threshold** and **Expensive price threshold** in the same unit. The defaults are 0.15 and 0.40.
 
-The price only raises the cool threshold. Up to the midpoint of the cheap and the expensive price the threshold is your target. From there it rises in a line, and at or above the expensive price it is 1 K higher. The Cost to setpoint sensor needs a `forecast` attribute on the price sensor: a list of `time` and `value` pairs.
+The price only raises the cool threshold. Up to the midpoint of the cheap and the expensive price the threshold is your target. From there it rises in a line, and at or above the expensive price it is 1 K higher.
+
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="../diagrams/price-shift-dark.svg"><img alt="The cool threshold against the price. It equals the target up to the midpoint of the cheap and the expensive price, 0.275 with the defaults. From there it rises in a line to 1 K above the target at the expensive price, 0.40, and stays there." src="../diagrams/price-shift-light.svg"></picture></p>
+
+The Cost to setpoint sensor needs a `forecast` attribute on the price sensor: a list of `time` and `value` pairs.
 
 ## Add presence and motion
 
@@ -99,6 +103,8 @@ For devices that HVAC Horizon should choose between, open **Room devices**. Give
 | `This device is already set up.` | Another entry uses the same AC or heater switch. | Reconfigure that entry. |
 | `Pick an AC or a heater switch.` | The Room step has neither. | Select one of them. |
 | `Pick the AC's power sensor, or enter its rated power.` | The AC has neither. | Select the sensor or enter the watts. |
+| `Set both the start and the end of the new block.` | A schedule block has one time only. | Set both times, or clear both to add no block. |
+| `The start and the end of a block must differ.` | Both times of a schedule block are the same. | Change one of them. |
 | `Room devices are invalid` followed by a reason | The new device breaks a rule, such as a repeated name or a cooler on a switch. | Correct the field named in the reason. |
 
 A section with an error stores nothing from that section.

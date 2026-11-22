@@ -185,6 +185,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._last_room_data_s: float | None = None
         self._locked = False
         self._target_override_c: float | None = None  # the target the user set on the climate entity; stored
+        self._humidity_target_pct: float | None = None  # the humidity target the user set on the thermostat; stored
         self._heat_override_c: float | None = None  # the low target the user set in auto, when it differs from the target; stored
         self._user_off = False  # the user turned the room off on the climate entity; stored
         self._user_mode = "auto"  # the mode the user chose on the climate entity: "cool", "heat" or "auto"; stored with the hold
@@ -433,7 +434,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         target_fan = self.comfort_c
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
         room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
-        result["drying_needed"] = drying_needed(_float(self._optional(CONF_ROOM_HUMIDITY)), cool_gap_c=room_gap)
+        result["drying_needed"] = drying_needed(_float(self._optional(CONF_ROOM_HUMIDITY)), self.humidity_target_pct, cool_gap_c=room_gap)
         price_now = _float(self._optional(CONF_PRICE))
         if price_now is not None:
             self._last_good_price = price_now

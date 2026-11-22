@@ -83,15 +83,15 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | Key | Form label | Default | Effect |
 | :--- | :--- | :--- | :--- |
 | `humidity` | Outdoor humidity sensor | unset | Keeps windows shut to humid air. Window advice, the economizer and the window actuator stay closed when the outdoor dew point is 1 K or more above the room's. With no `room_humidity`, the limit is an outdoor dew point of 20 °C. |
-| `room_humidity` | Room humidity sensor, e.g. the bedroom monitor | unset | Keeps room humidity between 40 and 60 %. Above 60 % the dehumidifier runs. Below 40 % the humidifier runs. Sets the drying status. |
+| `room_humidity` | Room humidity sensor, e.g. the bedroom monitor | unset | Keeps room humidity between 40 % and the thermostat's humidity target (60 % by default). Above the target the dehumidifier runs. Below 40 % the humidifier runs. Sets the drying status. |
 | `co2` | CO2 sensor | unset | Above 1000 ppm the room fan runs. |
 | `fan` | Room fan switch | unset | Runs for ventilation. |
-| `dehumidifier` | Dehumidifier switch | unset | On while room humidity is above 60 %, off at 57 %. In `dry` mode with no humidity sensor it stays on. Off while the room is held off. |
+| `dehumidifier` | Dehumidifier switch | unset | On while room humidity is above the humidity target (60 % by default), off 3 points below it. In `dry` mode with no humidity sensor it stays on. Off while the room is held off. |
 | `humidifier` | Humidifier switch | unset | On while room humidity is below 40 %, off at 43 %. Off while the room is held off. |
 | `pm25` | PM2.5 sensor | unset | Above 25 µg/m³ the room fan runs. |
 | `whole_house_fan` | Whole-house fan switch | unset | On when the room is above the cool threshold, outdoors is at least 2 K cooler and the house is not sealed. The AC stays off while the fan runs. When the room is still 2 K above the cool threshold after 30 minutes, the fan stops and the AC cools. The same happens when the room is above the cool threshold and fell by less than 0.3 K in 30 minutes. |
 | `coil_dry` | Dry the AC coil after cooling | `False` | Runs the AC dry mode for 20 minutes after cooling. |
-| `dry_for_humidity` | Use the AC dry mode when humid (no dehumidifier set; uses a lot of water) | `False` | Above 60 % room humidity, with no dehumidifier set, the AC runs dry mode. Dry mode uses a lot of water. |
+| `dry_for_humidity` | Use the AC dry mode when humid (no dehumidifier set; uses a lot of water) | `False` | Above the humidity target (60 % by default), with no dehumidifier set, the AC runs dry mode. Dry mode uses a lot of water. |
 | `economizer_fan` | Economizer fan assist | `False` | Runs the fan switch in the economizer fan assist phase. Needs home, unlocked and no stalled sensor. |
 | `auto_fan` | Set the AC fan mode from the room gap while cooling | `False` | Sets the AC fan mode from the gap to the target while cooling. |
 | `house_sealed` | House is sealed (never run the whole-house fan) | `False` | Stops the whole-house fan. |

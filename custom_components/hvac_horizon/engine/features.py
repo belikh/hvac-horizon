@@ -69,6 +69,10 @@ def outdoor_allows(mode: str, outdoor_c: float, cool_min_c: float = 16.0, heat_m
 
 
 HUMIDITY_BAND_HIGH_PCT = 60.0  # dehumidifying starts above this
+HUMIDITY_BAND_LOW_PCT = 40.0  # humidifying starts below this
+HUMIDITY_BAND_MIN_WIDTH_PCT = 20.0  # the humidify limit stays this far below a humidity target the user lowered
+HUMIDITY_TARGET_MIN_PCT = 35.0  # range of the humidity target on the thermostat
+HUMIDITY_TARGET_MAX_PCT = 75.0
 HUMIDITY_DEADBAND_PCT = 3.0  # percentage points a humidity output stays on past its threshold
 CO2_DEADBAND_PPM = 100.0
 PM25_DEADBAND = 3.0  # ug/m3

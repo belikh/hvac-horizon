@@ -18,7 +18,8 @@ Then find the text in the table below.
 | `cool: above comfort target` | The room is above the cool threshold. The preset name replaces `comfort` under another preset. | Nothing. |
 | `off: at or below comfort target` | The room needs no cooling. | Nothing. |
 | `off: user turned the room off` | The room thermostat is `off`. | Choose a mode. |
-| `off: mode is heat: no cooling` | The room is above the cool threshold and the thermostat is in `heat` or `dry`. | Choose `cool` or `auto`. |
+| `off: mode is heat: no cooling` | The room is above the cool threshold and the thermostat is in `heat` or `dry`. The text names the mode. | Choose `cool` or `auto`. |
+| `fan: the AC runs its fan only` | The thermostat is in `fan_only`. | Choose another mode to cool or heat. |
 | `cool: waiting for restart delay` | A start waits for `min_off_min` after the last stop. The same text exists for `heat` and `dry`. | Wait. The `pending` attribute of the thermostat shows the minutes. |
 | `cool: waiting for compressor group` | Another entry in the same `compressor_group` started its AC less than 5 minutes ago. | Wait. |
 | `off: window open N min` | The window sensor has been open for `window_delay_min` or longer. | Close the window. |
@@ -47,7 +48,7 @@ Check these in order.
 
 ## The heater does not start
 
-1. **Mode.** The heater runs in `auto`, `heat` and `dry` only.
+1. **Mode.** The heater runs in `auto`, `heat` and `dry` only. It stays off in `cool` and `fan_only`.
 2. **Outdoor limit.** In `auto` and `dry` the heater stays off while outdoors is above 22 °C, and the Heating allowed sensor reads `False`. Choose `heat` to heat on a warm day.
 3. **Threshold.** The heater runs when the room is below the Heat below sensor.
 4. **AC cooling.** The heater stays off on a tick where the AC cools, and while another entry of the same house cools.
@@ -57,7 +58,7 @@ When the room is below the heat threshold and one of these holds the heater, the
 
 ## Sensor stalled
 
-A sensor is stalled when its last report is older than the stall window, 900 seconds by default. Set the window with `stall_window_s`, 300 to 3600 seconds. A sensor that repeats the same value still reports, so a steady reading is not a stall. `unavailable` and `unknown` count as no reading.
+A sensor is stalled when its last report is older than the stall window, 900 seconds by default. Set the window with `stall_window_s` in **Expert tuning**, 300 to 3600 seconds. A sensor that repeats the same value still reports, so a steady reading is not a stall. `unavailable` and `unknown` count as no reading.
 
 | Condition | AC and room devices | Heater |
 | :--- | :--- | :--- |

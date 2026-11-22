@@ -32,6 +32,11 @@ from custom_components.hvac_horizon.room_model.pid import Pid
 from custom_components.hvac_horizon.engine.decide import Preset
 from custom_components.hvac_horizon.room_model.autotune import RelayTuner
 from custom_components.hvac_horizon.engine.features import (
+    HUMIDITY_BAND_HIGH_PCT,
+    HUMIDITY_BAND_LOW_PCT,
+    HUMIDITY_BAND_MIN_WIDTH_PCT,
+    HUMIDITY_TARGET_MAX_PCT,
+    HUMIDITY_TARGET_MIN_PCT,
     check_pin,
     lock_allows_control,
     timed_preset_active,
@@ -61,6 +66,7 @@ class UserMixin:
     _store: Store[dict[str, Any]]
     _target_override_c: float | None
     _heat_override_c: float | None
+    _humidity_target_pct: float | None
     _timed_duration_min: float
     _timed_preset: str | None
     _timed_started_min: float | None
@@ -124,7 +130,9 @@ class UserMixin:
         return self._heat_target_c if heating else self._cool_shown_c
 
     def device_action(self) -> str:
-        """What the room's devices do now, from their own states: "cooling", "heating", "drying", "idle" or "off".
+        """What the room's devices do now, from their own states: "cooling", "heating", "drying", "fan", "idle" or "off".
+
+        "fan" means the first AC is in its fan mode and nothing heats or cools.
 
         Reads the first AC, the heater switch and the fleet devices. A climate in cool or heat counts as running only when
         its power sensor reads at least RUNNING_MIN_KW (below that it runs the fan only, which is "idle"). A device with no
@@ -154,6 +162,8 @@ class UserMixin:
                 return "cooling" if device.kind == COOL else "heating"
         if fan_only:
             return "idle"
+        if climate is not None and climate.state == "fan_only":
+            return "fan"
         return "off" if self._user_off else "idle"
 
     @property
@@ -195,17 +205,56 @@ class UserMixin:
         return modes is None or "dry" in modes
 
     @property
-    def user_mode(self) -> str:
-        """The mode in force: "cool", "heat", "auto" or "dry". The climate entity shows it and control obeys it.
+    def can_fan(self) -> bool:
+        """True when the first AC lists a fan mode. An AC whose mode list is not known yet counts as able.
 
-        A stored "heat" on an entry that can no longer heat reads "auto", and so does a stored "dry" on an entry
-        that cannot dehumidify, so the entity and control agree.
+        A room run by fleet climates has no fan path for the AC.
+        """
+        if not self.has_ac or any(device.entity_id for device in self._fleet()):
+            return False
+        climate = self.hass.states.get(self._ac_id)
+        modes = None if climate is None else climate.attributes.get("hvac_modes")
+        return modes is None or "fan_only" in modes
+
+    @property
+    def user_mode(self) -> str:
+        """The mode in force: "cool", "heat", "auto", "dry" or "fan_only". The climate entity shows it and control obeys it.
+
+        A stored "heat" on an entry that can no longer heat reads "auto". So does a stored "dry" on an entry that
+        cannot dehumidify and a stored "fan_only" on an AC with no fan mode, so the entity and control agree.
         """
         if not self.has_cool:
             return "dry" if self._user_mode == "dry" and self.can_dry else "heat"
-        if (self._user_mode == "heat" and not self.has_heat) or (self._user_mode == "dry" and not self.can_dry):
+        if (
+            (self._user_mode == "heat" and not self.has_heat)
+            or (self._user_mode == "dry" and not self.can_dry)
+            or (self._user_mode == "fan_only" and not self.can_fan)
+        ):
             return "auto"
         return self._user_mode
+
+    @property
+    def fan_only_mode(self) -> bool:
+        """True while the user chose the fan mode and the room is not held off. The AC runs its fan and nothing heats or cools."""
+        return self.user_mode == "fan_only" and not self._user_off
+
+    @property
+    def humidity_target_pct(self) -> float:
+        """The room dries above this relative humidity. The user sets it on the thermostat. The default is HUMIDITY_BAND_HIGH_PCT."""
+        return HUMIDITY_BAND_HIGH_PCT if self._humidity_target_pct is None else self._humidity_target_pct
+
+    @property
+    def humidify_below_pct(self) -> float:
+        """A humidifier runs below this: 40 %, or HUMIDITY_BAND_MIN_WIDTH_PCT under a humidity target below 60 %."""
+        return min(HUMIDITY_BAND_LOW_PCT, self.humidity_target_pct - HUMIDITY_BAND_MIN_WIDTH_PCT)
+
+    def set_humidity_target(self, humidity_pct: float) -> None:
+        """Store the humidity target from the thermostat."""
+        self._require_unlocked()
+        if not HUMIDITY_TARGET_MIN_PCT <= humidity_pct <= HUMIDITY_TARGET_MAX_PCT:
+            raise HomeAssistantError(f"the humidity target {humidity_pct} is outside {HUMIDITY_TARGET_MIN_PCT:.0f} to {HUMIDITY_TARGET_MAX_PCT:.0f} %")
+        self._humidity_target_pct = float(humidity_pct)
+        self._store.async_delay_save(self._save_payload, 0)
 
     @property
     def dry_mode(self) -> bool:
@@ -214,12 +263,12 @@ class UserMixin:
 
     @property
     def cooling_permitted(self) -> bool:
-        """True when the mode lets the room cool: cool or auto. In heat mode nothing cools."""
+        """True when the mode lets the room cool: cool or auto. In heat, dry and fan mode nothing cools."""
         return self.user_mode in ("cool", "auto")
 
     @property
     def heating_permitted(self) -> bool:
-        """True when the mode lets the room heat: heat, auto or dry. In cool mode nothing heats.
+        """True when the mode lets the room heat: heat, auto or dry. In cool mode and in fan mode nothing heats.
 
         Dry mode cools the room as it removes water, so the heating devices may hold the heat target while the AC dries.
         """
@@ -267,7 +316,7 @@ class UserMixin:
     def set_user_off(self, off: bool, mode: str | None = None) -> None:
         """Hold the room off (AC and heater) or return it to automatic control. The next tick sends the change through the usual gates.
 
-        `mode` ("cool", "heat" or "auto") records the mode the user chose and is kept with the hold.
+        `mode` (one of USER_MODES) records the mode the user chose and is kept with the hold.
         """
         self._require_unlocked()
         self._user_off = off
