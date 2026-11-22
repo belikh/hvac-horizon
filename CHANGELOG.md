@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-11-22)
 
 - The forecast sensors cover heating and drying. While the mode heats and the room is below the heat target, Minutes,
   Energy and Cost to setpoint count to the heat target. In `dry` mode they count to 57 % room humidity. The new
