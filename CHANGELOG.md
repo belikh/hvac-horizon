@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## 0.6.1 (unreleased)
+## 0.6.1 (2026-11-22)
 
 - The price shift only raises the cool threshold. Before, a price at or below `price_cheap` moved it 1 K down, so a
   target of 24 °C cooled the room to 23 °C. Now the threshold is your target up to the midpoint of `price_cheap` and
