@@ -102,7 +102,7 @@ class ForecastMixin:
 
     async def _refresh_weather(self) -> None:
         """Fetch the daily and the hourly forecast. A failed fetch keeps the last good result of its type."""
-        weather_id = self.entry.data.get(CONF_WEATHER)
+        weather_id = self.settings.get(CONF_WEATHER)
         if not weather_id:
             return
         daily = await self._fetch_forecast(weather_id, "daily")
@@ -124,7 +124,7 @@ class ForecastMixin:
 
     def _fresh_outdoor_sensor(self, now: float) -> float | None:
         """The outdoor sensor reading, or None when it is unavailable or stalled."""
-        outdoor_id = self.entry.data[CONF_OUTDOOR]
+        outdoor_id = self.settings[CONF_OUTDOOR]
         reading = _float(self.hass.states.get(outdoor_id))
         return None if reading is None or outdoor_id in self._stalled_sensors(now) else reading
 
@@ -178,7 +178,7 @@ class ForecastMixin:
         With no fresh forecast the sensor value stands, which can be None.
         """
         now = dt_util.utcnow().timestamp()
-        sensor = _float(self.hass.states.get(self.entry.data[CONF_OUTDOOR]))
+        sensor = _float(self.hass.states.get(self.settings[CONF_OUTDOOR]))
         if self._fresh_outdoor_sensor(now) is not None:
             return sensor, "sensor"
         fallback = self._forecast_outdoor(now)
@@ -227,7 +227,7 @@ class ForecastMixin:
         None when an irradiance sensor is configured, there is no window area, no fresh hourly forecast,
         or the condition is not in the table.
         """
-        if self.entry.data.get(CONF_IRRADIANCE) or self.entry.data.get(CONF_WINDOW_AREA_M2) is None:
+        if self.settings.get(CONF_IRRADIANCE) or self.settings.get(CONF_WINDOW_AREA_M2) is None:
             return None
         now = dt_util.utcnow().timestamp()
         return condition_factor(condition_now(self._hourly, now)) if self._hourly_fresh(now) else None
@@ -238,10 +238,10 @@ class ForecastMixin:
         With an irradiance sensor the gain comes from its reading. Without one it is the clear-sky model
         scaled by the forecast condition factor, and None when there is no factor.
         """
-        area = self.entry.data.get(CONF_WINDOW_AREA_M2)
+        area = self.settings.get(CONF_WINDOW_AREA_M2)
         if area is None:
             return None
-        if self.entry.data.get(CONF_IRRADIANCE):
+        if self.settings.get(CONF_IRRADIANCE):
             irradiance = _float(self._optional(CONF_IRRADIANCE))
             return None if irradiance is None else round(sun_heat_gain(irradiance, float(area)), 3)
         factor = self._solar_factor()
@@ -250,7 +250,7 @@ class ForecastMixin:
 
     def _modelled_solar_kw(self, ahead_min: float = 0.0) -> float | None:
         """Clear-sky gain in kW on the window from the sun position at the house location, `ahead_min` minutes from now. None without a window area."""
-        area = self.entry.data.get(CONF_WINDOW_AREA_M2)
+        area = self.settings.get(CONF_WINDOW_AREA_M2)
         if area is None:
             return None
         utc = dt_util.utcnow() + timedelta(minutes=ahead_min)
@@ -258,7 +258,7 @@ class ForecastMixin:
             self.hass.config.latitude, self.hass.config.longitude,
             utc.hour + utc.minute / 60.0, utc.timetuple().tm_yday,
         )
-        window_az = float(self.entry.data.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH))
+        window_az = float(self.settings.get(CONF_WINDOW_AZIMUTH, DEFAULT_WINDOW_AZIMUTH))
         irradiance = window_irradiance(clear_sky_irradiance(elevation), elevation, azimuth, window_az)
         return sun_heat_gain(irradiance, float(area))
 
@@ -276,7 +276,7 @@ class ForecastMixin:
 
     def _price_thresholds(self) -> tuple[float, float]:
         """The cheap and expensive price thresholds. An invalid stored value falls back to the defaults, with one warning."""
-        data = self.entry.data
+        data = self.settings
 
         def number(name: str, default: float) -> float:
             value = data.get(name)
@@ -421,14 +421,14 @@ class ForecastMixin:
         other = self._dry_forecast(now) if self._mode_now() == "dry" else self._heat_forecast(now)
         if other is not None:
             result.update(other)
-        if result.get("status") == "reachable" and result.get("cost") is None and self.entry.data.get(CONF_PRICE):
+        if result.get("status") == "reachable" and result.get("cost") is None and self.settings.get(CONF_PRICE):
             # A cost over part of the time would read as the whole cost, so none is given. The reason says why.
             result["reason"] = COST_UNKNOWN_REASON
         return result
 
     def _mode_now(self) -> str | None:
         """What the room is asked to do. With control on it is the thermostat's mode, and None while it is off. In observe-only it is the AC's own mode."""
-        if self.entry.data.get(CONF_CONTROL):
+        if self.settings.get(CONF_CONTROL):
             return None if self._user_off else self.user_mode
         climate = self.hass.states.get(self._ac_id)
         return None if climate is None else climate.state
@@ -438,8 +438,8 @@ class ForecastMixin:
 
         A heater switch with a learned rate comes first. The AC's heat mode is next.
         """
-        if self.entry.data.get(CONF_HEATER_SWITCH) and self._heat_rate is not None:
-            watts = self.entry.data.get(CONF_HEATER_POWER_W)
+        if self.settings.get(CONF_HEATER_SWITCH) and self._heat_rate is not None:
+            watts = self.settings.get(CONF_HEATER_POWER_W)
             return self._heat_rate * self._auto_heat_gain, None, float(watts) / 1000.0 if watts else None, "heater"
         if self._ac_heat_fit is not None and self._ac_heat_kw:
             stderr = None if self._ac_heat_fit.stderr is None else self._ac_heat_fit.stderr * self._ac_heat_kw
@@ -474,7 +474,7 @@ class ForecastMixin:
     def _heat_forecast(self, now: float) -> dict[str, Any] | None:
         """The heating forecast, or None when the room is not being heated: the mode, the entry or the temperature rules it out."""
         mode = self._mode_now()
-        control = bool(self.entry.data.get(CONF_CONTROL))
+        control = bool(self.settings.get(CONF_CONTROL))
         if mode != "heat" and not (control and mode == "auto"):
             return None
         if control and not self.has_heat:
@@ -576,7 +576,7 @@ class ForecastMixin:
         outdoor = self._outdoor_now()
         # Observe-only uses the climate entity's own setpoint, as the original request asked.
         # Control mode uses the comfort setting, because the integration writes that setpoint.
-        if self.entry.data.get(CONF_CONTROL):
+        if self.settings.get(CONF_CONTROL):
             target = comfort_default
         else:
             setpoint = climate.attributes.get("temperature") if climate else None

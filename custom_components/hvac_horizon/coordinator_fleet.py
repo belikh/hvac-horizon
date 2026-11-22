@@ -58,7 +58,7 @@ class FleetMixin:
         """Room devices from the fleet option. A device without device_id and kind is skipped. Unknown keys are dropped with one warning."""
         devices: list[Device] = []
         known = {f.name for f in fields(Device)}
-        for raw in self.entry.data.get(CONF_FLEET) or []:
+        for raw in self.settings.get(CONF_FLEET) or []:
             if not isinstance(raw, dict):
                 continue
             unknown = sorted(set(raw) - known)
@@ -94,7 +94,7 @@ class FleetMixin:
                 "power_kw": 0.0,
             }
         median = statistics.median(rooms)
-        mode = self.entry.data.get(CONF_DISPATCH_MODE, FAST)
+        mode = self.settings.get(CONF_DISPATCH_MODE, FAST)
         price = _float(self._optional(CONF_PRICE)) or DEFAULT_PRICE_CHEAP
         cool_gap = max(median - self._cool_above_c, cool_floor_k)
         cool = choose_devices(devices, COOL, cool_gap, 1.0, mode, price) if cool_allowed and self.cooling_permitted else []
@@ -127,7 +127,7 @@ class FleetMixin:
         """Minutes the device must still wait before it may start. 0 when it runs or the restart delay (min_off_min) is disabled or over."""
         if running:
             return 0.0
-        raw = self.entry.data.get(CONF_MIN_OFF_MIN)
+        raw = self.settings.get(CONF_MIN_OFF_MIN)
         minutes = 3.0 if raw is None or raw == "" else float(raw)
         since_min = self._since_min(self.hass.states.get(device.entity_id), self._fleet_changed_at.get(device.device_id), now)
         return restart_wait_min(since_min, minutes)

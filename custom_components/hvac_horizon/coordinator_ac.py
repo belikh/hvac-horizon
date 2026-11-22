@@ -200,7 +200,7 @@ class AcMixin:
         else:
             self._window_open_since = None
         window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
-        window_delay_min = float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+        window_delay_min = float(self.settings.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
         self._notify_transition(
             "window", "_window_paused", window_open_pause(window_open_min, window_delay_min),
             "HVAC Horizon paused control: a window is open.", "HVAC Horizon resumed control: the window is closed.",
@@ -209,7 +209,7 @@ class AcMixin:
         result["precool_status"] = self._precool_status
         outdoor = self._outdoor_now()
         # The night plan acts only with its flag on. Its pre-cool target and hold use the comfort setpoint.
-        night = result.get("night_plan") if self.entry.data.get(CONF_NIGHT_PLAN_ACT, False) else None
+        night = result.get("night_plan") if self.settings.get(CONF_NIGHT_PLAN_ACT, False) else None
         comfort_c = self.comfort_c
         if stalled:
             # A stalled sensor cannot show that the room is cool. The AC stops, so it does not cool on a stale reading.
@@ -239,7 +239,7 @@ class AcMixin:
         free_rooms = self._rooms()
         free_room_c = statistics.median(free_rooms) if free_rooms else None
         self._update_free_cooling(free_room_c)
-        fan_id = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
+        fan_id = self.settings.get(CONF_WHOLE_HOUSE_FAN)
         fan_ok = bool(
             fan_id
             and free_room_c is not None
@@ -248,7 +248,7 @@ class AcMixin:
             and not stalled
             and not self._free_cooling_gave_up
             and whole_house_fan_allowed(
-                bool(self.entry.data.get(CONF_HOUSE_SEALED, False)),
+                bool(self.settings.get(CONF_HOUSE_SEALED, False)),
                 False,
                 self._outdoor_now(),
                 free_room_c,
@@ -288,23 +288,23 @@ class AcMixin:
             None,
         )
         # Each output keeps its own on-state, so a reading that wobbles across a threshold does not flip it.
-        fan_running = self._switch_on(self.entry.data.get(CONF_FAN))
+        fan_running = self._switch_on(self.settings.get(CONF_FAN))
         ventilation = air_quality_ventilation(_float(self._optional(CONF_CO2)), _float(self._optional(CONF_PM25)), running=fan_running)
         room_humidity = _float(self._optional(CONF_ROOM_HUMIDITY))
-        dry_running = climate is not None and climate.state == "dry" and not self.entry.data.get(CONF_DEHUMIDIFIER)
+        dry_running = climate is not None and climate.state == "dry" and not self.settings.get(CONF_DEHUMIDIFIER)
         humidity = humidity_action(
             room_humidity,
             low=self.humidify_below_pct,
             high=self.humidity_target_pct,
-            dehumidifying=self._switch_on(self.entry.data.get(CONF_DEHUMIDIFIER)) or dry_running,
-            humidifying=self._switch_on(self.entry.data.get(CONF_HUMIDIFIER)),
+            dehumidifying=self._switch_on(self.settings.get(CONF_DEHUMIDIFIER)) or dry_running,
+            humidifying=self._switch_on(self.settings.get(CONF_HUMIDIFIER)),
         )
         result["ventilation"] = ventilation.reason
         result["humidity"] = humidity.reason
         # Dry mode with no room humidity sensor dries until the user changes the mode, as the AC's own dry mode does.
         dry_wanted = humidity.action == "dehumidify" or (self.dry_mode and room_humidity is None)
         # The AC dries in dry mode, and in cool or auto when the dry_for_humidity option is on.
-        ac_dry_allowed = self._ac_lists("dry") and (self.dry_mode or (bool(self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted))
+        ac_dry_allowed = self._ac_lists("dry") and (self.dry_mode or (bool(self.settings.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted))
         # Drying cools the room. Without a heater that keeps up, the AC pauses DRY_FLOOR_BELOW_HEAT_K below the heat
         # threshold and resumes once the room is back at the threshold.
         dry_rooms = self._rooms()
@@ -330,15 +330,15 @@ class AcMixin:
         house_home = effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         # Free cooling is cooling, so heat mode leaves it out. Ventilation for CO2 and PM2.5 above runs in every mode.
         if self.cooling_permitted and fan_assist_on(
-            result.get("economizer"), bool(self.entry.data.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled
+            result.get("economizer"), bool(self.settings.get(CONF_ECONOMIZER_FAN, False)), lock_allows_control(self._locked), house_home, stalled
         ):
             fan_on = True
         started = self._inputs_seen  # no switch starts before the first valid room and outdoor readings
-        await self._drive_switch(self.entry.data.get(CONF_FAN), fan_on and started, track=True)
-        await self._drive_switch(self.entry.data.get(CONF_DEHUMIDIFIER), dry_wanted and started and not self._user_off, track=True)
-        await self._drive_switch(self.entry.data.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started and not self._user_off, track=True)
+        await self._drive_switch(self.settings.get(CONF_FAN), fan_on and started, track=True)
+        await self._drive_switch(self.settings.get(CONF_DEHUMIDIFIER), dry_wanted and started and not self._user_off, track=True)
+        await self._drive_switch(self.settings.get(CONF_HUMIDIFIER), humidity.action == "humidify" and started and not self._user_off, track=True)
         heat_ok = result.get("heating_allowed", True)
-        await self._drive_switch(self.entry.data.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
+        await self._drive_switch(self.settings.get(CONF_BOILER), bool(result.get("boiler_demand")) and heat_ok and started and not self._user_off and self.heating_permitted, track=True)
         result["whole_house_fan"] = fan_ok
         await self._drive_switch(fan_id, fan_ok and started, track=True)
         if self._user_off:
@@ -400,7 +400,7 @@ class AcMixin:
                 not stalled
                 and ac_dry_allowed
                 and dry_wanted
-                and not self.entry.data.get(CONF_DEHUMIDIFIER)
+                and not self.settings.get(CONF_DEHUMIDIFIER)
                 and climate.state == "dry"
                 and self._last_written_mode == "dry"
                 and not self._coil_dry_sent
@@ -410,7 +410,7 @@ class AcMixin:
                 not stalled
                 and ac_dry_allowed
                 and dry_wanted
-                and not self.entry.data.get(CONF_DEHUMIDIFIER)
+                and not self.settings.get(CONF_DEHUMIDIFIER)
                 and climate.state != "dry"
                 and self._group_start_ok(now)
             ):
@@ -450,7 +450,7 @@ class AcMixin:
         await self._write_setpoint(climate_id, climate, cool_setpoint, now)
         if climate.state == "cool" and rooms:
             # The fan follows the room gap while the AC was already cooling before this cycle.
-            if self.entry.data.get(CONF_AUTO_FAN, False):
+            if self.settings.get(CONF_AUTO_FAN, False):
                 await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
 
     async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> float:
@@ -501,7 +501,7 @@ class AcMixin:
         mode = "heat" if heat else "cool"
         if self._regulation_mode != mode:
             self._regulation_mode, self._regulation_drop_k = mode, 0.0
-        if room_c is None or not self.entry.data.get(CONF_SETPOINT_REGULATION, True):
+        if room_c is None or not self.settings.get(CONF_SETPOINT_REGULATION, True):
             self._regulation_drop_k = 0.0
             return target_c
         ac_c = _attr_float(climate, "current_temperature")
@@ -549,14 +549,14 @@ class AcMixin:
         A stalled sensor, a paused window and a closed heating window (outdoor limit) also stop it.
         """
         plan = result.get("mpc_heat_steps")
-        plan_heat = bool(self.entry.data.get(CONF_MPC_HEAT_PLAN, False) and plan and plan[0])
+        plan_heat = bool(self.settings.get(CONF_MPC_HEAT_PLAN, False) and plan and plan[0])
         return (
             action.mode is Mode.OFF
             and not self._user_off
             and self.heating_permitted
             and not self.dry_mode  # the AC dries in dry mode, so it cannot heat at the same time
             and self._ac_lists("heat")
-            and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
+            and (bool(self.settings.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
             and self._someone_home
@@ -599,13 +599,13 @@ class AcMixin:
         Off by default: the AC's dry mode is a dehumidifier that produces a lot of water, so it runs only
         when the user sets the coil_dry option.
         """
-        if not self.entry.data.get("coil_dry", False):
+        if not self.settings.get("coil_dry", False):
             return False
         now_cooling = climate.state == "cool"
         modes = climate.attributes.get("hvac_modes")
         has_dry = modes is None or "dry" in modes
         handled = False
-        if self.entry.data.get(CONF_CONTROL) and has_dry:
+        if self.settings.get(CONF_CONTROL) and has_dry:
             now_min = now / 60.0
             drying = coil_dry_due(self._was_cooling, now_cooling, self._dry_started_min, now_min)
             if drying:
@@ -633,7 +633,7 @@ class AcMixin:
     async def _drive_second_ac(self, action: Any, result: dict[str, Any], now: float, first: State | None, stalled: bool) -> None:
         """Send the first AC's cool or off decision to the optional second AC. Called only on the control path."""
         result["second_ac"] = "idle"
-        climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
+        climate_2_id = self.settings.get(CONF_CLIMATE_2)
         if not climate_2_id:
             return
         second = self.hass.states.get(climate_2_id)
@@ -671,7 +671,7 @@ class AcMixin:
 
     def _compressor_group(self) -> str | None:
         """The compressor group name, or None when the entry has no group. A blank name counts as no group."""
-        name = str(self.entry.data.get(CONF_COMPRESSOR_GROUP) or "").strip()
+        name = str(self.settings.get(CONF_COMPRESSOR_GROUP) or "").strip()
         return name or None
 
     def _group_start_ok(self, now: float) -> bool:
@@ -711,7 +711,7 @@ class AcMixin:
         """Minutes before a device that is off may start again. 0 when it runs, when the delay is disabled or when it has passed."""
         if running:
             return 0.0
-        raw = self.entry.data.get(CONF_MIN_OFF_MIN)
+        raw = self.settings.get(CONF_MIN_OFF_MIN)
         minutes = 3.0 if raw is None or raw == "" else float(raw)
         return restart_wait_min(self._since_min(state, own_changed_at, now), minutes)
 
@@ -734,7 +734,7 @@ class AcMixin:
         neither has only the AC, so the AC cools. Once free cooling has failed to hold the room (_free_cooling_gave_up)
         the AC cools too. Cool mode is the user's order to cool and has no outdoor limit.
         """
-        data = self.entry.data
+        data = self.settings
         free_air = bool(data.get(CONF_WINDOW_ACTUATOR) or data.get(CONF_WHOLE_HOUSE_FAN))
         return self.user_mode == "auto" and free_air and not self._free_cooling_gave_up
 
@@ -771,7 +771,7 @@ class AcMixin:
         Called while the user holds the room off. A device that is already off, unavailable or unknown gets no command.
         The lock is checked by the caller and by set_user_off.
         """
-        data = self.entry.data
+        data = self.settings
         climate_id = self._ac_id
         for entity_id in (climate_id, data.get(CONF_CLIMATE_2)):
             state = self.hass.states.get(entity_id) if entity_id else None

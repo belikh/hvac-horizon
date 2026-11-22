@@ -9,14 +9,23 @@ status: draft
 
 ## Open the settings
 
-HVAC Horizon has no **Configure** button. You change an entry with **Reconfigure**.
+An entry has two places for its settings, as Home Assistant integrations do.
 
-1. Open **Settings > Devices & actions** and select **HVAC Horizon**.
-2. On the entry, select the three-dot menu, then **Reconfigure**. The menu is titled **Edit HVAC Horizon**.
+| Button | What it changes | Stored in |
+| :-- | :-- | :-- |
+| **Configure** | Every setting you tune: presets, price, heater, occupancy, devices, control | The entry's options |
+| **Reconfigure**, in the three-dot menu | The room itself: its area, AC, power sensor, heater switch and sensors | The entry's data |
+
+To change a setting:
+
+1. Open **Settings > Devices & services** and select **HVAC Horizon**.
+2. On the entry, select **Configure**. The menu is titled **Configure HVAC Horizon**.
 3. Select a section, change its fields and select **Submit**. The menu returns.
-4. Select **Save and close**. The form reports `Settings updated. Stored samples are kept.`
+4. Select **Save and close**. The room reloads with the new settings and keeps its stored samples.
 
-Nothing is saved until you select **Save and close**. A section you do not open keeps its values. A field you clear in a section is removed. The Lock PIN is the exception: an empty PIN box keeps the stored PIN.
+To change the room's devices or sensors, select the three-dot menu, then **Reconfigure**. It opens the **Room** form. On submit it reports `Room updated. Stored samples are kept.`
+
+In **Configure**, nothing is saved until you select **Save and close**. A section you do not open keeps its values. A field you clear in a section is removed. The Lock PIN is the exception: an empty PIN box keeps the stored PIN.
 
 The same sections appear when you add a new entry, after the **Room** step. Submit a section empty to keep its defaults.
 
@@ -24,19 +33,19 @@ Each field has a help text under it. It says what the field needs, what it chang
 
 ## Areas
 
-A room can belong to a Home Assistant area. Pick it in the **Area** step of a new entry, or in **Room** when you reconfigure.
+A room can belong to a Home Assistant area. Pick it in the **Area** step of a new entry, or in the **Room** form of **Reconfigure**.
 
 - **Suggestions.** A new entry's forms suggest the entities of the area. The AC and its power sensor are suggested when the area has exactly one of each. Every temperature sensor is suggested as a room sensor, with the first humidity, motion and window sensor. A suggestion is stored only when you submit its form, so check each one.
 - **Never suggested.** The heater switch, because a switch can be anything, and the outdoor sensor, because it is not in the room.
 - **Name and place.** The entry is named after the area, and its thermostat and sensors are placed in it. Home Assistant places the device when it creates it, from the device's suggested area. Changing the area in **Room** moves it. A device you moved or removed from its area by hand stays as you left it.
 
-An entry reads the entities you stored. A sensor you add to the area later is used after you add it in **Reconfigure**.
+An entry reads the entities you stored. A sensor you add to the area later is suggested in the matching form of **Configure** or **Reconfigure**, and used after you submit that form.
 
 ## Sections
 
 | Section | What you set there |
 | :-- | :-- |
-| Room | The area, the AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
+| Room (Reconfigure) | The area, the AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
 | Comfort and presets | Setpoints for each preset, the vacation switch |
 | Schedule blocks | Presets by time of day, one block per submit |
 | Price | The price sensor and the cheap and expensive thresholds |

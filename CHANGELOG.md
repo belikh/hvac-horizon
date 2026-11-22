@@ -4,8 +4,12 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
-This release changes entity IDs and one mode name. Read the first three items before you upgrade.
+This release changes entity IDs, one mode name and where the settings are. Read the first four items before you upgrade.
 
+- **Configure button.** The settings you tune are now the entry's options, behind **Configure**, as in other Home
+  Assistant integrations. **Reconfigure** holds the Room form only: the area, the AC, its power, the heater switch
+  and the sensors. Stored entries migrate at the first start and keep every value. Before, all 89 settings were in
+  Reconfigure.
 - **Mode name.** In a room that can heat and cool, the automatic mode is now `heat_cool`, with its low and high
   target. Home Assistant defines `heat_cool` for a target range and `auto` for a device with one target that follows
   its own logic. A room that only cools keeps `auto`. An automation or script that sets `auto` on a room that can

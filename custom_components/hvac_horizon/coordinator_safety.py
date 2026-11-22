@@ -114,7 +114,7 @@ class SafetyMixin:
         A command is sent and the device answers later, so one tick of difference is normal. A device someone
         changed by hand is listed too, because its state is not what this entry last wrote.
         """
-        if not self.entry.data.get(CONF_CONTROL):
+        if not self.settings.get(CONF_CONTROL):
             return []
         found: dict[str, str] = {}
 
@@ -127,7 +127,7 @@ class SafetyMixin:
             mode = self._last_written_mode
             check(self._ac_id, mode, lambda s: s == mode or (mode == "off" and s == "fan_only"))
         if self._second_ac_commanded_on:
-            check(self.entry.data.get(CONF_CLIMATE_2), "on", lambda s: s in ("cool", "heat", "dry"))
+            check(self.settings.get(CONF_CLIMATE_2), "on", lambda s: s in ("cool", "heat", "dry"))
         if self._heater_commanded_on is not None:
             expected = "on" if self._heater_commanded_on else "off"
             check(self._heater_switch_driven, expected, lambda s: s == expected)
@@ -170,7 +170,7 @@ class SafetyMixin:
         """Turn off everything this instance last commanded on, whatever the lock and the restart delay say."""
         await self.async_heater_off()
         await self._fleet_all_off(dt_util.utcnow().timestamp())
-        if not self.entry.data.get(CONF_CONTROL):
+        if not self.settings.get(CONF_CONTROL):
             return
         climate_id = self._ac_id
         if self._last_written_mode in ("cool", "heat", "dry") or self._coil_dry_sent:
@@ -181,7 +181,7 @@ class SafetyMixin:
                 )
             self._last_written_mode = "off"
             self._coil_dry_sent = False
-        climate_2_id = self.entry.data.get(CONF_CLIMATE_2)
+        climate_2_id = self.settings.get(CONF_CLIMATE_2)
         if climate_2_id and self._second_ac_commanded_on:
             second = self.hass.states.get(climate_2_id)
             if second is not None and second.state in ("cool", "heat", "dry"):
@@ -226,7 +226,7 @@ class SafetyMixin:
         else:
             self._window_open_since = None
         window_open_min = 0.0 if self._window_open_since is None else (now - self._window_open_since) / 60.0
-        window_delay_min = float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
+        window_delay_min = float(self.settings.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN))
         house_away = not effective_home(True, house_mode_from_store(self.hass.data.get(DOMAIN, {})))
         reason = None
         if self._stall_blocks(result) or self._no_room_data_stop(now):

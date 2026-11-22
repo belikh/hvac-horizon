@@ -9,8 +9,8 @@ import dataclasses
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlow, ConfigFlowResult
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlowWithReload
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -594,46 +594,33 @@ def _fleet_schema(devices: list[dict[str, Any]]) -> vol.Schema:
     return vol.Schema(fields)
 
 
-class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 2
+ROOM_KEYS = frozenset(SECTIONS["room"])
 
-    def __init__(self) -> None:
-        self._data: dict[str, Any] = {}
-        self._stored_pin: str | None = None  # the PIN in the entry being reconfigured
-        self._suggested: dict[str, Any] = {}  # entities of the chosen area, shown as suggested values and stored only when a form is submitted
 
-    async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return await self.async_step_area()
+def split_settings(settings: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split settings into the entry's data and its options.
 
-    async def async_step_area(self, user_input: dict | None = None) -> ConfigFlowResult:
-        """Pick the area of the room. The next forms suggest the entities found in it. An empty submit skips the area."""
-        if user_input is None:
-            return self.async_show_form(step_id="area", data_schema=vol.Schema({vol.Optional(CONF_AREA): selector.AreaSelector()}))
-        if area_id := user_input.get(CONF_AREA):
-            self._data[CONF_AREA] = area_id
-            self._suggested = area_suggestions(self.hass, area_id)
-        return await self.async_step_room()
+    The data holds the Room step: the area, the devices and the sensors that make the room. Reconfigure changes it.
+    The options hold every setting a user tunes. Configure changes them.
+    """
+    return ({k: v for k, v in settings.items() if k in ROOM_KEYS}, {k: v for k, v in settings.items() if k not in ROOM_KEYS})
 
-    async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
-        if not self._data:
-            entry = self._get_reconfigure_entry()
-            self._data = dict(entry.data)
-            self._stored_pin = entry.data.get(CONF_LOCK_PIN)
-            if area_id := self._data.get(CONF_AREA):
-                if ar.async_get(self.hass).async_get_area(area_id) is None:
-                    self._data.pop(CONF_AREA)  # the area was deleted in Home Assistant
-                else:
-                    # Entities added to the area since setup are suggested in the fields that are still empty.
-                    self._suggested = area_suggestions(self.hass, area_id)
-        return self._show_menu()
+
+class _SectionSteps:
+    """The form steps of the sections, shared by setup, Reconfigure and Configure. A subclass says what follows a section."""
+
+    hass: HomeAssistant
+    _data: dict[str, Any]
+    _suggested: dict[str, Any]  # entities of the room's area, shown as suggested values and stored only when a form is submitted
+    _stored_pin: str | None  # the PIN in the entry being changed
 
     def _show_menu(self) -> ConfigFlowResult:
-        reconfiguring = self.source == SOURCE_RECONFIGURE
-        options = (["room"] if reconfiguring else []) + MENU_ORDER
-        return self.async_show_menu(step_id="reconfigure" if reconfiguring else "menu", menu_options=["finish"] + options)
+        raise NotImplementedError
 
-    async def async_step_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
-        return self._show_menu()
+    def _suggest_from_area(self, area_id: str | None) -> None:
+        """Suggest the entities of the area in the fields that are still empty. A deleted area suggests nothing."""
+        if area_id and ar.async_get(self.hass).async_get_area(area_id) is not None:
+            self._suggested = area_suggestions(self.hass, area_id)
 
     async def _async_section(self, section: str, user_input: dict | None) -> ConfigFlowResult:
         if user_input is None:
@@ -661,12 +648,6 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
             user_input = {**user_input, CONF_LOCK_PIN: self._stored_pin}
         self._data.update(user_input)
         return self._show_menu()
-
-    async def async_step_room(self, user_input: dict | None = None) -> ConfigFlowResult:
-        if user_input is not None and self.source != SOURCE_RECONFIGURE:
-            await self.async_set_unique_id(user_input.get(CONF_CLIMATE) or user_input.get(CONF_HEATER_SWITCH))
-            self._abort_if_unique_id_configured()
-        return await self._async_section("room", user_input)
 
     async def async_step_comfort(self, user_input: dict | None = None) -> ConfigFlowResult:
         return await self._async_section("comfort", user_input)
@@ -737,18 +718,91 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_show_form(step_id="fleet", data_schema=_fleet_schema(kept))
         return self._show_menu()
 
-    async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
+
+class HorizonConfigFlow(_SectionSteps, ConfigFlow, domain=DOMAIN):
+    VERSION = 3
+
+    def __init__(self) -> None:
+        self._data = {}
+        self._stored_pin = None
+        self._suggested = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> HorizonOptionsFlow:
+        return HorizonOptionsFlow()
+
+    async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self.async_step_area()
+
+    async def async_step_area(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Pick the area of the room. The next forms suggest the entities found in it. An empty submit skips the area."""
+        if user_input is None:
+            return self.async_show_form(step_id="area", data_schema=vol.Schema({vol.Optional(CONF_AREA): selector.AreaSelector()}))
+        if area_id := user_input.get(CONF_AREA):
+            self._data[CONF_AREA] = area_id
+            self._suggest_from_area(area_id)
+        return await self.async_step_room()
+
+    async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Change the room itself: its area, devices and sensors. The tunable settings are behind Configure."""
+        entry = self._get_reconfigure_entry()
+        self._data = {k: v for k, v in entry.data.items() if k in ROOM_KEYS}
+        if (area_id := self._data.get(CONF_AREA)) and ar.async_get(self.hass).async_get_area(area_id) is None:
+            self._data.pop(CONF_AREA)  # the area was deleted in Home Assistant
+        self._suggest_from_area(self._data.get(CONF_AREA))
+        return await self.async_step_room()
+
+    def _show_menu(self) -> ConfigFlowResult:
         if self.source == SOURCE_RECONFIGURE:
-            entry = self._get_reconfigure_entry()
-            if (area_id := self._data.get(CONF_AREA)) and area_id != entry.data.get(CONF_AREA):
-                # A new area moves the room's device. An unchanged one leaves a device the user moved by hand where it is.
-                devices = dr.async_get(self.hass)
-                if device := devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id):
-                    devices.async_update_device(device.id, area_id=area_id)
-            return self.async_update_reload_and_abort(entry, data=dict(self._data))
-        data = {CONF_CONTROL: False, **self._data}  # finishing early leaves the room in observe-only mode
+            return self._finish_reconfigure()  # Reconfigure has one form, the Room step
+        return self.async_show_menu(step_id="menu", menu_options=["finish"] + MENU_ORDER)
+
+    async def async_step_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self._show_menu()
+
+    async def async_step_room(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if user_input is not None and self.source != SOURCE_RECONFIGURE:
+            await self.async_set_unique_id(user_input.get(CONF_CLIMATE) or user_input.get(CONF_HEATER_SWITCH))
+            self._abort_if_unique_id_configured()
+        return await self._async_section("room", user_input)
+
+    def _finish_reconfigure(self) -> ConfigFlowResult:
+        entry = self._get_reconfigure_entry()
+        if (area_id := self._data.get(CONF_AREA)) and area_id != entry.data.get(CONF_AREA):
+            # A new area moves the room's device. An unchanged one leaves a device the user moved by hand where it is.
+            devices = dr.async_get(self.hass)
+            if device := devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id):
+                devices.async_update_device(device.id, area_id=area_id)
+        return self.async_update_reload_and_abort(entry, data=dict(self._data))
+
+    async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
+        data, options = split_settings({CONF_CONTROL: False, **self._data})  # finishing early leaves the room in observe-only mode
         device_id = data.get(CONF_CLIMATE) or data[CONF_HEATER_SWITCH]
         device = self.hass.states.get(device_id)
         title = device.attributes.get("friendly_name", device_id) if device else device_id
         area = ar.async_get(self.hass).async_get_area(data[CONF_AREA]) if data.get(CONF_AREA) else None
-        return self.async_create_entry(title=area.name if area else title, data=data)
+        return self.async_create_entry(title=area.name if area else title, data=data, options=options)
+
+
+class HorizonOptionsFlow(_SectionSteps, OptionsFlowWithReload):
+    """Configure: the settings a user tunes, one section at a time. Saving reloads the entry."""
+
+    def __init__(self) -> None:
+        self._data = {}
+        self._stored_pin = None
+        self._suggested = {}
+
+    async def async_step_init(self, user_input: dict | None = None) -> ConfigFlowResult:
+        if not self._data:
+            entry = self.config_entry
+            self._data = dict(entry.options)
+            self._stored_pin = entry.options.get(CONF_LOCK_PIN)
+            self._suggest_from_area(entry.data.get(CONF_AREA))
+        return self._show_menu()
+
+    def _show_menu(self) -> ConfigFlowResult:
+        return self.async_show_menu(step_id="init", menu_options=["finish"] + MENU_ORDER)
+
+    async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return self.async_create_entry(data=dict(self._data))

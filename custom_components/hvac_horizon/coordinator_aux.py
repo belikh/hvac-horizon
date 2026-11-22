@@ -62,8 +62,8 @@ class AuxMixin:
 
     async def _drive_valve(self, opening: float) -> None:
         """Set the valve number entity to `opening` percent. Runs only with control on and a valve configured."""
-        valve = (room_devices(self.entry.data)["valves"] or [None])[0]
-        if not self.entry.data.get(CONF_CONTROL) or not valve:
+        valve = (room_devices(self.settings)["valves"] or [None])[0]
+        if not self.settings.get(CONF_CONTROL) or not valve:
             return
         if not lock_allows_control(self._locked):
             return
@@ -95,7 +95,7 @@ class AuxMixin:
 
     async def _drive_shed(self, to_shed: list[str]) -> None:
         """Switch off the planned loads. Runs only with control on, unlocked and not inhibited."""
-        if not to_shed or not self.entry.data.get(CONF_CONTROL):
+        if not to_shed or not self.settings.get(CONF_CONTROL):
             return
         if not lock_allows_control(self._locked):
             return
@@ -115,7 +115,7 @@ class AuxMixin:
         Returns True when this call sent the turn-on command. The record is dropped once the load is on,
         whether this call turned it on or the user did.
         """
-        if not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked):
+        if not self.settings.get(CONF_CONTROL) or not lock_allows_control(self._locked):
             return False
         if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
             return False
@@ -159,7 +159,7 @@ class AuxMixin:
         """
         if room_c is None:
             return
-        fan = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
+        fan = self.settings.get(CONF_WHOLE_HOUSE_FAN)
         fan_state = self.hass.states.get(fan) if fan else None
         air_moving = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
         self._free_cooling = free_cooling_step(
@@ -172,7 +172,7 @@ class AuxMixin:
 
     def _free_cooling_open(self) -> bool:
         """True while the window actuator is open and this entry opened it."""
-        actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
+        actuator = self.settings.get(CONF_WINDOW_ACTUATOR)
         state = self.hass.states.get(actuator) if actuator else None
         return self._actuator_opened_by_us and state is not None and state.state in ("open", "on")
 
@@ -183,7 +183,7 @@ class AuxMixin:
         change) stop an open only. House away ends the open advice. A close, when this integration opened the actuator
         and the advice has ended, goes ahead whatever the gates say. The actuator is written only on a state change.
         """
-        actuator = self.entry.data.get(CONF_WINDOW_ACTUATOR)
+        actuator = self.settings.get(CONF_WINDOW_ACTUATOR)
         state = self.hass.states.get(actuator) if actuator else None
         if state is None or state.state in ("unavailable", "unknown"):
             return
@@ -214,7 +214,7 @@ class AuxMixin:
         if command is None:
             return
         inhibit_on = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
-        gated = not self.entry.data.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or self._stall_blocks(result) or inhibit_on
+        gated = not self.settings.get(CONF_CONTROL) or not lock_allows_control(self._locked) or house_away or self._stall_blocks(result) or inhibit_on
         if command == "open" and gated:
             return
         domain = actuator.split(".", 1)[0]
@@ -227,8 +227,8 @@ class AuxMixin:
 
     async def _drive_cover(self, action: str) -> None:
         """Close or open the configured cover. Runs only with control on, unlocked and not inhibited."""
-        cover_id = self.entry.data.get(CONF_COVER)
-        if action not in ("close", "open") or not cover_id or not self.entry.data.get(CONF_CONTROL):
+        cover_id = self.settings.get(CONF_COVER)
+        if action not in ("close", "open") or not cover_id or not self.settings.get(CONF_CONTROL):
             return
         if not lock_allows_control(self._locked):
             return

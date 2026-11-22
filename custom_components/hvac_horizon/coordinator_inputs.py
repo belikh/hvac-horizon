@@ -78,13 +78,13 @@ class InputsMixin:
 
     def _occupancy_mode(self, now: float) -> str:
         """Home or away from the optional presence sources. Tracks the last time any source was home."""
-        states = [self.hass.states.get(entity) for entity in presence_sources(self.entry.data.get(CONF_PRESENCE))]
+        states = [self.hass.states.get(entity) for entity in presence_sources(self.settings.get(CONF_PRESENCE))]
         home = [s.state in ("on", "home") for s in states if s is not None]
         if any(home) or self._last_home_at is None:
             # The away clock starts at the first cycle when no source has been home yet, so an away house goes away.
             self._last_home_at = now
         since = (now - self._last_home_at) / 60.0
-        return presence_mode(home, float(self.entry.data.get(CONF_AWAY_DELAY_MIN, DEFAULT_AWAY_DELAY_MIN)), since)
+        return presence_mode(home, float(self.settings.get(CONF_AWAY_DELAY_MIN, DEFAULT_AWAY_DELAY_MIN)), since)
 
     def _night_plan(self) -> str | None:
         """Overnight plan from the room temperature and the coming night's low.
@@ -179,9 +179,9 @@ class InputsMixin:
         One stale room sensor drops out of the median, and a fresh one keeps control running.
         """
         stalled = set(result.get("sensors_stalled") or [])
-        if self.entry.data[CONF_OUTDOOR] in stalled and self._forecast_outdoor(dt_util.utcnow().timestamp()) is None:
+        if self.settings[CONF_OUTDOOR] in stalled and self._forecast_outdoor(dt_util.utcnow().timestamp()) is None:
             return True
-        rooms = list(self.entry.data.get(CONF_ROOM_SENSORS) or [])
+        rooms = list(self.settings.get(CONF_ROOM_SENSORS) or [])
         fresh = [r for r in rooms if r not in stalled and _float(self.hass.states.get(r)) is not None]
         return not fresh and any(r in stalled for r in rooms)
 
@@ -191,7 +191,7 @@ class InputsMixin:
         Reads last_reported. Home Assistant keeps last_updated when a sensor repeats its value,
         so a steady reading would look stalled.
         """
-        names = list(self.entry.data[CONF_ROOM_SENSORS]) + [self.entry.data[CONF_OUTDOOR]]
+        names = list(self.settings[CONF_ROOM_SENSORS]) + [self.settings[CONF_OUTDOOR]]
         stalled = []
         for name in names:
             state = self.hass.states.get(name)
@@ -208,7 +208,7 @@ class InputsMixin:
 
     def _stall_window_s(self) -> float:
         """The stall window in seconds, from the stall_window_s option. Defaults to SENSOR_STALL_S."""
-        return float(self.entry.data.get(CONF_STALL_WINDOW_S, SENSOR_STALL_S))
+        return float(self.settings.get(CONF_STALL_WINDOW_S, SENSOR_STALL_S))
 
     def _room_states(self) -> list[State]:
         """The room sensor states whose readings feed the median: the room sensors only.
@@ -216,8 +216,8 @@ class InputsMixin:
         The AC's own temperature reading is whole degrees, so it is kept out of the median.
         """
         stalled = set(self._stalled_sensors(dt_util.utcnow().timestamp()))
-        every = [self.hass.states.get(e) for e in self.entry.data[CONF_ROOM_SENSORS]]
-        fresh = [s for e, s in zip(self.entry.data[CONF_ROOM_SENSORS], every) if e not in stalled]
+        every = [self.hass.states.get(e) for e in self.settings[CONF_ROOM_SENSORS]]
+        fresh = [s for e, s in zip(self.settings[CONF_ROOM_SENSORS], every) if e not in stalled]
         # Stale room sensors drop out only when a fresh one exists. With none, the stop rule in _stall_blocks decides.
         states = fresh if any(_float(s) is not None for s in fresh) else every
         return [s for s in states if _float(s) is not None]
@@ -235,18 +235,18 @@ class InputsMixin:
         return round(max(ages), 1) if ages else None
 
     def _optional(self, key: str) -> State | None:
-        entity = self.entry.data.get(key)
+        entity = self.settings.get(key)
         return self.hass.states.get(entity) if entity else None
 
     @property
     def has_ac(self) -> bool:
         """True when the entry has a first AC. A room with a heater and no AC has none."""
-        return bool(self.entry.data.get(CONF_CLIMATE))
+        return bool(self.settings.get(CONF_CLIMATE))
 
     @property
     def _ac_id(self) -> str:
         """The first AC's entity, or an entity that never exists. Every read of a missing AC gives None, as for a removed one."""
-        return self.entry.data.get(CONF_CLIMATE) or NO_AC
+        return self.settings.get(CONF_CLIMATE) or NO_AC
 
     def _ac_power_w(self) -> float | None:
         """The AC's power in watts: the power sensor's reading, or the rated watts while the AC reports that it runs.
@@ -254,7 +254,7 @@ class InputsMixin:
         Without a power sensor the AC counts as running when its hvac_action is cooling, heating or drying. An AC that
         reports no action counts by its mode. None when the reading is missing.
         """
-        sensor = self.entry.data.get(CONF_POWER)
+        sensor = self.settings.get(CONF_POWER)
         if sensor:
             return _float(self.hass.states.get(sensor))
         if not self.has_ac:
@@ -264,7 +264,7 @@ class InputsMixin:
             return None
         action = climate.attributes.get("hvac_action")
         running = action in ("cooling", "heating", "drying") if action is not None else climate.state in ("cool", "heat", "dry")
-        return float(self.entry.data.get(CONF_AC_RATED_W) or 0.0) if running else 0.0
+        return float(self.settings.get(CONF_AC_RATED_W) or 0.0) if running else 0.0
 
     def _read_inputs(self, now: float) -> Entry | None:
         rooms = self._rooms()
@@ -277,7 +277,7 @@ class InputsMixin:
         climate = self.hass.states.get(self._ac_id)
         setpoint = climate.attributes.get("temperature") if climate else None
         price = _float(self._optional(CONF_PRICE))
-        second_w = _float(self._optional(CONF_POWER_2)) if self.entry.data.get(CONF_CLIMATE_2) else None
+        second_w = _float(self._optional(CONF_POWER_2)) if self.settings.get(CONF_CLIMATE_2) else None
         return Entry(
             t=now,
             room_c=statistics.median(rooms),

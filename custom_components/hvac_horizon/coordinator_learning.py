@@ -85,9 +85,9 @@ class LearningMixin:
         """kp, ki, kd for the heater PID. Each gain field the user set wins. A field at its default takes the tuned value."""
         tuned = self._heater_gains or {}
         return (
-            pid_gain(float(self.entry.data.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)), DEFAULT_HEATER_KP, tuned.get("kp")),
-            pid_gain(float(self.entry.data.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)), DEFAULT_HEATER_KI, tuned.get("ki")),
-            pid_gain(float(self.entry.data.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
+            pid_gain(float(self.settings.get(CONF_HEATER_KP, DEFAULT_HEATER_KP)), DEFAULT_HEATER_KP, tuned.get("kp")),
+            pid_gain(float(self.settings.get(CONF_HEATER_KI, DEFAULT_HEATER_KI)), DEFAULT_HEATER_KI, tuned.get("ki")),
+            pid_gain(float(self.settings.get(CONF_HEATER_KD, DEFAULT_HEATER_KD)), DEFAULT_HEATER_KD, tuned.get("kd")),
         )
 
     def _refit_room_model(self) -> None:
@@ -97,10 +97,10 @@ class LearningMixin:
         """
         self._room_fit = None
         self._room_model = None
-        if not (self.entry.data.get(CONF_CLIMATE_2) and self.entry.data.get(CONF_POWER_2)):
+        if not (self.settings.get(CONF_CLIMATE_2) and self.settings.get(CONF_POWER_2)):
             return
         kinds = {"ac": COOL, "ac_2": COOL}
-        if self.entry.data.get(CONF_HEATER_SWITCH):
+        if self.settings.get(CONF_HEATER_SWITCH):
             kinds[HEATER] = HEAT
         try:
             found = fit_room(room_samples_from_entries(self._entries), kinds)

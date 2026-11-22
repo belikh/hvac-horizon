@@ -162,11 +162,12 @@ def test_every_form_error_has_a_message():
 
 def test_every_step_has_a_title_and_description_and_each_menu_option_a_label():
     steps = _translations()["config"]["step"]
-    for name in [*config_flow.SECTIONS, *config_flow.LIST_STEPS, "menu", "reconfigure"]:
+    for name in [*config_flow.SECTIONS, *config_flow.LIST_STEPS, "menu"]:
         assert steps[name]["title"] and steps[name]["description"], name
     assert set(config_flow.MENU_ORDER) == {*config_flow.OPTIONAL_SECTIONS, *config_flow.LIST_STEPS}
     assert set(steps["menu"]["menu_options"]) == {"finish", *config_flow.MENU_ORDER}
-    assert set(steps["reconfigure"]["menu_options"]) == {"finish", "room", *config_flow.MENU_ORDER}
+    init = _translations()["options"]["step"]["init"]
+    assert init["title"] and init["description"]
     for name, schema in (("schedule", config_flow._schedule_schema([{"start_h": 1, "end_h": 2, "preset": "eco"}])), ("fleet", config_flow._fleet_schema([{"device_id": "a"}]))):
         assert {str(k) for k in schema.schema} == set(steps[name]["data"]), name
 
@@ -217,3 +218,22 @@ def test_every_sensor_has_a_name_in_the_translations_and_no_name_is_left_over():
     assert set(_translations()["entity"]["binary_sensor"]) == set(binary_sensor.BINARY_KEYS)
     assert all(entry["name"] and entry["name"][0].isupper() for entry in names.values())
     assert set(sensor.MEASURES) <= set(names)
+
+
+def test_the_configure_flow_has_the_same_texts_as_setup_for_every_section():
+    """Home Assistant reads the texts of an options flow from options.step. Each section is one form in both flows."""
+    texts = _translations()
+    setup, configure = texts["config"]["step"], texts["options"]["step"]
+    assert set(configure) == set(config_flow.MENU_ORDER) | {"init"}
+    for name in config_flow.MENU_ORDER:
+        assert configure[name] == setup[name], name
+    assert set(configure["init"]["menu_options"]) == set(config_flow.MENU_ORDER) | {"finish"}
+    assert texts["options"]["error"] == texts["config"]["error"]
+    assert "reconfigure" not in setup  # Reconfigure opens the Room form, with no menu
+
+
+def test_the_room_is_the_data_and_every_other_setting_an_option():
+    data, options = config_flow.split_settings({"climate": "climate.a", "area": "bedroom", "room_sensors": ["sensor.a"], "comfort_c": 23.0, "control": True, "fleet": []})
+    assert data == {"climate": "climate.a", "area": "bedroom", "room_sensors": ["sensor.a"]}
+    assert options == {"comfort_c": 23.0, "control": True, "fleet": []}
+    assert config_flow.ROOM_KEYS == {"area", "climate", "power", "ac_rated_w", "heater_switch", "room_sensors", "outdoor"}

@@ -58,7 +58,7 @@ class InvestigatorMixin:
         )
         result["investigation"] = investigation
         mode_now = action_text.partition(":")[0] if action_text else None
-        if mode_now and mode_now != self._last_ai_mode and self.entry.data.get(CONF_AI_CONVERSATION):
+        if mode_now and mode_now != self._last_ai_mode and self.settings.get(CONF_AI_CONVERSATION):
             answer = await self._ask_model(f"In one sentence, explain why the AC is {mode_now}. {investigation['answer']}", self._budget)
             # A failed or budget-blocked call clears the stored answer, so it never shows under a different mode.
             # The mode is recorded only after a reply, so the next tick asks again while the budget allows.
@@ -84,7 +84,7 @@ class InvestigatorMixin:
         now_min = dt_util.utcnow().timestamp() / 60.0
         readings = self._day_readings(now_min)
         text, source = day_summary(readings, now_min), "rule"
-        if readings and self.entry.data.get(CONF_AI_CONVERSATION):
+        if readings and self.settings.get(CONF_AI_CONVERSATION):
             answer = await self._ask_model(f"{REPORT_INSTRUCTION}\n\n{day_context(readings, now_min)}", self._report_budget)
             if answer:
                 text, source = answer, "model"
@@ -95,8 +95,8 @@ class InvestigatorMixin:
 
     async def _ask_model(self, text: str, budget: CallBudget) -> str | None:
         """One call to the conversation agent, if `budget` allows. Returns the reply text, or None."""
-        agent = self.entry.data.get(CONF_AI_CONVERSATION)
-        limit = int(self.entry.data.get(CONF_AI_BUDGET) or 0)
+        agent = self.settings.get(CONF_AI_CONVERSATION)
+        limit = int(self.settings.get(CONF_AI_BUDGET) or 0)
         if not agent or not budget.try_take(dt_util.now().date(), limit):
             return None
         try:

@@ -68,7 +68,7 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 | Module | Job |
 | :--- | :--- |
 | `__init__.py` | `async_setup` registers the actions, so they exist before an entry loads. `async_setup_entry` sets up the coordinator and the platforms and runs the safety stop on unload. A refused value in an action raises `ServiceValidationError`. |
-| `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. The two list settings, `schedule_blocks` and `fleet`, have their own steps with `_schedule_schema()` and `_fleet_schema()`. |
+| `config_flow.py` | Three flows on shared section steps (`_SectionSteps`): setup, Reconfigure (the Room form, stored in the entry's data) and `HorizonOptionsFlow` behind Configure (every other section, stored in the options). `split_settings()` divides the two, and the coordinator reads both through `settings`. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. The two list settings, `schedule_blocks` and `fleet`, have their own steps with `_schedule_schema()` and `_fleet_schema()`. |
 | `const.py` | Setting keys, defaults and limits. |
 | `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |
 | `sensor.py` | `STATUS_KEYS`, `MEASURES` (device class and unit) and the sensor entities. |
@@ -118,8 +118,8 @@ While the phase is `gave_up` the window closes, the fan stops and the AC cools.
 ## Add a setting
 
 1. Add the key and its default to `const.py`.
-2. Add it to `_schema()` and to one section of `SECTIONS` in `config_flow.py`, and its label to `translations/en.json`.
-3. Read it in the coordinator and make it change a device command or a published value.
+2. Add it to `_schema()` and to one section of `SECTIONS` in `config_flow.py`. Add its label and its help text to `translations/en.json`, under `config.step` and with the same text under `options.step`. A test fails when the two differ.
+3. Read it in the coordinator through `self.settings`, which holds the entry's data and options, and make it change a device command or a published value.
 4. Add a row to `SETTINGS` in `tests/ha/test_settings_effect.py` with the level you expect: `control` or `published`.
 5. Add it to [Settings](../reference/settings.md).
 

@@ -139,7 +139,7 @@ class HeaterMixin:
 
     def _heat_hold_text(self, result: dict[str, Any]) -> str | None:
         """`heat held: <gate>` when the room is below the heat threshold, the mode allows heating and a gate keeps the heater off."""
-        if not (self.entry.data.get(CONF_CONTROL) and self._heater_switch()) or self._user_off or not self.heating_permitted:
+        if not (self.settings.get(CONF_CONTROL) and self._heater_switch()) or self._user_off or not self.heating_permitted:
             return None
         rooms = self._rooms()
         if not rooms or statistics.median(rooms) >= self._heat_on_below_c:
@@ -155,10 +155,10 @@ class HeaterMixin:
         up to the larger one above the target, and tpi_threshold_forced_off decides inside that range. The limit
         stays at or below the cool threshold.
         """
-        if self.entry.data.get(CONF_HEATER_ALGORITHM) != HEATER_ALGORITHM_TPI:
+        if self.settings.get(CONF_HEATER_ALGORITHM) != HEATER_ALGORITHM_TPI:
             return self._heat_on_below_c
-        high = _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0
-        low = _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_LOW)) or 0.0
+        high = _optional_float(self.settings.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0
+        low = _optional_float(self.settings.get(CONF_TPI_THRESHOLD_LOW)) or 0.0
         above = max(high, low) if high > 0 and low > 0 else 0.0
         return min(self._heat_target_c + above, self._cool_above_c)
 
@@ -198,12 +198,12 @@ class HeaterMixin:
         if self._tuner is not None:
             return  # a relay test owns the heater switch until it ends
         self._pwm_step(dt_util.utcnow().timestamp())
-        if self.entry.data.get(CONF_CONTROL) and self._heater_switch():
+        if self.settings.get(CONF_CONTROL) and self._heater_switch():
             await self._drive_heater_switch()
 
     def _heater_switch(self) -> str | None:
         """The heater switch of the entry. A switch that is also a fleet device belongs to the fleet dispatch."""
-        switch = (room_devices(self.entry.data)["heating"] or [None])[0]
+        switch = (room_devices(self.settings)["heating"] or [None])[0]
         return None if switch in {d.entity_id for d in self._fleet()} else switch
 
     async def _command_heater(self, switch: str, command_on: bool) -> None:
@@ -220,7 +220,7 @@ class HeaterMixin:
         if self._pwm_on_now and inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
             # The inhibit window after a manual change blocks heat on only. Every off command goes through.
             return
-        command_on = apply_polarity(self._pwm_on_now, bool(self.entry.data.get(CONF_HEATER_INVERTED, False)))
+        command_on = apply_polarity(self._pwm_on_now, bool(self.settings.get(CONF_HEATER_INVERTED, False)))
         await self._command_heater(switch, command_on)
 
     async def _async_heater_step(self, now: float, result: dict[str, Any]) -> None:
@@ -229,11 +229,11 @@ class HeaterMixin:
         Gates, an AC that is cooling and a room at or above the heat threshold force the output to 0.
         """
         switch = self._heater_switch()
-        driving = bool(self.entry.data.get(CONF_CONTROL)) and bool(switch)
+        driving = bool(self.settings.get(CONF_CONTROL)) and bool(switch)
         rooms = self._rooms()
         room_c = statistics.median(rooms) if rooms else None
         gate_c = room_c
-        if room_c is not None and self.entry.data.get(CONF_RADIATORS) and self._heater_stopped_min is not None:
+        if room_c is not None and self.settings.get(CONF_RADIATORS) and self._heater_stopped_min is not None:
             # Radiators keep giving heat after the heater stops. The residual correction reads the room warmer by that heat.
             gate_c = residual_correction(room_c, DEFAULT_RESIDUAL_PEAK_K, now / 60.0 - self._heater_stopped_min, RESIDUAL_TAU_MIN)
         pct = self._pwm_output_pct
@@ -298,7 +298,7 @@ class HeaterMixin:
     def _output_limit(self, entity_key: str, config_key: str, default: float) -> float:
         """A heater output limit: the number entity's value when it has one, else the config value."""
         value = _float(self._optional(entity_key))
-        return value if value is not None else float(self.entry.data.get(config_key, default))
+        return value if value is not None else float(self.settings.get(config_key, default))
 
     def set_heater_output(self, pct: float) -> None:
         lo = self._output_limit(CONF_OUTPUT_MIN_ENTITY, CONF_OUTPUT_MIN, 0.0)

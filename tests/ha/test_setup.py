@@ -121,6 +121,26 @@ async def _start_flow(hass, config_data):
     return result
 
 
+def _all(result) -> dict:
+    """Every setting of a created entry: its data (the room) and its options (the tunable settings)."""
+    return {**result["data"], **result.get("options", {})}
+
+
+def _settings(entry) -> dict:
+    return {**entry.data, **entry.options}
+
+
+async def _open_options(hass, entry):
+    """Open Configure on the entry. Returns the menu."""
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] == "menu" and result["step_id"] == "init"
+    return result
+
+
+async def _options_step(hass, flow_id, user_input):
+    return await hass.config_entries.options.async_configure(flow_id, user_input)
+
+
 async def _open_section(hass, flow_id, name):
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": name})
     assert result["type"] == "form" and result["step_id"] == name
@@ -133,9 +153,9 @@ async def test_config_flow_short_path_creates_an_observe_only_entry(hass, enable
     assert result["menu_options"][0] == "finish"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
-    assert result["data"][CONF_CLIMATE] == CLIMATE
-    assert result["data"]["control"] is False
-    assert CONF_PRICE not in result["data"]
+    assert _all(result)[CONF_CLIMATE] == CLIMATE
+    assert _all(result)["control"] is False
+    assert CONF_PRICE not in _all(result)
     assert result["title"] == "Test AC"
 
 
@@ -155,7 +175,7 @@ async def test_config_flow_full_path_stores_the_fields_of_each_section(hass, ena
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
-    data = result["data"]
+    data = _all(result)
     assert data[CONF_PRICE] == PRICE and data["price_cheap"] == 0.1 and data["price_expensive"] == 0.4
     assert data[CONF_COMFORT_C] == 23.0 and data[CONF_SCHEDULE_BLOCKS] == blocks
     assert data[CONF_ROOM_SENSORS] == [ROOM_A, ROOM_B] and data["control"] is False
@@ -169,7 +189,7 @@ async def test_config_flow_section_can_be_submitted_empty(hass, enable_custom_in
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
-    assert CONF_HEATER_SWITCH not in result["data"]
+    assert CONF_HEATER_SWITCH not in _all(result)
 
 
 async def test_config_flow_turns_control_on_from_the_advanced_section(hass, enable_custom_integrations, config_data):
@@ -178,7 +198,7 @@ async def test_config_flow_turns_control_on_from_the_advanced_section(hass, enab
     await _open_section(hass, result["flow_id"], "advanced")
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"control": True})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
-    assert result["data"]["control"] is True
+    assert _all(result)["control"] is True
 
 
 async def test_config_flow_rejects_a_duplicate_room(hass, enable_custom_integrations, config_data):
@@ -226,7 +246,7 @@ async def test_the_device_step_adds_checks_and_removes_room_devices(hass, enable
     result = await hass.config_entries.flow.async_configure(flow_id, {"remove": ["split"]})
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
-    assert result["data"]["fleet"] == [{"device_id": "panel", "kind": "heat", "entity_id": "switch.panel", "rated_w": 1500}]
+    assert _all(result)["fleet"] == [{"device_id": "panel", "kind": "heat", "entity_id": "switch.panel", "rated_w": 1500}]
 
 
 async def test_the_schedule_step_checks_a_new_block(hass, enable_custom_integrations, config_data):
@@ -260,7 +280,7 @@ async def test_the_schedule_step_refuses_a_block_that_overlaps_another(hass, ena
     result = await hass.config_entries.flow.async_configure(flow_id, {"start": "06:30:00", "end": "09:00:00", "preset": "comfort"})
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
-    assert [b["start_h"] for b in result["data"][CONF_SCHEDULE_BLOCKS]] == [22.0, 17.0, 6.5]
+    assert [b["start_h"] for b in _all(result)[CONF_SCHEDULE_BLOCKS]] == [22.0, 17.0, 6.5]
 
 
 async def test_the_room_step_refuses_a_room_thermostat_of_this_integration_as_the_ac(hass, enable_custom_integrations, config_data):
@@ -430,7 +450,7 @@ async def test_reconfigure_keeps_entry_and_samples(hass, enable_custom_integrati
     new_data = dict(config_data)
     new_data[CONF_PRICE] = PRICE
     await _reconfigure(hass, entry, new_data)
-    assert entry.data[CONF_PRICE] == PRICE
+    assert _settings(entry)[CONF_PRICE] == PRICE
     assert entry.state is config_entries.ConfigEntryState.LOADED
     assert entry.runtime_data.data["samples"] >= before
 
@@ -593,9 +613,9 @@ async def test_flow_accepts_control_options(hass, enable_custom_integrations, co
         result = await hass.config_entries.flow.async_configure(flow_id, fields)
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
-    assert result["data"]["window_delay_min"] == 10 and result["data"]["away_c"] == 27.0
-    assert result["data"]["comfort_c"] == 24.0
-    assert result["data"]["control"] is False
+    assert _all(result)["window_delay_min"] == 10 and _all(result)["away_c"] == 27.0
+    assert _all(result)["comfort_c"] == 24.0
+    assert _all(result)["control"] is False
 
 
 async def test_stalled_sensors_are_reported(hass, enable_custom_integrations, config_data):
@@ -898,12 +918,11 @@ async def test_diagnostics_redacts_lock_pin_and_keeps_keys(hass, enable_custom_i
     assert "7391" not in text
     assert CLIMATE not in text
     assert "sensor.fleet_w" not in text
-    assert diag["config"]["lock_pin"] == "**REDACTED**"
     assert diag["config"]["climate"] == "**REDACTED**"
     assert diag["options"]["lock_pin"] == "**REDACTED**"
     assert diag["status"]["nested"]["lock_pin"] == "**REDACTED**"
     assert diag["status"]["nested"]["items"][0]["climate"] == "**REDACTED**"
-    assert diag["config"]["fleet"] == "**REDACTED**"
+    assert diag["options"]["fleet"] == "**REDACTED**"
 
 
 async def test_reset_learning_service_clears_samples(hass, enable_custom_integrations, config_data):
@@ -1871,8 +1890,8 @@ async def test_version_1_default_eco_of_25_is_dropped_on_migration(hass, enable_
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.version == 2
-    assert CONF_ECO_C not in entry.data
+    assert entry.version == 3
+    assert CONF_ECO_C not in _settings(entry)
     await refresh(hass, entry)
     assert entry.runtime_data.data["cool_on_above_c"] == pytest.approx(27.0)
 
@@ -1886,8 +1905,8 @@ async def test_version_1_default_eco_is_dropped_whatever_the_comfort(hass, enabl
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.version == 2
-    assert CONF_ECO_C not in entry.data
+    assert entry.version == 3
+    assert CONF_ECO_C not in _settings(entry)
 
 
 async def test_version_1_eco_one_above_a_comfort_of_23_is_kept(hass, enable_custom_integrations, config_data, freezer):
@@ -1899,8 +1918,8 @@ async def test_version_1_eco_one_above_a_comfort_of_23_is_kept(hass, enable_cust
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.version == 2
-    assert entry.data[CONF_ECO_C] == 24.0
+    assert entry.version == 3
+    assert _settings(entry)[CONF_ECO_C] == 24.0
 
 
 async def test_version_1_user_eco_is_kept_on_migration(hass, enable_custom_integrations, config_data, freezer):
@@ -1911,8 +1930,8 @@ async def test_version_1_user_eco_is_kept_on_migration(hass, enable_custom_integ
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert entry.version == 2
-    assert entry.data[CONF_ECO_C] == 26.0
+    assert entry.version == 3
+    assert _settings(entry)[CONF_ECO_C] == 26.0
 
 
 def test_every_conf_key_is_in_the_flow_schema():
@@ -2312,7 +2331,7 @@ async def test_unload_turns_off_the_switch_it_drove_after_reconfigure(hass, enab
     assert "turn_on" in calls
     hass.states.async_set(HEATER, "on")
     # Reconfigure with control off and no heater switch. Unload must still undo the last command.
-    data = {k: v for k, v in entry.data.items() if k not in ("control", CONF_HEATER_SWITCH)}
+    data = {k: v for k, v in _settings(entry).items() if k not in ("control", CONF_HEATER_SWITCH)}
     hass.config_entries.async_update_entry(entry, data=data)
     await hass.async_block_till_done()
     calls.clear()
@@ -2617,21 +2636,27 @@ async def test_status_attributes_show_autotune_and_malformed_shed_entries(hass, 
 
 
 async def _reconfigure_sections(hass, entry, submitted):
-    """Open the reconfigure menu and submit every section with its fields from `submitted`.
+    """Submit the Room step in Reconfigure, then every other section in Configure, each with its fields from `submitted`.
 
     A field missing from `submitted` is left out of its section's submit, so the flow clears it.
-    Returns the result of the last section, which is the menu unless a section reported an error.
+    Returns the result of the last section, which is the Configure menu unless a section reported an error.
     """
     from custom_components.hvac_horizon import config_flow
 
     result = await entry.start_reconfigure_flow(hass)
-    assert result["type"] == "menu" and result["step_id"] == "reconfigure"
+    assert result["type"] == "form" and result["step_id"] == "room"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: v for k, v in submitted.items() if k in config_flow.SECTIONS["room"]})
+    if result["type"] == "form":
+        return result
+    assert result["type"] == "abort" and result["reason"] == "reconfigure_successful", result
+    await hass.async_block_till_done()
+    result = await _open_options(hass, entry)
     for name in config_flow.SECTIONS:
-        result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": name})
+        if name == "room":
+            continue
+        result = await _options_step(hass, result["flow_id"], {"next_step_id": name})
         assert result["type"] == "form" and result["step_id"] == name
-        result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {k: v for k, v in submitted.items() if k in config_flow.SECTIONS[name]}
-        )
+        result = await _options_step(hass, result["flow_id"], {k: v for k, v in submitted.items() if k in config_flow.SECTIONS[name]})
         if result["type"] == "form":
             return result
     return result
@@ -2640,9 +2665,9 @@ async def _reconfigure_sections(hass, entry, submitted):
 async def _reconfigure(hass, entry, submitted):
     result = await _reconfigure_sections(hass, entry, submitted)
     assert result["type"] == "menu"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
-    assert result["type"] == "abort" and result["reason"] == "reconfigure_successful", result
+    assert result["type"] == "create_entry", result
 
 
 async def test_reconfigure_edits_one_section_and_leaves_the_others(hass, enable_custom_integrations, config_data):
@@ -2651,15 +2676,16 @@ async def test_reconfigure_edits_one_section_and_leaves_the_others(hass, enable_
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    result = await entry.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "price"})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"price_cheap": 0.1, "price_expensive": 0.5})
+    result = await _open_options(hass, entry)
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "price"})
+    result = await _options_step(hass, result["flow_id"], {"price_cheap": 0.1, "price_expensive": 0.5})
     assert result["type"] == "menu"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
-    assert result["reason"] == "reconfigure_successful"
-    assert entry.data["price_cheap"] == 0.1 and CONF_PRICE not in entry.data  # the price section was submitted without a sensor
-    assert entry.data[CONF_COMFORT_C] == 22.0 and entry.data[CONF_ROOM_SENSORS] == [ROOM_A, ROOM_B]
+    assert result["type"] == "create_entry"
+    assert set(entry.data) <= {"area", "climate", "power", "ac_rated_w", "heater_switch", "room_sensors", "outdoor"}  # the data holds the room only
+    assert _settings(entry)["price_cheap"] == 0.1 and CONF_PRICE not in _settings(entry)  # the price section was submitted without a sensor
+    assert _settings(entry)[CONF_COMFORT_C] == 22.0 and _settings(entry)[CONF_ROOM_SENSORS] == [ROOM_A, ROOM_B]
 
 
 async def test_reconfigure_clears_a_field_left_out_of_the_submit(hass, enable_custom_integrations, config_data):
@@ -2668,10 +2694,10 @@ async def test_reconfigure_clears_a_field_left_out_of_the_submit(hass, enable_cu
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    assert CONF_PRICE in entry.data
+    assert CONF_PRICE in _settings(entry)
     submitted = {k: v for k, v in config_data.items() if k != CONF_PRICE}
     await _reconfigure(hass, entry, submitted)
-    assert CONF_PRICE not in entry.data
+    assert CONF_PRICE not in _settings(entry)
 
 
 async def test_reconfigure_keeps_inverted_heater_when_the_submit_omits_it(hass, enable_custom_integrations, config_data):
@@ -2682,7 +2708,7 @@ async def test_reconfigure_keeps_inverted_heater_when_the_submit_omits_it(hass, 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await _reconfigure(hass, entry, dict(config_data))
-    assert entry.data[CONF_HEATER_INVERTED] is True
+    assert _settings(entry)[CONF_HEATER_INVERTED] is True
 
 
 async def test_reconfigure_keeps_the_lock_pin_when_the_box_is_blank(hass, enable_custom_integrations, config_data):
@@ -2693,7 +2719,7 @@ async def test_reconfigure_keeps_the_lock_pin_when_the_box_is_blank(hass, enable
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     await _reconfigure(hass, entry, dict(config_data))
-    assert entry.data[CONF_LOCK_PIN] == "4321"
+    assert _settings(entry)[CONF_LOCK_PIN] == "4321"
 
 
 async def test_stored_schedule_block_sets_the_preset(hass, enable_custom_integrations, config_data):
@@ -2810,15 +2836,15 @@ async def test_reconfigure_adds_and_removes_schedule_blocks_and_keeps_them_throu
     await hass.async_block_till_done()
     # Submitting every section leaves the blocks alone.
     await _reconfigure(hass, entry, dict(config_data))
-    assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
-    result = await entry.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "schedule"})
+    assert _settings(entry)[CONF_SCHEDULE_BLOCKS] == blocks
+    result = await _open_options(hass, entry)
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "schedule"})
     assert result["type"] == "form" and result["step_id"] == "schedule"
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"remove": ["00:00 to 08:00: eco"], "start": "22:00:00", "end": "06:00:00", "preset": "away"})
+    result = await _options_step(hass, result["flow_id"], {"remove": ["00:00 to 08:00: eco"], "start": "22:00:00", "end": "06:00:00", "preset": "away"})
     assert result["type"] == "menu"
-    await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    await _options_step(hass, result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
-    assert entry.data[CONF_SCHEDULE_BLOCKS] == [blocks[1], {"start_h": 22.0, "end_h": 6.0, "preset": "away"}]
+    assert _settings(entry)[CONF_SCHEDULE_BLOCKS] == [blocks[1], {"start_h": 22.0, "end_h": 6.0, "preset": "away"}]
 
 
 async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_custom_integrations, config_data):
@@ -8475,7 +8501,7 @@ async def test_the_flow_sets_up_a_room_with_a_heater_and_no_ac(hass, enable_cust
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     assert result["type"] == "create_entry" and result["title"] == "Panel heater"
-    assert CONF_CLIMATE not in result["data"] and result["data"][CONF_HEATER_SWITCH] == HEATER
+    assert CONF_CLIMATE not in _all(result) and _all(result)[CONF_HEATER_SWITCH] == HEATER
     assert result["result"].unique_id == HEATER
 
 
@@ -8663,7 +8689,7 @@ async def test_the_area_step_suggests_the_entities_of_the_area_names_the_room_an
     result = await hass.config_entries.flow.async_configure(flow_id, {"room_humidity": "sensor.guest_humidity"})
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
     assert result["type"] == "create_entry" and result["title"] == "Guest room"
-    data = result["data"]
+    data = _all(result)
     assert data["area"] == area.id and data["room_humidity"] == "sensor.guest_humidity"
     assert "motion" not in data and "window" not in data and CONF_HEATER_SWITCH not in data
     await hass.async_block_till_done()
@@ -8703,10 +8729,9 @@ async def test_reconfigure_moves_the_device_to_a_new_area_and_leaves_a_hand_move
     await hass.async_block_till_done()
     assert devices.async_get(device.id).area_id == by_hand.id  # a reload does not undo a move by hand
     result = await entry.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "room"})
+    assert result["type"] == "form" and result["step_id"] == "room"  # Reconfigure is the Room step
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {**{k: config_data[k] for k in ROOM_KEYS}, "area": second.id})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
-    assert result["type"] == "abort"
+    assert result["type"] == "abort" and result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
     assert devices.async_get(device.id).area_id == second.id
 
@@ -8724,19 +8749,20 @@ async def test_reconfigure_suggests_a_sensor_added_to_the_area_and_drops_a_delet
     registry = er.async_get(hass)
     added = registry.async_get_or_create("sensor", "test", "study_co2", suggested_object_id="study_co2", original_device_class="carbon_dioxide")
     registry.async_update_entity(added.entity_id, area_id=area.id)
-    result = await entry.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "air_quality"})
+    result = await _open_options(hass, entry)
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "air_quality"})
     assert next(k.description["suggested_value"] for k in result["data_schema"].schema if str(k) == "co2") == added.entity_id
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # not accepted: nothing is stored
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    result = await _options_step(hass, result["flow_id"], {})  # not accepted: nothing is stored
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
-    assert "co2" not in entry.data and entry.data["area"] == area.id
+    assert "co2" not in _settings(entry) and _settings(entry)["area"] == area.id
 
     areas.async_delete(area.id)
     result = await entry.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert "area" not in {str(k): k.description for k in result["data_schema"].schema if k.description}  # no dead area is suggested
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: config_data[k] for k in ROOM_KEYS})
     await hass.async_block_till_done()
-    assert "area" not in entry.data
+    assert "area" not in _settings(entry)
 
 
 async def test_on_off_values_are_binary_sensors_and_their_old_sensor_entities_are_removed(hass, enable_custom_integrations, config_data):
@@ -8794,3 +8820,39 @@ def test_every_action_and_icon_key_is_real():
     assert set(icons["services"]) == set(names["services"])
     assert set(icons["entity"]["sensor"]) <= set(names["entity"]["sensor"])
     assert set(icons["entity"]["binary_sensor"]) <= set(binary_module.BINARY_KEYS)
+
+
+async def test_an_entry_from_before_the_options_flow_migrates_its_settings_and_behaves_the_same(hass, enable_custom_integrations, config_data, freezer):
+    """Version 2 kept every setting in the data. Version 3 keeps the room there and moves the rest to the options."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    stored = {**config_data, "control": True, "comfort_c": 22.5, "lock_pin": "4321", CONF_SCHEDULE_BLOCKS: [{"start_h": 1.0, "end_h": 2.0, "preset": "eco"}]}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", version=2, data=stored, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.version == 3
+    assert dict(entry.data) == {k: config_data[k] for k in ROOM_KEYS}
+    assert _settings(entry) == stored  # nothing is lost
+    assert entry.options["comfort_c"] == 22.5 and entry.options["lock_pin"] == "4321"
+    assert hass.states.get(_room_climate_id(hass, entry)).attributes["temperature"] == 22.5
+
+
+async def test_configure_saves_to_the_options_and_reloads_the_room(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    first = entry.runtime_data
+    result = await _open_options(hass, entry)
+    assert result["menu_options"][0] == "finish" and "room" not in result["menu_options"]
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "comfort"})
+    result = await _options_step(hass, result["flow_id"], {CONF_COMFORT_C: 21.5})
+    result = await _options_step(hass, result["flow_id"], {"next_step_id": "finish"})
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+    assert entry.options[CONF_COMFORT_C] == 21.5 and CONF_COMFORT_C not in entry.data
+    assert entry.runtime_data is not first  # the entry reloaded
+    assert entry.runtime_data.comfort_c == 21.5

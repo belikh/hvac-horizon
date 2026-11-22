@@ -85,9 +85,9 @@ class StoreMixin:
 
         now = dt_util.utcnow()
         start = now - timedelta(days=days)
-        room_ids = list(self.entry.data[CONF_ROOM_SENSORS])
-        outdoor_id = self.entry.data[CONF_OUTDOOR]
-        power_id = self.entry.data.get(CONF_POWER)
+        room_ids = list(self.settings[CONF_ROOM_SENSORS])
+        outdoor_id = self.settings[CONF_OUTDOOR]
+        power_id = self.settings.get(CONF_POWER)
         if not power_id:
             return 0  # the history of the AC's power is what the readings are built from
         entity_ids = room_ids + [outdoor_id, power_id]
@@ -133,7 +133,7 @@ class StoreMixin:
         self._ws_total = 0.0
         self._ws_at_sample = 0.0
         self._t_at_sample = now
-        entity = self.entry.data.get(CONF_POWER)
+        entity = self.settings.get(CONF_POWER)
         if not entity:
             return  # with no power sensor each reading takes the power estimate of its own tick
 

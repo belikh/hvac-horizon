@@ -50,7 +50,7 @@ class PeersMixin:
 
     def _peer_coordinator(self) -> HorizonCoordinator | None:
         """The coordinator of the entry named by peer_entry (entry_id or title), or None when it is unset or not loaded."""
-        ref = str(self.entry.data.get(CONF_PEER_ENTRY) or "").strip()
+        ref = str(self.settings.get(CONF_PEER_ENTRY) or "").strip()
         if not ref:
             return None
         peer = self.hass.config_entries.async_get_entry(ref)
@@ -72,7 +72,7 @@ class PeersMixin:
         own, other = self.median_room_c(), peer.median_room_c()
         warmer = own is not None and other is not None and peer_warmer(own, other)
         # With peer_setpoint_mode the request lowers the peer's setpoint instead. Each request kind is withdrawn when unused.
-        setpoint_mode = bool(self.entry.data.get(CONF_PEER_SETPOINT_MODE, False))
+        setpoint_mode = bool(self.settings.get(CONF_PEER_SETPOINT_MODE, False))
         peer.set_peer_request(self.entry.entry_id, warmer and not setpoint_mode)
         peer.set_peer_setpoint_request(self.entry.entry_id, warmer and setpoint_mode)
 

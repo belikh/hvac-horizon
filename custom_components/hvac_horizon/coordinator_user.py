@@ -113,7 +113,7 @@ class UserMixin:
         """The comfort target: the user's target from the climate entity, else the configured comfort setpoint."""
         if self._target_override_c is not None:
             return self._target_override_c
-        return float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+        return float(self.settings.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
 
     @property
     def heat_comfort_c(self) -> float:
@@ -139,7 +139,7 @@ class UserMixin:
         power reading counts by its state. "off" means the user holds the room off and nothing runs. A room with control
         off and nothing running is "idle".
         """
-        data = self.entry.data
+        data = self.settings
         climate = self.hass.states.get(self._ac_id)
         fan_only = False
         if climate is not None and climate.state in ("cool", "heat", "dry"):
@@ -183,7 +183,7 @@ class UserMixin:
     @property
     def has_heat(self) -> bool:
         """True when the entry can heat: a heater switch, the AC (ac_heat or mpc_heat_plan, and a heat mode on the AC) or a heating fleet device."""
-        data = self.entry.data
+        data = self.settings
         return (
             bool(data.get(CONF_HEATER_SWITCH))
             or (self.has_ac and self._ac_lists("heat") and (bool(data.get(CONF_AC_HEAT, False)) or bool(data.get(CONF_MPC_HEAT_PLAN, False))))
@@ -201,7 +201,7 @@ class UserMixin:
 
         An AC whose mode list is not known yet counts as able. A room run by fleet climates has no dry path for the AC.
         """
-        data = self.entry.data
+        data = self.settings
         if data.get(CONF_DEHUMIDIFIER):
             return True
         if not self.has_ac or any(device.entity_id for device in self._fleet()):
@@ -336,7 +336,7 @@ class UserMixin:
 
     def set_lock(self, locked: bool, pin: str | None) -> bool:
         """Lock or unlock control. Unlocking needs the configured PIN. Returns True when the lock changed."""
-        configured = self.entry.data.get(CONF_LOCK_PIN)
+        configured = self.settings.get(CONF_LOCK_PIN)
         if not locked:
             if not check_pin(pin, configured):
                 return False

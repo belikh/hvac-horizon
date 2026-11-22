@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import statistics
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import timedelta
 
@@ -122,6 +122,7 @@ from custom_components.hvac_horizon.engine.features import (
 from custom_components.hvac_horizon.room_model.tpi import TpiFit, tpi_on_percent, tpi_threshold_forced_off
 from custom_components.hvac_horizon.room_model.forecast import price_at
 from custom_components.hvac_horizon.room_model.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries
+from custom_components.hvac_horizon.coordinator_common import entry_settings
 from custom_components.hvac_horizon.coordinator_store import StoreMixin
 from custom_components.hvac_horizon.coordinator_user import UserMixin
 from custom_components.hvac_horizon.coordinator_learning import LearningMixin
@@ -137,7 +138,16 @@ from custom_components.hvac_horizon.coordinator_ac import AcMixin
 from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float, _optional_float, MPC_STEP_MIN, MPC_STEPS, OUTDOOR_AHEAD_H, MPC_HEAT_COST_WEIGHT, SAFETY_FALLBACK_PCT, _HorizonStore
 
 
-class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, InputsMixin, HeaterMixin, SafetyMixin, FleetMixin, AuxMixin, PeersMixin, InvestigatorMixin, AcMixin, DataUpdateCoordinator[dict[str, Any]]):
+class _Settings:
+    entry: ConfigEntry
+
+    @property
+    def settings(self) -> Mapping[str, Any]:
+        """The entry's settings, from its data and its options. Read at each use, so a changed entry is seen at once."""
+        return entry_settings(self.entry)
+
+
+class HorizonCoordinator(_Settings, StoreMixin, UserMixin, LearningMixin, ForecastMixin, InputsMixin, HeaterMixin, SafetyMixin, FleetMixin, AuxMixin, PeersMixin, InvestigatorMixin, AcMixin, DataUpdateCoordinator[dict[str, Any]]):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(
             hass,
@@ -340,7 +350,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         if self._rooms() and self._outdoor_now() is not None:
             self._inputs_seen = True
         reading = self._read_inputs(now)
-        interval_mean = self._take_interval_mean(now) if self.entry.data.get(CONF_POWER) else None
+        interval_mean = self._take_interval_mean(now) if self.settings.get(CONF_POWER) else None
         if reading is not None:
             reading = replace(reading, power_mean_w=interval_mean)
             self._entries.append(reading)
@@ -382,7 +392,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         result["solar_gain_kw"] = self._solar_gain()
         modelled_kw = self._modelled_solar_kw()
         result["solar_factor"] = self._solar_factor()
-        if modelled_kw is not None and result["solar_gain_kw"] is not None and self.entry.data.get(CONF_IRRADIANCE):
+        if modelled_kw is not None and result["solar_gain_kw"] is not None and self.settings.get(CONF_IRRADIANCE):
             self._solar_pairs.append((modelled_kw, result["solar_gain_kw"]))
             del self._solar_pairs[:-288]
         result["solar_scale"] = learned_solar_scale([m for m, _ in self._solar_pairs], [v for _, v in self._solar_pairs]) if self._solar_pairs else None
@@ -425,7 +435,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             self._last_motion_at = now
         if motion_on:
             self._last_motion_at = now
-        motion_delay_min = max(1.0, float(self.entry.data.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)))
+        motion_delay_min = max(1.0, float(self.settings.get(CONF_MOTION_AWAY_MIN, DEFAULT_MOTION_AWAY_MIN)))
         result["motion_preset"] = motion_preset(motion_on, (now - self._last_motion_at) / 60.0, away_delay_min=motion_delay_min)
         low, high = comfort_band(self.comfort_c)
         rooms_now = self._rooms()
@@ -471,7 +481,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                         outdoor_series=series,
                     )
                 ]
-                if self.entry.data.get(CONF_MPC_HEAT_PLAN, False):
+                if self.settings.get(CONF_MPC_HEAT_PLAN, False):
                     # The heat side reuses the cooling coefficient c with the AC's running power. With no running reading
                     # in the last two hours, the mean running power of the kept history stands in for it.
                     heat_kw = running_power_kw(self._entries, now) or running_power_kw(self._entries, now, window_s=KEEP_DAYS * 86400.0)
@@ -494,7 +504,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                         ]
         pid_rooms = self._rooms()
         pid_outdoor = self._outdoor_now()
-        heater_configured = bool(self.entry.data.get(CONF_CONTROL)) and bool(self._heater_switch())
+        heater_configured = bool(self.settings.get(CONF_CONTROL)) and bool(self._heater_switch())
         inhibit_active = inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min)
         self._publish_cooling(result)
         self._heater_gated = heater_configured and self._heater_gate_closed(result)
@@ -504,7 +514,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                 self._heater_pid.reset()
         elif heater_configured and pid_rooms and pid_outdoor is not None and not inhibit_active:
             pid_room = statistics.median(pid_rooms)
-            if self.entry.data.get(CONF_HEATER_ALGORITHM) == HEATER_ALGORITHM_TPI:
+            if self.settings.get(CONF_HEATER_ALGORITHM) == HEATER_ALGORITHM_TPI:
                 # The TPI duty cycle replaces the PID output. The PID is reset so a switch back starts clean.
                 room_slope = None if self._prev_room_c is None else pid_room - self._prev_room_c
                 self._prev_room_c = pid_room
@@ -512,8 +522,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                     pid_room,
                     self._heat_target_c,
                     room_slope,
-                    _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0,
-                    _optional_float(self.entry.data.get(CONF_TPI_THRESHOLD_LOW)) or 0.0,
+                    _optional_float(self.settings.get(CONF_TPI_THRESHOLD_HIGH)) or 0.0,
+                    _optional_float(self.settings.get(CONF_TPI_THRESHOLD_LOW)) or 0.0,
                 ):
                     tpi_pct = 0.0
                 else:
@@ -521,9 +531,9 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                         self._heat_target_c,
                         pid_room,
                         pid_outdoor,
-                        float(self.entry.data.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
-                        float(self.entry.data.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
-                        max_pct=_optional_float(self.entry.data.get(CONF_MAX_ON_PERCENT)),
+                        float(self.settings.get(CONF_TPI_COEF_INT, DEFAULT_TPI_COEF_INT)),
+                        float(self.settings.get(CONF_TPI_COEF_EXT, DEFAULT_TPI_COEF_EXT)),
+                        max_pct=_optional_float(self.settings.get(CONF_MAX_ON_PERCENT)),
                     )
                 if self._heater_pid is not None:
                     self._heater_pid.reset()
@@ -560,7 +570,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             comfort_target = self.comfort_c
             room_for_valve = statistics.median(valve_rooms)
             trv_c = _float(self._optional(CONF_TRV_TEMPERATURE))
-            if self.entry.data.get(CONF_VALVE) and trv_c is not None:
+            if self.settings.get(CONF_VALVE) and trv_c is not None:
                 self._trv_pairs = (self._trv_pairs + [(trv_c, room_for_valve)])[-TRV_HISTORY:]
             # With a valve and a TRV sensor, the valve command aims at the setpoint plus the learned offset.
             # The offset is TRV minus room. A TRV that reads warmer closes its valve early, so the target rises
@@ -568,31 +578,31 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             # the shift into points. 1 K of offset moves the opening by 100 / VALVE_BAND_C points (100 at the 1 K band),
             # clamped to 0 to 100.
             offset = trv_offset([t for t, _ in self._trv_pairs], [r for _, r in self._trv_pairs]) if self._trv_pairs else None
-            if self.entry.data.get(CONF_VALVE):
+            if self.settings.get(CONF_VALVE):
                 result["trv_offset_k"] = None if offset is None else round(offset, 2)
                 comfort_target = corrected_setpoint(comfort_target, offset)
             valve_opening = valve_opening_pct(room_for_valve, comfort_target)
             if self._peer_open_requested():
                 # Another entry's room is at least 2 K warmer than this one. The valve opens fully (see _request_peer_valve).
                 valve_opening = 100.0
-        if valve_opening is not None and (self._user_off or not self.heating_permitted) and self.entry.data.get(CONF_CONTROL):
+        if valve_opening is not None and (self._user_off or not self.heating_permitted) and self.settings.get(CONF_CONTROL):
             valve_opening = 0.0  # the room is held off or in cool mode, so the valve gives no heat
         self._request_peer_valve()
         result["valve_opening_pct"] = valve_opening
         try:
-            cover_id = self.entry.data.get(CONF_COVER)
+            cover_id = self.settings.get(CONF_COVER)
             solar = self._solar_gain()
             cover_state = self.hass.states.get(cover_id) if cover_id else None
             if solar is not None and cover_state is not None and cover_state.state not in ("unavailable", "unknown"):
                 action = cover_action(solar, COVER_SOLAR_THRESHOLD_KW, cover_state.state == "open")
                 result["cover_action"] = action
                 await self._drive_cover(action)
-            max_w = self.entry.data.get(CONF_SHED_MAX_W)
-            house_id = self.entry.data.get(CONF_WHOLE_HOUSE_POWER)
+            max_w = self.settings.get(CONF_SHED_MAX_W)
+            house_id = self.settings.get(CONF_WHOLE_HOUSE_POWER)
             total_w = _float(self.hass.states.get(house_id)) if house_id else None
             if max_w and total_w is not None:
                 loads: list[tuple[str, float, bool]] = []
-                for spec in self.entry.data.get(CONF_SHED_LOADS) or []:
+                for spec in self.settings.get(CONF_SHED_LOADS) or []:
                     entity_id, _, watts_text = str(spec).partition("|")
                     try:
                         watts = float(watts_text)
@@ -610,13 +620,13 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                     result["restored"] = restore
             self._notify_transition("lock", "_lock_notified", self._locked, "HVAC Horizon control is locked.", "HVAC Horizon control is unlocked.")
             self._ac_cooling_tick = False
-            if self.entry.data.get(CONF_CONTROL):
+            if self.settings.get(CONF_CONTROL):
                 await self._async_control(now, result)
         finally:
             self._heater_step_done = True
             await self._async_heater_step(now, result)
         await self._publish_investigation(now, result)
-        heater_switch = (room_devices(self.entry.data)["heating"] or [None])[0]
+        heater_switch = (room_devices(self.settings)["heating"] or [None])[0]
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None
         result["heater_feedback"] = switch_feedback(
             self._heater_commanded_on if heater_switch else None,
@@ -652,8 +662,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         comfort = self.comfort_c
         comfort_raw = comfort
         # Comfort-versus-energy weight: 0 keeps comfort, 1 moves the target to the eco setpoint. Off without an eco setpoint.
-        energy_weight = float(self.entry.data.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
-        eco_c = _optional_float(self.entry.data.get(CONF_ECO_C))
+        energy_weight = float(self.settings.get(CONF_COMFORT_ENERGY_WEIGHT) or 0.0)
+        eco_c = _optional_float(self.settings.get(CONF_ECO_C))
         if energy_weight > 0 and eco_c is not None:
             comfort = comfort_energy_setpoint(comfort, eco_c, min(max(energy_weight, 0.0), 1.0))
         # The last good price stands in for a dropped price sensor for up to 60 minutes (stale_price_fallback).
@@ -661,7 +671,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         vacation_on = self._optional(CONF_VACATION) is not None and self._optional(CONF_VACATION).state == "on"
         target_c = vacation_target(
             vacation_on,
-            float(self.entry.data.get(CONF_VACATION_C, DEFAULT_VACATION_C)),
+            float(self.settings.get(CONF_VACATION_C, DEFAULT_VACATION_C)),
             price_shifted_target(
                 comfort,
                 price,
@@ -672,21 +682,21 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         mould = bool(result.get("mould_risk"))
         blocks = [
             ScheduleBlock(float(b["start_h"]), float(b["end_h"]), str(b["preset"]))
-            for b in (self.entry.data.get(CONF_SCHEDULE_BLOCKS) or [])
+            for b in (self.settings.get(CONF_SCHEDULE_BLOCKS) or [])
         ]
         now_h = dt_util.now().hour + dt_util.now().minute / 60.0
         scheduled_name = scheduled_preset(now_h, blocks)
         preset_name = self._effective_preset(now_min, scheduled_name)
-        if self.entry.data.get(CONF_CONTROL):
+        if self.settings.get(CONF_CONTROL):
             result["preset"] = preset_name
         self._preset_now = preset_name
         settings = Settings(
             comfort_c=target_c,
             preset=Preset(preset_name) if preset_name in {p.value for p in Preset} else Preset.COMFORT,
-            away_c=float(self.entry.data.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
-            window_delay_min=float(self.entry.data.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
-            eco_c=_optional_float(self.entry.data.get(CONF_ECO_C)),
-            boost_c=_optional_float(self.entry.data.get(CONF_BOOST_C)),
+            away_c=float(self.settings.get(CONF_AWAY_C, DEFAULT_AWAY_C)),
+            window_delay_min=float(self.settings.get(CONF_WINDOW_DELAY_MIN, DEFAULT_WINDOW_DELAY_MIN)),
+            eco_c=_optional_float(self.settings.get(CONF_ECO_C)),
+            boost_c=_optional_float(self.settings.get(CONF_BOOST_C)),
         )
         self._someone_home = someone_home
         # One heat target per tick. Vacation, house away, presence away and the away preset heat only to the frost floor.
@@ -697,8 +707,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             heat_target_c = heat_setpoint(
                 preset_name,
                 self.heat_comfort_c,
-                _optional_float(self.entry.data.get(CONF_HEAT_ECO_C)),
-                _optional_float(self.entry.data.get(CONF_HEAT_BOOST_C)),
+                _optional_float(self.settings.get(CONF_HEAT_ECO_C)),
+                _optional_float(self.settings.get(CONF_HEAT_BOOST_C)),
                 motion_idle,
             )
         result["preheat"] = "off"
@@ -711,14 +721,14 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         if (
             preset_name == Preset.BOOST.value
             and bool(result.get("heating_allowed", True))
-            and (self._heater_switch() is not None or bool(self.entry.data.get(CONF_AC_HEAT)) or bool(self.entry.data.get(CONF_MPC_HEAT_PLAN)))
+            and (self._heater_switch() is not None or bool(self.settings.get(CONF_AC_HEAT)) or bool(self.settings.get(CONF_MPC_HEAT_PLAN)))
             and settings.boost_c is not None
             and heat_target_c + DEFAULT_HEATER_DEADBAND_C > settings.boost_c
         ):
             settings = replace(settings, boost_c=heat_target_c + DEFAULT_HEATER_DEADBAND_C)
         # The thermostat shows the cool target as the user set it: the preset's setpoint before the comfort-versus-energy
         # weight, the price shift and the mould bump. Those three move the threshold, which the Cool above sensor shows.
-        shown_comfort = vacation_target(vacation_on, float(self.entry.data.get(CONF_VACATION_C, DEFAULT_VACATION_C)), comfort_raw)
+        shown_comfort = vacation_target(vacation_on, float(self.settings.get(CONF_VACATION_C, DEFAULT_VACATION_C)), comfort_raw)
         self._cool_shown_c = cool_above_c(replace(settings, comfort_c=shown_comfort), someone_home)
         # Mould risk raises the cooling threshold of every preset by one degree. The heat target is unchanged.
         settings = raise_cool_thresholds(settings, mould)
@@ -730,7 +740,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         result["cool_on_above_c"] = round(self._cool_above_c, 2)
         # The Target temperature sensor shows the temperature the AC cools above, so it follows the preset, the user's
         # target, the price shift, the mould bump and occupancy exactly as decide() does.
-        if self.entry.data.get(CONF_CONTROL):
+        if self.settings.get(CONF_CONTROL):
             result["target_c"] = result["cool_on_above_c"]
             # The forecast aims at the same cool threshold. It ran before the plan, so it runs again with the planned target.
             planned = {"preset": result.get("preset"), "target_c": result["target_c"]}

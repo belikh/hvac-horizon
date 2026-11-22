@@ -79,7 +79,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         # Cool only cools, heat only heats, the automatic mode does both. A room with nothing to heat with has no heat mode.
 
     def _ac_attribute(self, name: str) -> Any:
-        ac_id = self._entry.data.get(CONF_CLIMATE)
+        ac_id = self.coordinator.settings.get(CONF_CLIMATE)
         ac = self.hass.states.get(ac_id) if self.hass and ac_id else None
         return ac.attributes.get(name) if ac else None
 
@@ -100,7 +100,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     @property
     def _has_humidity_target(self) -> bool:
         """A humidity target needs a room humidity sensor and a device that dries: a dehumidifier or an AC with a dry mode."""
-        return bool(self._entry.data.get(CONF_ROOM_HUMIDITY)) and self.coordinator.can_dry
+        return bool(self.coordinator.settings.get(CONF_ROOM_HUMIDITY)) and self.coordinator.can_dry
 
     @property
     def target_humidity(self) -> float | None:
@@ -135,7 +135,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     @property
     def current_humidity(self) -> float | None:
         """The room humidity sensor's reading, when one is set."""
-        sensor = self._entry.data.get(CONF_ROOM_HUMIDITY)
+        sensor = self.coordinator.settings.get(CONF_ROOM_HUMIDITY)
         state = self.hass.states.get(sensor) if sensor and self.hass else None
         try:
             return float(state.state) if state else None
@@ -174,7 +174,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     def _device_entity_ids(self) -> list[str]:
         """The entities whose state decides hvac_action: the AC, its power sensor, the heater switch and the fleet devices."""
-        data = self._entry.data
+        data = self.coordinator.settings
         ids = [data.get(CONF_CLIMATE), data.get(CONF_POWER), data.get(CONF_HEATER_SWITCH), data.get(CONF_DEHUMIDIFIER)]
         for device in data.get(CONF_FLEET) or []:
             if isinstance(device, dict):
@@ -254,7 +254,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         # `pending` names a start that the restart delay holds, for example "start in 2 min: restart delay". None when nothing waits.
         attributes: dict[str, Any] = {"pending": (self.coordinator.data or {}).get("pending")}
-        if not self._entry.data.get(CONF_CONTROL):
+        if not self.coordinator.settings.get(CONF_CONTROL):
             attributes["control"] = "observe only"
         return attributes
 
@@ -265,7 +265,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     @property
     def hvac_mode(self) -> HVACMode:
         """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (auto by default)."""
-        if not self._entry.data.get(CONF_CONTROL) or self.coordinator.user_off:
+        if not self.coordinator.settings.get(CONF_CONTROL) or self.coordinator.user_off:
             return HVACMode.OFF
         mode = self.coordinator.user_mode
         return self._both_mode if mode == "auto" else HVACMode(mode)

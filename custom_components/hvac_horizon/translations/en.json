@@ -234,24 +234,6 @@
           "expert": "Expert tuning"
         }
       },
-      "reconfigure": {
-        "title": "Edit HVAC Horizon",
-        "description": "Open a section to change it, then choose Save and close. Stored samples are kept. A field you clear in a section is removed.",
-        "menu_options": {
-          "finish": "Save and close",
-          "room": "Room",
-          "comfort": "Comfort and presets",
-          "schedule": "Schedule blocks",
-          "price": "Price",
-          "heater": "Heater",
-          "occupancy": "Occupancy and windows",
-          "air_quality": "Air quality and humidity",
-          "devices": "Devices and power limits",
-          "fleet": "Room devices",
-          "advanced": "Advanced",
-          "expert": "Expert tuning"
-        }
-      },
       "expert": {
         "title": "Expert tuning",
         "description": "Controller gains, output limits and timing. The defaults suit most rooms, and a relay test sets the PID gains for you. Change a value only to fix a problem you have seen. Submit empty to keep the defaults.",
@@ -337,7 +319,7 @@
     },
     "abort": {
       "already_configured": "This device is already set up.",
-      "reconfigure_successful": "Settings updated. Stored samples are kept."
+      "reconfigure_successful": "Room updated. Stored samples are kept. Change the other settings with Configure."
     },
     "error": {
       "need_device": "Pick an air conditioner or a heater switch. A room needs one of them.",
@@ -769,6 +751,306 @@
       "outdoor_forecast_used": {
         "name": "Outdoor forecast used"
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure HVAC Horizon",
+        "description": "Open a section to change it, then choose Save and close. The room reloads with the new settings and keeps its stored samples. A field you clear in a section is removed. The room's devices and sensors are under Reconfigure.",
+        "menu_options": {
+          "finish": "Save and close",
+          "comfort": "Comfort and presets",
+          "schedule": "Schedule blocks",
+          "price": "Price",
+          "heater": "Heater",
+          "occupancy": "Occupancy and windows",
+          "air_quality": "Air quality and humidity",
+          "devices": "Devices and power limits",
+          "fleet": "Room devices",
+          "advanced": "Advanced",
+          "expert": "Expert tuning"
+        }
+      },
+      "comfort": {
+        "title": "Comfort and presets",
+        "description": "The temperature of each preset, and what happens while you are away. Every field has a default, so you can submit this empty.",
+        "data": {
+          "comfort_c": "Comfort temperature (°C)",
+          "eco_c": "Eco temperature (°C)",
+          "boost_c": "Boost temperature (°C)",
+          "away_c": "Away temperature (°C)",
+          "heat_eco_c": "Eco heating temperature (°C)",
+          "heat_boost_c": "Boost heating temperature (°C)",
+          "comfort_energy_weight": "Comfort or savings (0 to 1)",
+          "schedule": "Calendar or schedule for pre-cooling",
+          "vacation": "Vacation switch",
+          "vacation_c": "Vacation temperature (°C)",
+          "away_delay_min": "Minutes before an empty house counts as away"
+        },
+        "data_description": {
+          "comfort_c": "The normal target of the room, 16 to 30 °C. Default 24. Setting a temperature on the thermostat replaces it.",
+          "eco_c": "The room cools above this under the eco preset and while nobody is home. Empty: eco uses the comfort temperature and an empty house uses the away temperature.",
+          "boost_c": "The room cools above this under the boost preset. Default 23.",
+          "away_c": "The room cools above this under the away preset and while nobody is home, when no eco temperature is set. Default 27.",
+          "heat_eco_c": "The room heats to this under the eco preset and while the room has no motion. Empty: comfort minus 1. Has no effect in a room that cannot heat.",
+          "heat_boost_c": "The room heats to this under the boost preset. Empty: comfort plus 1. Has no effect in a room that cannot heat.",
+          "comfort_energy_weight": "Moves the cooling target from the comfort temperature (0) toward the eco temperature (1). Needs an eco temperature. Empty or 0: off. Most rooms leave it empty.",
+          "schedule": "An entity with a next_event attribute. The room starts cooling early so it is at its target by that time, when the event is within 2 hours. Presets by time of day are set in Schedule blocks, not here.",
+          "vacation": "A switch or helper you turn on while you are away for days. While it is on the room cools above the vacation temperature and heats to 16 °C.",
+          "vacation_c": "The room cools above this while the vacation switch is on. Default 27. Has no effect without a vacation switch.",
+          "away_delay_min": "How long every presence source must read away before the away temperatures apply. Default 30. Has no effect without presence sources."
+        }
+      },
+      "schedule": {
+        "title": "Schedule blocks",
+        "description": "A block applies a preset between two times of day. Hours outside every block use comfort. To add a block, set its start, end and preset. To remove blocks, tick them. A block whose end is before its start runs past midnight.",
+        "data": {
+          "remove": "Remove these blocks",
+          "start": "New block starts at",
+          "end": "New block ends at",
+          "preset": "Preset of the new block",
+          "add_another": "Add another block after this one"
+        },
+        "data_description": {
+          "remove": "Tick the blocks to delete.",
+          "start": "Leave both times empty to add no block.",
+          "end": "An end before the start runs past midnight. A new block must not overlap an existing one.",
+          "preset": "The preset the room uses between the two times. A preset or a temperature you set on the thermostat holds until the next block starts.",
+          "add_another": "Stay on this form after Submit."
+        }
+      },
+      "price": {
+        "title": "Price",
+        "description": "An electricity price lets the forecast show a cost and lets the room cool a little less while the price is high. Submit empty to skip.",
+        "data": {
+          "price": "Electricity price sensor",
+          "price_cheap": "Cheap price",
+          "price_expensive": "Expensive price",
+          "energy": "AC energy counter (kWh)"
+        },
+        "data_description": {
+          "price": "A sensor whose state is the current price per kWh. For the Cost to setpoint sensor it also needs a forecast attribute: a list of time and value pairs. Empty: no cost and no price shift.",
+          "price_cheap": "In the unit of the price sensor, 0 to 10. Default 0.15. Up to the midpoint of this and the expensive price the room cools above your target as usual. Must be below the expensive price.",
+          "price_expensive": "In the unit of the price sensor, 0 to 10. Default 0.40. At or above this price the room cools above your target plus 1 °C. A price never lowers your target.",
+          "energy": "A cumulative energy counter of the AC. Used for the mean power between readings when the power sensor gives none. Most rooms leave it empty."
+        }
+      },
+      "heater": {
+        "title": "Heater",
+        "description": "How the heater behaves, and other heat sources: a radiator valve, a boiler, or the AC's heat mode. The heater switch itself is in the Room step. Submit empty to skip.",
+        "data": {
+          "heater_inverted": "Heater switch is inverted",
+          "radiators": "Heater stays warm after it stops",
+          "heater_algorithm": "Heater control method",
+          "heater_power_w": "Heater power (W)",
+          "valve": "Radiator valve opening",
+          "trv_temperature": "Radiator valve's own temperature sensor",
+          "boiler": "Boiler switch",
+          "ac_heat": "Heat with the AC",
+          "mpc_heat_plan": "Plan AC heating by price"
+        },
+        "data_description": {
+          "heater_inverted": "Turn on when the switch being on means the heater is off, as with a normally closed relay. Needs a heater switch.",
+          "radiators": "Turn on for radiators or underfloor heating. The heater then stops a little early, because it keeps warming the room for about 20 minutes. Needs a heater switch.",
+          "heater_algorithm": "PID (default) settles up to 0.5 °C below the heating target. TPI heats up to the target and uses the outdoor temperature. Needs a heater switch. Leave PID unless the room overshoots or stays short.",
+          "heater_power_w": "The watts of the heater on the heater switch, from its label. Gives the heating forecast its energy and cost. Empty: the heating forecast has minutes only.",
+          "valve": "A number entity that sets a valve or TRV opening in percent. It is fully open 1 °C below the heating target and closed at the target.",
+          "trv_temperature": "Needs a radiator valve. When the valve's own sensor reads warmer than the room, the valve opens further to make up for it: 100 points per 1 °C, between 0 and 100 %.",
+          "boiler": "A switch that calls the boiler for heat. It is on when outdoors is 5 °C or colder and the room is more than 1 °C below the comfort temperature.",
+          "ac_heat": "Lets the AC heat the room in its heat mode. Needs an AC that has a heat mode, and has no effect when a heater switch is set. Default off.",
+          "mpc_heat_plan": "With AC heating and a price forecast, heats when the price plan says to. Needs an AC with a heat mode, no heater switch and someone home. Default off. Most rooms leave it off."
+        }
+      },
+      "occupancy": {
+        "title": "Occupancy and windows",
+        "description": "Who is home, open windows, blinds, the sun on the window and the weather forecast. Each device you add here works on its own. Submit empty to skip.",
+        "data": {
+          "presence": "Presence sources",
+          "motion": "Motion sensor in the room",
+          "motion_away_min": "Minutes without motion before the room is unused",
+          "window": "Window or door sensor",
+          "window_delay_min": "Minutes a window may stay open",
+          "window_actuator": "Window opener",
+          "cover": "Blind or cover",
+          "window_azimuth": "Window direction (degrees from north)",
+          "window_area_m2": "Window area (m²)",
+          "irradiance": "Sun sensor on the window (W/m²)",
+          "weather": "Weather entity",
+          "heatwave_warning": "Heatwave warning sensor"
+        },
+        "data_description": {
+          "presence": "People, device trackers or sensors. Anyone home means home. When all read away for the away delay, the room uses the away temperatures and heats to 16 °C.",
+          "motion": "Motion means the room is in use, whatever the presence sources say. With no motion for the time below, the room cools above the eco or away temperature.",
+          "motion_away_min": "Default 30, minimum 1. Has no effect without a motion sensor.",
+          "window": "While the window has been open longer than the delay below, cooling and heating pause.",
+          "window_delay_min": "0 to 120. Default 10. Has no effect without a window sensor.",
+          "window_actuator": "A cover or switch that opens a window. The room cools with outdoor air first when outdoors is at least 2 °C cooler and at or below 24 °C. The AC takes over when that does not cool the room within 30 minutes.",
+          "cover": "Closes while the sun adds more than 0.5 kW through the window and opens again below that. Needs the window area.",
+          "window_azimuth": "0 is north, 90 east, 180 south, 270 west. Default 180. Used for solar gain, with the window area.",
+          "window_area_m2": "The glass area of the room's main window. Turns on the solar gain estimate, which the blind and the forecast use. Empty: no solar gain.",
+          "irradiance": "A measured irradiance. It replaces the clear-sky estimate of solar gain. Needs the window area.",
+          "weather": "Gives the forecast an outdoor temperature that changes over the next hours, and stands in when the outdoor sensor stops reporting. Empty: the forecast holds the outdoor temperature constant.",
+          "heatwave_warning": "A binary sensor that is on during a heat warning. It sets the Heatwave sensor and changes no device command."
+        }
+      },
+      "air_quality": {
+        "title": "Air quality and humidity",
+        "description": "Humidity, CO2 and fine dust sensors, and the fans, dehumidifier and humidifier that act on them. Submit empty to skip.",
+        "data": {
+          "humidity": "Outdoor humidity sensor",
+          "room_humidity": "Room humidity sensor",
+          "co2": "CO2 sensor",
+          "pm25": "PM2.5 sensor",
+          "fan": "Room fan switch",
+          "auto_fan": "Set the AC fan speed from the room",
+          "dehumidifier": "Dehumidifier switch",
+          "humidifier": "Humidifier switch",
+          "coil_dry": "Dry the AC coil after cooling",
+          "dry_for_humidity": "Dehumidify with the AC",
+          "house_sealed": "Never run the whole-house fan",
+          "economizer_fan": "Help free cooling with the room fan",
+          "whole_house_fan": "Whole-house fan switch"
+        },
+        "data_description": {
+          "humidity": "Keeps the window opener and the whole-house fan off while outdoor air is more humid than the room. Has no effect without one of them.",
+          "room_humidity": "Adds the humidity target to the thermostat. A dehumidifier, the AC's dry mode and a humidifier act on this reading.",
+          "co2": "The room fan runs above 1000 ppm. Needs a room fan switch.",
+          "pm25": "The room fan runs above 25 µg/m³. Needs a room fan switch.",
+          "fan": "A fan that brings in fresh air. It runs on the CO2 and PM2.5 readings.",
+          "auto_fan": "While the AC cools, sets its fan mode from how far the room is above the target. Needs an AC with fan modes. Default off: the AC keeps the fan mode you set.",
+          "dehumidifier": "On while the room is above the thermostat's humidity target (60 % by default), off 3 points below it. Needs a room humidity sensor.",
+          "humidifier": "On while the room is below 40 % humidity, off at 43 %. Needs a room humidity sensor.",
+          "coil_dry": "Runs the AC in its dry mode for 20 minutes after each cooling run. Needs an AC with a dry mode. Default off.",
+          "dry_for_humidity": "In cool and in the automatic mode, runs the AC's dry mode while the room is above the humidity target and needs no cooling. Needs a room humidity sensor, an AC with a dry mode and no dehumidifier switch. Dry mode makes a lot of water. Default off.",
+          "house_sealed": "Turn on while the house must stay closed, for example for smoke outside. Has no effect without a whole-house fan.",
+          "economizer_fan": "Runs the room fan while outdoor air can cool the room. Needs a room fan switch. Default off.",
+          "whole_house_fan": "Runs when the room is above its cooling target and outdoors is at least 2 °C cooler. The AC stays off while it runs, and takes over when the fan does not cool the room within 30 minutes."
+        }
+      },
+      "devices": {
+        "title": "Devices and power limits",
+        "description": "A second AC, a limit on the power of the whole house, and ACs that share one outdoor unit. Submit empty to skip.",
+        "data": {
+          "climate_2": "Second AC in the room",
+          "power_2": "Second AC power sensor (W)",
+          "dispatch_mode": "Which room device runs first",
+          "whole_house_power": "Whole-house power sensor (W)",
+          "shed_max_w": "House power limit (W)",
+          "shed_loads": "Loads to switch off",
+          "compressor_group": "Compressor group"
+        },
+        "data_description": {
+          "climate_2": "A second AC that runs together with the first one. For ACs the integration should choose between, use Room devices.",
+          "power_2": "The power of the second AC. With it the room model learns each AC's effect. Needs a second AC.",
+          "dispatch_mode": "Applies to Room devices. Fast (default) runs the device with the largest effect first. Economy runs the device with the lowest cost per degree first.",
+          "whole_house_power": "The total power of the house. Used with the power limit below to switch loads off.",
+          "shed_max_w": "Above this total, the loads listed below switch off, first entry first. Needs the whole-house power sensor and the list of loads.",
+          "shed_loads": "One entry per load as entity_id|watts, for example switch.pool_pump|1100. The first entry switches off first. Needs the power limit.",
+          "compressor_group": "A name you choose. Rooms with the same name keep 5 minutes between their AC starts. Use it for indoor units on one outdoor unit. Empty: no group."
+        }
+      },
+      "fleet": {
+        "title": "Room devices",
+        "description": "Extra coolers and heaters of this room. The integration picks which ones run for the gap to the target. To add a device, give it a name, its kind and its rated power. To remove devices, tick them.",
+        "data": {
+          "remove": "Remove these devices",
+          "device_id": "Name of the new device",
+          "kind": "Kind",
+          "entity_id": "Entity that drives it",
+          "rated_w": "Rated power (W)",
+          "power_sensor": "Power sensor",
+          "rate_k_per_h_per_kw": "Starting rate (°C per hour per kW)",
+          "add_another": "Add another device after this one"
+        },
+        "data_description": {
+          "remove": "Tick the devices to delete.",
+          "device_id": "A short name of your own, unique in this room. Leave it empty to add no device.",
+          "kind": "Cool for an AC or cooler, heat for a heater.",
+          "entity_id": "A climate entity, or a switch for a heater. A cooler needs a climate entity. Empty: the device is counted in the choice and nothing is sent to it.",
+          "rated_w": "Required. The watts the device draws while it runs, from its label.",
+          "power_sensor": "A sensor in watts for this device. Its reading replaces the rated power while the device runs.",
+          "rate_k_per_h_per_kw": "How fast the device changes the room for each kW it draws. A typical room AC is 3 to 6. The value is replaced by a learned one after the device has run alone for 30 minutes. A device with no rate is never chosen.",
+          "add_another": "Stay on this form after Submit."
+        }
+      },
+      "advanced": {
+        "title": "Advanced",
+        "description": "Turn control on here. Also the lock PIN, the night plan, rooms that help each other and written explanations. Submit empty to keep the room in observe only.",
+        "data": {
+          "control": "Let HVAC Horizon control the room",
+          "lock_pin": "Lock PIN",
+          "night_plan_act": "Let the night plan act",
+          "accuracy_panel": "Show the accuracy panel",
+          "peer_entry": "Peer room",
+          "peer_setpoint_mode": "Peer room lowers its setpoint",
+          "ai_conversation": "Conversation agent for explanations",
+          "ai_budget_per_day": "Explanations per day"
+        },
+        "data_description": {
+          "control": "Off (default): observe only. The room learns and forecasts and sends no commands. On: it sets the AC and drives the heater and the other devices. With control on and the thermostat in its automatic mode, a device starts as soon as the room calls for it.",
+          "lock_pin": "The PIN that the set_lock action asks for to unlock. It guards against changes by accident and is stored as plain text. Leave the box empty to keep the stored PIN.",
+          "night_plan_act": "With a weather entity, cools the room before a hot night and holds the AC off on a cool one. Default off: the night plan is shown on its sensor only.",
+          "accuracy_panel": "Adds a sidebar panel that lists past forecasts against the measured times. One panel serves every room.",
+          "peer_entry": "The title or entry ID of another HVAC Horizon room. When this room is 2 °C warmer than that one, the other room's valve opens. Most homes leave it empty.",
+          "peer_setpoint_mode": "With a peer room: the other room lowers its cooling setpoint by 1 °C in place of opening its valve. Has no effect without a peer room.",
+          "ai_conversation": "A conversation agent that writes a short explanation when the AC changes mode. It receives the room's recent temperatures, modes and actions. Empty (default): no text leaves the integration.",
+          "ai_budget_per_day": "The most calls to the conversation agent in a day. Empty or 0: none. Has no effect without a conversation agent."
+        }
+      },
+      "expert": {
+        "title": "Expert tuning",
+        "description": "Controller gains, output limits and timing. The defaults suit most rooms, and a relay test sets the PID gains for you. Change a value only to fix a problem you have seen. Submit empty to keep the defaults.",
+        "data": {
+          "heater_kp": "PID proportional gain",
+          "heater_ki": "PID integral gain (per hour)",
+          "heater_kd": "PID derivative time (hours)",
+          "tpi_coef_int": "TPI room coefficient",
+          "tpi_coef_ext": "TPI outdoor coefficient",
+          "tpi_threshold_high": "TPI stop above target while rising (°C)",
+          "tpi_threshold_low": "TPI stop above target while falling (°C)",
+          "max_on_percent": "TPI maximum output (%)",
+          "output_min": "Minimum heater output (%)",
+          "output_max": "Maximum heater output (%)",
+          "output_min_entity": "Minimum heater output from a number entity",
+          "output_max_entity": "Maximum heater output from a number entity",
+          "min_on_min": "Minimum AC on time (not used)",
+          "min_off_min": "Restart delay (minutes)",
+          "stall_window_s": "Seconds before a silent sensor counts as failed",
+          "setpoint_regulation": "Correct the AC setpoint for its own sensor"
+        },
+        "data_description": {
+          "heater_kp": "Heater output in percent per 1 °C below the target. Default 20. Left at the default, a relay test (start_autotune) replaces it. Used with the PID method.",
+          "heater_ki": "How fast the output grows while the room stays below the target. Default 60. Left at the default, a relay test replaces it. Used with the PID method.",
+          "heater_kd": "How strongly a fast rise of the room cuts the output. Default 0.5. Left at the default, a relay test replaces it. Used with the PID method.",
+          "tpi_coef_int": "Share of the heater output per 1 °C between the room and the target. Default 0.6. Used with the TPI method only.",
+          "tpi_coef_ext": "Share of the heater output per 1 °C between outdoors and the target. Default 0.01. Used with the TPI method only.",
+          "tpi_threshold_high": "Stops the heater while the room rises and is this far above the target. Applies only when the falling threshold is set too. Empty or 0: off. TPI method only.",
+          "tpi_threshold_low": "Stops the heater while the room falls and is this far above the target. Applies only when the rising threshold is set too. Empty or 0: off. TPI method only.",
+          "max_on_percent": "Caps the TPI output, 0 to 100. Empty: no cap. TPI method only.",
+          "output_min": "The heater never runs below this share of each 10 minute window while it heats. Default 0. Must not be above the maximum.",
+          "output_max": "The heater never runs above this share of each 10 minute window. Default 100. Lower it for a heater that is too strong for the room.",
+          "output_min_entity": "A number entity whose value replaces the minimum above, so an automation can change it.",
+          "output_max_entity": "A number entity whose value replaces the maximum above, so an automation can change it.",
+          "min_on_min": "Kept for old entries and ignored. A stop is never delayed.",
+          "min_off_min": "After a device stops it waits this long before it starts again, which protects a compressor. 0 to 120. Default 3. 0 turns the delay off.",
+          "stall_window_s": "300 to 3600. Default 900. When every room sensor, or the outdoor sensor with no fresh weather forecast, is silent this long, the devices turn off. Raise it for sensors that report rarely.",
+          "setpoint_regulation": "Default on. Sends the AC a setpoint moved by the gap between the room sensors and the AC's own sensor, so the room reaches the target you set. Turn off to send the plain target."
+        }
+      }
+    },
+    "error": {
+      "need_device": "Pick an air conditioner or a heater switch. A room needs one of them.",
+      "need_power": "Pick the AC's power sensor, or enter its rated power in watts.",
+      "invalid_fleet": "Room devices are invalid: {fleet_problem}",
+      "invalid_price": "Enter a price as a number from 0 to 10.",
+      "price_order": "The cheap price threshold must be below the expensive price threshold.",
+      "schedule_needs_both": "Set both the start and the end of the new block.",
+      "schedule_same_time": "The start and the end of a block must differ.",
+      "schedule_overlap": "The new block overlaps the block {block}. Remove that block first, or change the times.",
+      "output_order": "The minimum heater output must not be above the maximum.",
+      "tpi_threshold_pair": "Set both TPI thresholds, or leave both empty. One alone has no effect.",
+      "own_thermostat": "This is a room thermostat of HVAC Horizon. Pick the climate entity of the AC itself."
     }
   }
 }

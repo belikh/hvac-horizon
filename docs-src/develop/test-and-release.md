@@ -49,7 +49,7 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 | Path | Checks |
 | :-- | :-- |
 | `tests/test_*.py` | The pure modules, such as `decide.py`, `features.py`, `model.py` and `fleet.py`. `tests/test_model.py` checks the solver on 500 random systems and the constrained fit on 300 random data sets against a search of every allowed fit. |
-| `tests/ha/test_config_flow.py` | The setup and reconfigure forms. |
+| `tests/ha/test_config_flow.py` | The setup, Reconfigure and Configure forms and their texts. |
 | `tests/ha/test_setup.py` | Setup, control, the room thermostat, actions, restarts and unload, against fake devices. |
 | `tests/ha/test_basics.py` | The basics of a thermostat, from the outside: mode, target, off, restart and dead sensors against a simulated room. |
 | `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |

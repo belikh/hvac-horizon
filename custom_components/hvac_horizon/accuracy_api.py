@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 
 from .const import ACCURACY_PANEL_PATH, CONF_ACCURACY_PANEL, DOMAIN
+from .coordinator_common import entry_settings
 
 ACCURACY_URL = "/api/hvac_horizon/accuracy/{entry_id}"
 PAGE_URL = "/hvac_horizon"  # the panel module is served at /hvac_horizon/accuracy-panel.js
@@ -77,7 +78,7 @@ def sync_accuracy_panel(hass: HomeAssistant, exclude_entry_id: str | None = None
 
     Runs at setup and unload. Registration replaces the panel's config, so a second entry changes it to the list.
     """
-    flagged = [e.entry_id for e in _loaded_entries(hass, exclude_entry_id) if e.data.get(CONF_ACCURACY_PANEL, False)]
+    flagged = [e.entry_id for e in _loaded_entries(hass, exclude_entry_id) if entry_settings(e).get(CONF_ACCURACY_PANEL, False)]
     if not flagged:
         async_remove_panel(hass, ACCURACY_PANEL_PATH, warn_if_unknown=False)
         return

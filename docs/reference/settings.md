@@ -4,7 +4,7 @@
 
 ## How settings are stored
 
-Each entry has 89 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in eight form sections and two list steps. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
+Each entry has 89 settings. The seven of the Room step are the entry's data: change them with **Reconfigure**. The other 82 are its options: change them with **Configure**. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. See [Set up the integration](../guides/set-up-the-integration.md).
 
 The Key column is the name in the config entry and in the diagnostics download. The label is the text on the form.
 

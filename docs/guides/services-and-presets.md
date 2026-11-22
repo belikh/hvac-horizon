@@ -26,7 +26,7 @@ Three things move these values:
 
 ## Schedule blocks
 
-Open **Reconfigure** and select **Schedule blocks**. A block applies a preset between two times of day.
+Open **Configure** and select **Schedule blocks**. A block applies a preset between two times of day.
 
 1. Set **New block starts at** and **New block ends at**.
 2. Choose the preset: `comfort`, `eco`, `boost` or `away`.
@@ -84,7 +84,7 @@ Every action except `set_house_mode` takes `entry_id`. The actions marked respon
 
 The lock stops normal commands, so nobody changes the room by accident.
 
-1. Open **Reconfigure**, select **Advanced** and enter a value in **Lock PIN**. Select **Submit**, then **Save and close**.
+1. Open **Configure**, select **Advanced** and enter a value in **Lock PIN**. Select **Submit**, then **Save and close**.
 2. Call `hvac_horizon.set_lock` with `locked: true`.
 3. To unlock, call it with `locked: false` and `pin` set to the PIN.
 

@@ -18,7 +18,7 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
 
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=hvac_horizon)
 
-1. Select the button above. Or open **Settings > Devices & actions**, select **Add integration** and search for **HVAC Horizon**.
+1. Select the button above. Or open **Settings > Devices & services**, select **Add integration** and search for **HVAC Horizon**.
 
 2. In the **Area** step, select the Home Assistant area of the room and select **Submit**. The next forms then suggest the AC and the sensors found in that area. Leave it empty to pick every entity yourself.
 
@@ -48,10 +48,10 @@ The Status sensor reads `learning` until the room model has enough data: 3 hours
 
 With control on, HVAC Horizon sets the AC mode and setpoint and drives the other devices of the entry.
 
-1. Open **Settings > Devices & actions** and select **HVAC Horizon**.
-2. On the entry, select the three-dot menu, then **Reconfigure**.
+1. Open **Settings > Devices & services** and select **HVAC Horizon**.
+2. On the entry, select **Configure**.
 3. Select **Advanced** and turn on **Let HVAC Horizon control the room**. Select **Submit**.
-4. Select **Save and close**. The form reports `Settings updated. Stored samples are kept.`
+4. Select **Save and close**. The room reloads and keeps its stored samples.
 
 The room thermostat then shows its automatic mode: `heat_cool` in a room that can heat and cool, `auto` in a room that only cools. See [Use the room thermostat](../guides/use-the-room-thermostat.md).
 

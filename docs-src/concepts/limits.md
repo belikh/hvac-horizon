@@ -54,7 +54,6 @@ dT/dt = k (T_out - T) - c P + g
 - The thermostat's fan mode, swing mode and `fan_only` mode are those of the first AC. A second AC and fleet devices have none.
 - The humidity target sets the level the room dries above. The humidifier limit follows it and has no control of its own.
 - Home Assistant's documentation says no temperature is set in `auto`. A room that only cools still takes one target in `auto`, because its automatic mode adds free cooling to what `cool` does. A room that heats and cools uses `heat_cool`, as documented.
-- All settings are stored in the entry's data and changed with **Reconfigure**. Home Assistant's convention puts settings a user tunes in options, behind a **Configure** button. The entry has none.
 - The Heatwave sensor is information only. It changes no device command.
 - Two profiles of the simulation suite fail by design and are marked as expected failures: an 8 kW AC overshoots a small room, and the small unit's fitted rate collapses in `economy` mode with two ACs.
 - The watchdog and the tick run in the same Home Assistant process. A process that hangs or loses power runs neither. A device that must fail off needs its own thermostat or timer.

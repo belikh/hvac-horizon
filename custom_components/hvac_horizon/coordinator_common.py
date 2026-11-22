@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections import ChainMap
+from collections.abc import Mapping
 
 import logging
 from typing import Any
@@ -128,6 +130,14 @@ class _HorizonStore(Store[dict[str, Any]]):
         if old_major_version < 4 and isinstance(old_data, dict):
             old_data = {key: value for key, value in old_data.items() if key != "user_mode"}
         return old_data
+
+
+def entry_settings(entry: ConfigEntry) -> Mapping[str, Any]:
+    """Every setting of an entry: the room's devices and sensors from its data, and the tunable settings from its options.
+
+    Data comes first, so an entry that still holds a tunable setting in its data reads that value until it is migrated.
+    """
+    return ChainMap(entry.data, entry.options)
 
 
 def room_device_info(hass: HomeAssistant, entry: ConfigEntry) -> DeviceInfo:

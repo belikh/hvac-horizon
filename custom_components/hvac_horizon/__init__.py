@@ -14,6 +14,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
 from .binary_sensor import BINARY_KEYS
+from .config_flow import split_settings
 from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
 from .room_model.forecast import Forecast, PriceSlot, forecast
@@ -143,6 +144,10 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if eco is not None and abs(float(eco) - (DEFAULT_COMFORT_C + 1.0)) < 1e-6:
             del data[CONF_ECO_C]
         hass.config_entries.async_update_entry(entry, data=data, version=2)
+    if entry.version == 2:
+        # Version 3 keeps the room (area, devices, sensors) in the data and moves every tunable setting to the options.
+        data, moved = split_settings(dict(entry.data))
+        hass.config_entries.async_update_entry(entry, data=data, options={**moved, **entry.options}, version=3)
     return True
 
 

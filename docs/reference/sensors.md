@@ -57,7 +57,7 @@ These 21 sensors have the entity category `diagnostic` and are enabled. They sho
 
 ## Sensors disabled by default
 
-These 40 sensors hold internal detail. To use one, open it in **Settings > Devices & actions > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
+These 40 sensors hold internal detail. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
 
 | Key | Name | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
