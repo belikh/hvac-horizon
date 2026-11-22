@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## Unreleased
+## 0.7.0 (2026-11-23)
 
 This release changes entity IDs, one mode name and where the settings are. Read the first four items before you upgrade.
 
