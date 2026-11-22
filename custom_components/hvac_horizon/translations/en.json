@@ -25,7 +25,6 @@
           "heat_boost_c": "Heat setpoint under boost (°C, optional). Unset heats to comfort plus 1.",
           "comfort_energy_weight": "Comfort to eco weight, 0 to 1 (optional, 0 is off)",
           "schedule": "Schedule entity (optional)",
-          "schedule_blocks": "Schedule blocks: a list of [start_h, end_h, preset], hours 0 to 24, preset comfort, eco, boost or away (optional)",
           "vacation": "Vacation switch, on means vacation mode (optional)",
           "vacation_c": "Vacation setpoint (°C)",
           "away_delay_min": "Minutes without presence before away mode"
@@ -49,18 +48,6 @@
           "radiators": "Heater is radiators or underfloor heat (residual heat after it stops)",
           "heater_algorithm": "Heater algorithm",
           "heater_power_w": "Heater power, W (optional, gives the heating forecast its energy and cost)",
-          "heater_kp": "Heater PID proportional gain",
-          "heater_ki": "Heater PID integral gain (per hour)",
-          "heater_kd": "Heater PID derivative time (hours)",
-          "tpi_coef_int": "TPI coefficient for the room gap (per K, used with TPI)",
-          "tpi_coef_ext": "TPI coefficient for the outdoor gap (per K, used with TPI)",
-          "tpi_threshold_high": "TPI high threshold, K above target while the room rises (TPI; 0 is off, needs the low threshold)",
-          "tpi_threshold_low": "TPI low threshold, K above target while the room falls (TPI; 0 is off, needs the high threshold)",
-          "max_on_percent": "TPI maximum on-percent (TPI; unset means no cap)",
-          "output_min": "Minimum heater output (%)",
-          "output_max": "Maximum heater output (%)",
-          "output_min_entity": "Minimum heater output number entity (optional, overrides the minimum above)",
-          "output_max_entity": "Maximum heater output number entity (optional, overrides the maximum above)",
           "valve": "Valve or TRV opening number (optional)",
           "trv_temperature": "TRV own temperature sensor (optional, needs a valve). A TRV that reads warmer than the room opens the valve more. Each 1 K of offset (TRV minus room) moves the valve opening by 100 percentage points, clamped to 0 to 100.",
           "boiler": "Boiler switch (optional)",
@@ -111,14 +98,11 @@
         "data": {
           "climate_2": "Second AC in the same room (optional)",
           "power_2": "Second AC power sensor, W (optional, enables the two-device fit)",
-          "fleet": "Room devices: a list of [device_id, kind cool or heat, rate_k_per_h_per_kw, rated_w, power_sensor optional]",
           "dispatch_mode": "Device choice: fast (highest effect first) or economy (lowest cost per kelvin)",
           "whole_house_power": "Whole-house power sensor (optional)",
           "shed_max_w": "Power limit in watts (optional)",
           "shed_loads": "Loads to shed, as entity_id|watts, lowest priority first (optional)",
-          "compressor_group": "Compressor group name (optional). Entries with the same name keep at least 5 minutes between their AC starts.",
-          "min_on_min": "Minimum AC on time (min), deprecated: a stop is never delayed and this value is ignored",
-          "min_off_min": "Restart delay (min): wait this long after a device stops before it starts again (0 disables the delay)"
+          "compressor_group": "Compressor group name (optional). Entries with the same name keep at least 5 minutes between their AC starts."
         }
       },
       "advanced": {
@@ -127,12 +111,10 @@
         "data": {
           "control": "Let HVAC Horizon control the AC (off = observe only)",
           "lock_pin": "Lock PIN (optional)",
-          "stall_window_s": "Seconds without a report before a sensor counts as stalled (default 900)",
           "night_plan_act": "Night plan acts on the AC: pre-cool cools to comfort, hold stops a cool start",
           "accuracy_panel": "Show this entry in the HVAC Accuracy sidebar panel (one panel for all entries)",
           "peer_entry": "Peer entry, the entry_id or title of another HVAC Horizon entry (optional): its valve opens when this room is 2 K warmer",
           "peer_setpoint_mode": "Peer setpoint mode: with a peer entry, a room 2 K warmer lowers the peer cool setpoint by 1 K instead of opening its valve",
-          "setpoint_regulation": "Setpoint regulation: move the AC setpoint by the gap between the room median and the AC's own temperature reading (default on)",
           "ai_conversation": "AI conversation agent for the investigator (optional)",
           "ai_budget_per_day": "Model calls per day for the investigator (0 or empty is off)"
         }
@@ -143,12 +125,15 @@
         "menu_options": {
           "finish": "Finish now (observe only unless you turned control on)",
           "comfort": "Comfort and presets",
+          "schedule": "Schedule blocks",
           "price": "Price",
           "heater": "Heater",
           "occupancy": "Occupancy and windows",
           "air_quality": "Air quality and humidity",
           "devices": "Devices and power limits",
-          "advanced": "Advanced"
+          "fleet": "Room devices",
+          "advanced": "Advanced",
+          "expert": "Expert tuning"
         }
       },
       "reconfigure": {
@@ -158,12 +143,62 @@
           "finish": "Save and close",
           "room": "Room",
           "comfort": "Comfort and presets",
+          "schedule": "Schedule blocks",
           "price": "Price",
           "heater": "Heater",
           "occupancy": "Occupancy and windows",
           "air_quality": "Air quality and humidity",
           "devices": "Devices and power limits",
-          "advanced": "Advanced"
+          "fleet": "Room devices",
+          "advanced": "Advanced",
+          "expert": "Expert tuning"
+        }
+      },
+      "expert": {
+        "title": "Expert tuning",
+        "description": "Controller gains, output limits and timing. The defaults suit most rooms. Change a value only when you know what it does. Submit empty to keep the defaults.",
+        "data": {
+          "heater_kp": "Heater PID proportional gain",
+          "heater_ki": "Heater PID integral gain (per hour)",
+          "heater_kd": "Heater PID derivative time (hours)",
+          "tpi_coef_int": "TPI coefficient for the room gap (per K, used with TPI)",
+          "tpi_coef_ext": "TPI coefficient for the outdoor gap (per K, used with TPI)",
+          "tpi_threshold_high": "TPI high threshold, K above target while the room rises (TPI; 0 is off, needs the low threshold)",
+          "tpi_threshold_low": "TPI low threshold, K above target while the room falls (TPI; 0 is off, needs the high threshold)",
+          "max_on_percent": "TPI maximum on-percent (TPI; unset means no cap)",
+          "output_min": "Minimum heater output (%)",
+          "output_max": "Maximum heater output (%)",
+          "output_min_entity": "Minimum heater output number entity (optional, overrides the minimum above)",
+          "output_max_entity": "Maximum heater output number entity (optional, overrides the maximum above)",
+          "min_on_min": "Minimum AC on time (min), deprecated: a stop is never delayed and this value is ignored",
+          "min_off_min": "Restart delay (min): wait this long after a device stops before it starts again (0 disables the delay)",
+          "stall_window_s": "Seconds without a report before a sensor counts as stalled (default 900)",
+          "setpoint_regulation": "Setpoint regulation: move the AC setpoint by the gap between the room median and the AC's own temperature reading (default on)"
+        }
+      },
+      "schedule": {
+        "title": "Schedule blocks",
+        "description": "A block applies a preset between two times of day. Hours outside every block use comfort. To add a block, set its start, end and preset. To remove blocks, tick them. A block whose end is before its start runs past midnight.",
+        "data": {
+          "remove": "Remove these blocks",
+          "start": "New block starts at",
+          "end": "New block ends at",
+          "preset": "Preset of the new block",
+          "add_another": "Add another block after this one"
+        }
+      },
+      "fleet": {
+        "title": "Room devices",
+        "description": "Extra coolers and heaters of this room. The integration picks which ones run for the gap to the target. To add a device, give it a name, its kind and its rated power. To remove devices, tick them.",
+        "data": {
+          "remove": "Remove these devices",
+          "device_id": "Name of the new device",
+          "kind": "Kind",
+          "entity_id": "Climate entity or heater switch that drives it",
+          "rated_w": "Rated power, W",
+          "power_sensor": "Power sensor (optional)",
+          "rate_k_per_h_per_kw": "Starting rate, K per hour per kW (optional, learned from the readings)",
+          "add_another": "Add another device after this one"
         }
       }
     },
@@ -177,7 +212,8 @@
       "invalid_fleet": "Room devices are invalid: {fleet_problem}",
       "invalid_price": "Enter a price as a number from 0 to 10.",
       "price_order": "The cheap price threshold must be below the expensive price threshold.",
-      "invalid_schedule_blocks": "Schedule blocks must be a list of [start_h, end_h, preset]. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away."
+      "schedule_needs_both": "Set both the start and the end of the new block.",
+      "schedule_same_time": "The start and the end of a block must differ."
     }
   },
   "selector": {

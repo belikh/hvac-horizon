@@ -4,7 +4,7 @@
 
 ## How settings are stored
 
-Each entry has 88 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in seven form sections. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
+Each entry has 88 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in eight form sections and two list steps. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
 
 The Key column is the name in the config entry and in the diagnostics download. The label is the text on the form.
 
@@ -36,7 +36,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `heat_boost_c` | Heat setpoint under boost (°C, optional). Unset heats to comfort plus 1. | unset | Heat target for boost. |
 | `boost_c` | Boost setpoint (°C) | `23.0` | Target for the boost preset. |
 | `away_c` | Away setpoint (°C) | `27.0` | Cooling target for an unoccupied house when `eco_c` is not set. Also the away preset target. |
-| `schedule_blocks` | Schedule blocks | `[]` | Presets by hour of day. See [Services and presets](../guides/services-and-presets.md). |
+| `schedule_blocks` | Schedule blocks (its own step) | `[]` | Presets by time of day. See \[\[guides/services-and-presets#schedule-blocks |
 
 ## Price
 
@@ -56,22 +56,10 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `trv_temperature` | TRV own temperature sensor | unset | The TRV's own reading, compared with the room. Each 1 K of offset moves the opening by 100 points, clamped to 0 to 100. |
 | `radiators` | Heater is radiators or underfloor heat (residual heat after it stops) | `False` | Counts the residual heat after the heater stops: a 1 K peak that decays over 20 minutes. |
 | `heater_power_w` | Heater power, W | unset | Rated power of the heater on the heater switch. Gives the heating forecast its energy and cost. |
-| `heater_kp` | Heater PID proportional gain | `20.0` | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |
-| `heater_ki` | Heater PID integral gain (per hour) | `60.0` | Same rule as `heater_kp`. |
-| `heater_kd` | Heater PID derivative time (hours) | `0.5` | Same rule as `heater_kp`. |
 | `heater_algorithm` | Heater algorithm | `pid` | `pid` or `tpi`. PID stops 0.5 K below the heat target. TPI heats up to the heat target. |
-| `tpi_coef_int` | TPI coefficient for the room gap (per K, used with TPI) | `0.6` | TPI gain on the room gap. |
-| `tpi_coef_ext` | TPI coefficient for the outdoor gap (per K, used with TPI) | `0.01` | TPI gain on the outdoor gap. |
-| `tpi_threshold_high` | TPI high threshold, K above target while the room rises | unset | With the low threshold, forces the TPI output to 0 while the room rises and is this far above the target. Both must be above 0 to apply. TPI then heats up to the larger threshold above the target. |
-| `tpi_threshold_low` | TPI low threshold, K above target while the room falls | unset | With the high threshold, forces the TPI output to 0 while the room falls and is this far above the target. Both must be above 0 to apply. |
-| `max_on_percent` | TPI maximum on-percent (TPI; unset means no cap) | unset | Caps the TPI output, 0 to 100 %. |
 | `ac_heat` | Let the AC heat when the heat source is the AC (no heater switch) | `False` | Lets the AC heat when the heat source is the AC and no heater switch is set. |
 | `mpc_heat_plan` | Heat plan starts AC heat when its first step says heat | `False` | With the AC as heat source, no heater switch and someone home, the heat plan starts AC heat when its first step says heat. |
 | `heater_inverted` | Heater switch is inverted (on means off) | `False` | Swaps the on and off commands for the heater switch. |
-| `output_min` | Minimum heater output (%) | `0.0` | Lower limit for the heater output. |
-| `output_max` | Maximum heater output (%) | `100.0` | Upper limit for the heater output. |
-| `output_min_entity` | Minimum heater output number entity (overrides the minimum above) | unset | When set, its value overrides `output_min`. |
-| `output_max_entity` | Maximum heater output number entity (overrides the maximum above) | unset | When set, its value overrides `output_max`. |
 
 ## Occupancy and windows
 
@@ -115,8 +103,6 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `climate_2` | Second AC in the same room | unset | Adds a second cooling device to the room model. |
 | `power_2` | Second AC power sensor, W (enables the two-device fit) | unset | Power of the second AC. With `climate_2` and this field, the two-device fit runs. |
 | `whole_house_power` | Whole-house power sensor | unset | Total house power, W. Used with `shed_max_w`. |
-| `min_on_min` | Deprecated. Kept for compatibility; a stop is never delayed and the value is ignored | unset | Deprecated and ignored. A stop is never delayed. |
-| `min_off_min` | Restart delay (min): a start waits this long after the device stopped. 0 disables it | `3.0` | Restart delay. A start waits this long after the device stopped. 0 disables it. 0 to 120. |
 | `shed_max_w` | Power limit in watts | unset | House limit, W. Above it, the loads in `shed_loads` switch off. |
 | `shed_loads` | Loads to shed, as entity_id\|watts, lowest priority first | unset | One `entity_id\|watts` entry per load. The first entry sheds first. |
 | `compressor_group` | Compressor group name. Entries with the same name keep at least 5 minutes between their AC starts. | unset | Entries with the same name keep 5 minutes between their AC starts. |
@@ -132,17 +118,38 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `accuracy_panel` | Show this entry in the HVAC Accuracy sidebar panel (one panel for all entries) | `False` | Adds this entry to one shared sidebar panel. |
 | `peer_entry` | Peer entry, the entry_id or title of another HVAC Horizon entry | unset | When this room is 2 K warmer, the peer entry's valve opens. |
 | `peer_setpoint_mode` | Peer setpoint mode | `False` | With a peer entry, a room 2 K warmer lowers the peer's cool setpoint by 1 K instead of opening its valve. |
-| `setpoint_regulation` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none | `True` | Lowers the setpoint sent to the AC by the gap between the room median and the AC's own `current_temperature`, so an AC whose sensor reads cool still runs. An AC with no such attribute is regulated from power. |
-| `stall_window_s` | Seconds without a report before a sensor counts as stalled (default 900) | `900.0` | Range 300 to 3600 seconds. See [Troubleshoot](../guides/troubleshoot.md). |
 | `control` | Let HVAC Horizon control the AC (off = observe only) | `False` | Off: observe only. HVAC Horizon learns and forecasts and sends no commands. On: it drives the AC, the heater and the other devices. |
 | `ai_conversation` | AI conversation agent for the investigator | unset | Writes the investigator answer when the AC mode changes, within the daily budget. |
 | `ai_budget_per_day` | Model calls per day for the investigator (0 or empty is off) | unset | Daily limit on model calls. |
+
+## Expert tuning
+
+Controller gains, output limits and timing. The defaults suit most rooms.
+
+| Key | Form label | Default | Effect |
+| :--- | :--- | :--- | :--- |
+| `heater_kp` | Heater PID proportional gain | `20.0` | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |
+| `heater_ki` | Heater PID integral gain (per hour) | `60.0` | Same rule as `heater_kp`. |
+| `heater_kd` | Heater PID derivative time (hours) | `0.5` | Same rule as `heater_kp`. |
+| `tpi_coef_int` | TPI coefficient for the room gap (per K, used with TPI) | `0.6` | TPI gain on the room gap. |
+| `tpi_coef_ext` | TPI coefficient for the outdoor gap (per K, used with TPI) | `0.01` | TPI gain on the outdoor gap. |
+| `tpi_threshold_high` | TPI high threshold, K above target while the room rises | unset | With the low threshold, forces the TPI output to 0 while the room rises and is this far above the target. Both must be above 0 to apply. TPI then heats up to the larger threshold above the target. |
+| `tpi_threshold_low` | TPI low threshold, K above target while the room falls | unset | With the high threshold, forces the TPI output to 0 while the room falls and is this far above the target. Both must be above 0 to apply. |
+| `max_on_percent` | TPI maximum on-percent (TPI; unset means no cap) | unset | Caps the TPI output, 0 to 100 %. |
+| `output_min` | Minimum heater output (%) | `0.0` | Lower limit for the heater output. |
+| `output_max` | Maximum heater output (%) | `100.0` | Upper limit for the heater output. |
+| `output_min_entity` | Minimum heater output number entity (overrides the minimum above) | unset | When set, its value overrides `output_min`. |
+| `output_max_entity` | Maximum heater output number entity (overrides the maximum above) | unset | When set, its value overrides `output_max`. |
+| `min_on_min` | Deprecated. Kept for compatibility; a stop is never delayed and the value is ignored | unset | Deprecated and ignored. A stop is never delayed. |
+| `min_off_min` | Restart delay (min): a start waits this long after the device stopped. 0 disables it | `3.0` | Restart delay. A start waits this long after the device stopped. 0 disables it. 0 to 120. |
+| `stall_window_s` | Seconds without a report before a sensor counts as stalled (default 900) | `900.0` | Range 300 to 3600 seconds. See [Troubleshoot](../guides/troubleshoot.md). |
+| `setpoint_regulation` | Move the AC setpoint by the gap between the room median and the AC's own `current_temperature`, or by measured power when the AC reports none | `True` | Lowers the setpoint sent to the AC by the gap between the room median and the AC's own `current_temperature`, so an AC whose sensor reads cool still runs. An AC with no such attribute is regulated from power. |
 
 ## Room devices (`fleet`)
 
 `fleet` is a list of the heaters and coolers in the room. When it is set, HVAC Horizon picks which devices to run for the room's gap to the target. `dispatch_mode` sets the order: `fast` runs the device that delivers the most first, `economy` runs the device with the lowest cost per kelvin first. The `dispatch` sensor shows the choice. See [Sensors](sensors.md).
 
-Each device is an object with these keys. The form rejects any other key.
+The **Room devices** step adds one device per submit. Each device is stored with these keys.
 
 | Key | Required | Default | Meaning |
 | :--- | :--- | :--- | :--- |

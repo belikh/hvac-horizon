@@ -31,22 +31,20 @@ Three things move these values:
 
 ## Schedule blocks
 
-Set `schedule_blocks` in the **Comfort and presets** section. The value is a list of blocks.
+Open **Reconfigure** and select **Schedule blocks**. A block applies a preset between two times of day.
 
-```json title="Schedule blocks"
-[
-  {"start_h": 6, "end_h": 8, "preset": "boost"},
-  {"start_h": 22, "end_h": 6, "preset": "eco"}
-]
-```
+1. Set **New block starts at** and **New block ends at**.
+2. Choose the preset: `comfort`, `eco`, `boost` or `away`.
+3. Select **Submit**. Turn on **Add another block after this one** first to stay on the form.
 
-| Key | Type | Rule |
-| :-- | :-- | :-- |
-| `start_h` | number | 0 to 24. The block starts at this hour. |
-| `end_h` | number | 0 to 24. The block ends before this hour. |
-| `preset` | text | `comfort`, `eco`, `boost` or `away`. |
+To remove blocks, tick them under **Remove these blocks** and select **Submit**.
 
-`start_h` must differ from `end_h`. A block whose `end_h` is below its `start_h` crosses midnight. Hours outside every block use `comfort`.
+A block whose end is before its start runs past midnight. Times outside every block use `comfort`. The entry stores the blocks as `schedule_blocks`, a list of `start_h`, `end_h` and `preset`, which the diagnostics download shows.
+
+| Message | Cause |
+| :-- | :-- |
+| `Set both the start and the end of the new block.` | One of the two times is empty. |
+| `The start and the end of a block must differ.` | Both times are the same. |
 
 Before a comfort block, the heater starts early when the learned heat-up time needs it. The Heat-up time sensor shows the estimate in minutes.
 

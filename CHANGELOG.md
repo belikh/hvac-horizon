@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## 0.6.2 (unreleased)
+## 0.6.2 (2026-11-22)
 
 - A target set on the room thermostat applies at once. The room returns to the `comfort` preset: a timed preset ends
   and a schedule block with another preset is set aside until the next block. Before, a target set under `eco`,
@@ -17,6 +17,12 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
   while its `hvac_action` says it runs.
 - Readings taken while the heater ran no longer count as passive drift in the room fit. Before, the heater's heat was
   fitted as the room's own gain.
+- Schedule blocks and room devices each have a form step: set the fields of one item and submit, or tick items to
+  remove. Before, both were lists typed as JSON.
+- The new Expert tuning section holds the PID and TPI gains, the output limits, the minimum on and off times, the
+  stall window and setpoint regulation. They left the Heater, Devices and Advanced sections.
+- `docs/feature-matrix.md` is generated from the settings audit, and a test fails when it is stale. It lists each
+  setting with its form step and what the scripted-day test proves about it.
 - The start page says which rooms the integration fits.
 
 ## 0.6.1 (2026-11-22)

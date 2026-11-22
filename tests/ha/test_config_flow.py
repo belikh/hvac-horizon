@@ -50,18 +50,6 @@ def test_schedule_blocks_reject_a_malformed_list(value):
     assert config_flow._schedule_block_problem(value) is not None
 
 
-def test_schedule_blocks_default_is_empty():
-    marker = next(k for k in config_flow._schema({}).schema if str(k) == CONF_SCHEDULE_BLOCKS)
-    assert marker.default() == []
-
-
-def test_schedule_blocks_field_is_a_plain_object_selector():
-    # The form renders from the selector. A validator wrapped around it is not something HA can serialize.
-    marker, validator = next((k, v) for k, v in config_flow._schema({}).schema.items() if str(k) == CONF_SCHEDULE_BLOCKS)
-    assert isinstance(validator, selector.ObjectSelector)
-    assert marker.description is None
-
-
 def _sample(validator):
     v = validator.validators[0] if isinstance(validator, vol.All) else validator
     if isinstance(v, selector.BooleanSelector):
@@ -135,10 +123,13 @@ def test_every_section_field_has_a_label_in_its_step():
 
 def test_every_step_has_a_title_and_description_and_each_menu_option_a_label():
     steps = _translations()["config"]["step"]
-    for name in [*config_flow.SECTIONS, "menu", "reconfigure"]:
+    for name in [*config_flow.SECTIONS, *config_flow.LIST_STEPS, "menu", "reconfigure"]:
         assert steps[name]["title"] and steps[name]["description"], name
-    assert set(steps["menu"]["menu_options"]) == {"finish", *config_flow.OPTIONAL_SECTIONS}
-    assert set(steps["reconfigure"]["menu_options"]) == {"finish", *config_flow.SECTIONS}
+    assert set(config_flow.MENU_ORDER) == {*config_flow.OPTIONAL_SECTIONS, *config_flow.LIST_STEPS}
+    assert set(steps["menu"]["menu_options"]) == {"finish", *config_flow.MENU_ORDER}
+    assert set(steps["reconfigure"]["menu_options"]) == {"finish", "room", *config_flow.MENU_ORDER}
+    for name, schema in (("schedule", config_flow._schedule_schema([{"start_h": 1, "end_h": 2, "preset": "eco"}])), ("fleet", config_flow._fleet_schema([{"device_id": "a"}]))):
+        assert {str(k) for k in schema.schema} == set(steps[name]["data"]), name
 
 
 def _serialise_field(validator):

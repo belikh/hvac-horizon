@@ -25,13 +25,16 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 | Section | What you set there |
 | :-- | :-- |
 | Room | The AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
-| Comfort and presets | Setpoints for each preset, schedule blocks, the vacation switch |
+| Comfort and presets | Setpoints for each preset, the vacation switch |
+| Schedule blocks | Presets by time of day, one block per submit |
 | Price | The price sensor and the cheap and expensive thresholds |
-| Heater | A heater switch, its algorithm and limits, a valve, a boiler, AC heat |
+| Heater | The heater's power and algorithm, a valve, a boiler, AC heat |
 | Occupancy and windows | Presence, motion, window sensors, a cover, a window actuator, the weather entity |
 | Air quality and humidity | Humidity, CO2 and PM2.5 sensors, fans, a dehumidifier, a humidifier |
-| Devices and power limits | A second AC, the room device list, load shedding, the restart delay |
-| Advanced | Control, the lock PIN, the stall window, peer rooms, the investigator |
+| Devices and power limits | A second AC, the dispatch mode, load shedding |
+| Room devices | Extra coolers and heaters the integration chooses between, one device per submit |
+| Advanced | Control, the lock PIN, peer rooms, the investigator |
+| Expert tuning | PID and TPI gains, output limits, minimum on and off times, the stall window. The defaults suit most rooms |
 
 [[reference/settings]] lists every field of each section with its default and its effect.
 
@@ -90,14 +93,7 @@ With an outdoor humidity sensor in `humidity`, the window and the economizer sta
 
 For two ACs that always run together, set `climate_2` and `power_2` in **Devices and power limits**.
 
-For devices that HVAC Horizon should choose between, fill in **Room devices** (`fleet`). Each device has a kind, a rated power and a rate. See [[reference/settings#room-devices-fleet|Room devices]] for the keys.
-
-```json title="Room devices"
-[
-  {"device_id": "split", "kind": "cool", "rated_w": 900, "rate_k_per_h_per_kw": 4.0, "entity_id": "climate.lounge_ac"},
-  {"device_id": "panel", "kind": "heat", "rated_w": 1500, "rate_k_per_h_per_kw": 2.0, "entity_id": "switch.panel_heater"}
-]
-```
+For devices that HVAC Horizon should choose between, open **Room devices**. Give the new device a name, its kind (`cool` or `heat`), the climate entity or heater switch that drives it and its rated power, then select **Submit**. Turn on **Add another device after this one** to stay on the form. To remove devices, tick them under **Remove these devices**. See [[reference/settings#room-devices-fleet|Room devices]] for each field.
 
 `dispatch_mode` sets the choice. `fast` runs the device with the largest effect first. `economy` runs the device with the lowest cost per kelvin first. A device with no power sensor counts its `rated_w` while it runs.
 
@@ -105,9 +101,10 @@ For devices that HVAC Horizon should choose between, fill in **Room devices** (`
 
 | Message | Cause | Fix |
 | :-- | :-- | :-- |
-| `This AC is already set up.` | Another entry uses the same climate entity. | Reconfigure that entry. |
-| `Schedule blocks must be a list of [start_h, end_h, preset]. Hours run from 0 to 24 and start_h must differ from end_h. Presets: comfort, eco, boost, away.` | A schedule block is malformed. | Correct the block. See [[guides/services-and-presets#schedule-blocks|Schedule blocks]]. |
-| `Room devices are invalid` followed by a reason | A fleet device breaks a rule, such as an unknown key or a repeated `device_id`. | Correct the device named in the reason. |
+| `This device is already set up.` | Another entry uses the same AC or heater switch. | Reconfigure that entry. |
+| `Pick an AC or a heater switch.` | The Room step has neither. | Select one of them. |
+| `Pick the AC's power sensor, or enter its rated power.` | The AC has neither. | Select the sensor or enter the watts. |
+| `Room devices are invalid` followed by a reason | The new device breaks a rule, such as a repeated name or a cooler on a switch. | Correct the field named in the reason. |
 
 A section with an error stores nothing from that section.
 

@@ -144,8 +144,11 @@ async def test_config_flow_full_path_stores_the_fields_of_each_section(hass, ena
     result = await hass.config_entries.flow.async_configure(flow_id, {CONF_PRICE: PRICE, "price_cheap": 0.1, "price_expensive": 0.4})
     assert result["type"] == "menu"
     await _open_section(hass, flow_id, "comfort")
-    blocks = [{"start_h": 22, "end_h": 6, "preset": "eco"}]
-    result = await hass.config_entries.flow.async_configure(flow_id, {CONF_COMFORT_C: 23.0, CONF_SCHEDULE_BLOCKS: blocks})
+    result = await hass.config_entries.flow.async_configure(flow_id, {CONF_COMFORT_C: 23.0})
+    assert result["type"] == "menu"
+    blocks = [{"start_h": 22.0, "end_h": 6.5, "preset": "eco"}]
+    await _open_section(hass, flow_id, "schedule")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "22:00:00", "end": "06:30:00", "preset": "eco"})
     assert result["type"] == "menu"
     result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
     assert result["type"] == "create_entry"
@@ -202,26 +205,37 @@ async def test_config_flow_rejects_out_of_range_price(hass, enable_custom_integr
     assert hass.config_entries.async_entries(DOMAIN) == []
 
 
-async def test_config_flow_rejects_fleet_device_with_an_extra_key(hass, enable_custom_integrations, config_data):
-    set_inputs(hass)
-    fleet = [{"device_id": "a", "kind": "cool", "rated_w": 900, "colour": "red"}]
-    result = await _start_flow(hass, config_data)
-    await _open_section(hass, result["flow_id"], "devices")
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"fleet": fleet})
-    assert result["type"] == "form" and result["step_id"] == "devices"
-    assert result["errors"] == {"fleet": "invalid_fleet"}
-    assert "'colour'" in result["description_placeholders"]["fleet_problem"]
-    assert hass.config_entries.async_entries(DOMAIN) == []
-
-
-async def test_config_flow_rejects_a_malformed_schedule_on_the_comfort_section(hass, enable_custom_integrations, config_data):
+async def test_the_device_step_adds_checks_and_removes_room_devices(hass, enable_custom_integrations, config_data):
+    """The Room devices step adds one device per submit, refuses a cooler on a switch, and removes the ticked devices."""
     set_inputs(hass)
     result = await _start_flow(hass, config_data)
-    await _open_section(hass, result["flow_id"], "comfort")
-    bad = [{"start_h": 0.0, "end_h": 25.0, "preset": "eco"}]
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_SCHEDULE_BLOCKS: bad})
-    assert result["type"] == "form" and result["step_id"] == "comfort"
-    assert result["errors"] == {CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
+    flow_id = result["flow_id"]
+    await _open_section(hass, flow_id, "fleet")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"device_id": "bad", "kind": "cool", "entity_id": "switch.x", "rated_w": 900})
+    assert result["type"] == "form" and result["errors"] == {"base": "invalid_fleet"}
+    assert "switch for a heat device" in result["description_placeholders"]["fleet_problem"]
+    result = await hass.config_entries.flow.async_configure(flow_id, {"device_id": "split", "kind": "cool", "entity_id": "climate.split", "rated_w": 900, "add_another": True})
+    assert result["type"] == "form" and result["step_id"] == "fleet"
+    result = await hass.config_entries.flow.async_configure(flow_id, {"device_id": "panel", "kind": "heat", "entity_id": "switch.panel", "rated_w": 1500})
+    assert result["type"] == "menu"
+    await _open_section(hass, flow_id, "fleet")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"remove": ["split"]})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
+    assert result["data"]["fleet"] == [{"device_id": "panel", "kind": "heat", "entity_id": "switch.panel", "rated_w": 1500}]
+
+
+async def test_the_schedule_step_checks_a_new_block(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    flow_id = result["flow_id"]
+    await _open_section(hass, flow_id, "schedule")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "06:00:00"})
+    assert result["type"] == "form" and result["errors"] == {"base": "schedule_needs_both"}
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "06:00:00", "end": "06:00:00"})
+    assert result["type"] == "form" and result["errors"] == {"base": "schedule_same_time"}
+    result = await hass.config_entries.flow.async_configure(flow_id, {})
+    assert result["type"] == "menu"
 
 
 async def test_config_flow_menu_shows_every_optional_section(hass, enable_custom_integrations, config_data):
@@ -229,8 +243,8 @@ async def test_config_flow_menu_shows_every_optional_section(hass, enable_custom
 
     set_inputs(hass)
     result = await _start_flow(hass, config_data)
-    assert result["menu_options"] == ["finish"] + config_flow.OPTIONAL_SECTIONS
-    assert len(config_flow.OPTIONAL_SECTIONS) == 7
+    assert result["menu_options"] == ["finish"] + config_flow.MENU_ORDER
+    assert len(config_flow.OPTIONAL_SECTIONS) == 8
 
 
 async def test_stored_invalid_price_threshold_loads_with_defaults_and_one_warning(hass, enable_custom_integrations, config_data, caplog):
@@ -1841,7 +1855,7 @@ def test_every_conf_key_is_in_the_flow_schema():
 
     text = Path(config_flow.__file__).with_name("const.py").read_text()
     values = {m.group(2) for m in re.finditer(r'^(CONF_[A-Z0-9_]+)\s*=\s*"([^"]+)"', text, re.M)}
-    schema_keys = {str(k) for k in config_flow._schema({}).schema}
+    schema_keys = {str(k) for k in config_flow._schema({}).schema} | {CONF_SCHEDULE_BLOCKS, "fleet"}  # the two lists have their own steps
     missing = sorted(values - schema_keys)
     assert not missing, f"CONF_* keys with no config flow field: {missing}"
 
@@ -2719,29 +2733,24 @@ async def test_stalled_sensor_turns_the_ac_off_inside_the_inhibit_window(hass, e
     assert sent == [24.0], "the inhibit window must not send a setpoint"
 
 
-async def test_reconfigure_rejects_a_malformed_schedule_list(hass, enable_custom_integrations, config_data):
+async def test_reconfigure_adds_and_removes_schedule_blocks_and_keeps_them_through_other_sections(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
-    blocks = [{"start_h": 0.0, "end_h": 24.0, "preset": "eco"}]
+    blocks = [{"start_h": 0.0, "end_h": 8.0, "preset": "eco"}, {"start_h": 17.0, "end_h": 19.0, "preset": "boost"}]
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, CONF_SCHEDULE_BLOCKS: blocks}, unique_id=CLIMATE)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    bad = {**config_data, CONF_SCHEDULE_BLOCKS: [{"start_h": 0.0, "end_h": 25.0, "preset": "eco"}]}
-    result = await _reconfigure_sections(hass, entry, bad)
-    assert result["type"] == "form" and result["step_id"] == "comfort"
-    assert result["errors"] == {CONF_SCHEDULE_BLOCKS: "invalid_schedule_blocks"}
+    # Submitting every section leaves the blocks alone.
+    await _reconfigure(hass, entry, dict(config_data))
     assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
-
-
-async def test_reconfigure_stores_a_valid_schedule_list(hass, enable_custom_integrations, config_data):
-    set_inputs(hass)
-    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
-    entry.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry.entry_id)
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "schedule"})
+    assert result["type"] == "form" and result["step_id"] == "schedule"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"remove": ["00:00 to 08:00: eco"], "start": "22:00:00", "end": "06:00:00", "preset": "away"})
+    assert result["type"] == "menu"
+    await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
     await hass.async_block_till_done()
-    blocks = [{"start_h": 22.0, "end_h": 6.0, "preset": "eco"}]
-    await _reconfigure(hass, entry, {**config_data, CONF_SCHEDULE_BLOCKS: blocks})
-    assert entry.data[CONF_SCHEDULE_BLOCKS] == blocks
+    assert entry.data[CONF_SCHEDULE_BLOCKS] == [blocks[1], {"start_h": 22.0, "end_h": 6.0, "preset": "away"}]
 
 
 async def test_house_away_from_the_service_turns_the_heater_off(hass, enable_custom_integrations, config_data):

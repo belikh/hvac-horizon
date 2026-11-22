@@ -180,7 +180,7 @@ def _schedule_block_problem(value: Any) -> str | None:
     """Return why a schedule block list is invalid, or None when it is valid.
 
     The list holds {start_h, end_h, preset} dicts. Hours run from 0 to 24. A block with end_h below
-    start_h crosses midnight. The form is a plain object field, so the flow checks the list itself.
+    start_h crosses midnight.
     """
     if not isinstance(value, list):
         return "schedule blocks must be a list"
@@ -379,8 +379,6 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             ),
             key(CONF_OUTPUT_MIN_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
             key(CONF_OUTPUT_MAX_ENTITY): selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
-            key(CONF_SCHEDULE_BLOCKS, default=list): selector.ObjectSelector(),
-            key(CONF_FLEET, default=list): selector.ObjectSelector(),
             key(CONF_DISPATCH_MODE, default="fast"): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=["fast", "economy"], mode=selector.SelectSelectorMode.DROPDOWN)
             ),
@@ -396,15 +394,15 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     "room": (CONF_CLIMATE, CONF_POWER, CONF_AC_RATED_W, CONF_HEATER_SWITCH, CONF_ROOM_SENSORS, CONF_OUTDOOR),
     "comfort": (
         CONF_COMFORT_C, CONF_ECO_C, CONF_BOOST_C, CONF_AWAY_C, CONF_HEAT_ECO_C, CONF_HEAT_BOOST_C,
-        CONF_COMFORT_ENERGY_WEIGHT, CONF_SCHEDULE, CONF_SCHEDULE_BLOCKS, CONF_VACATION, CONF_VACATION_C,
+        CONF_COMFORT_ENERGY_WEIGHT, CONF_SCHEDULE, CONF_VACATION, CONF_VACATION_C,
         CONF_AWAY_DELAY_MIN,
     ),
     "price": (CONF_PRICE, CONF_PRICE_CHEAP, CONF_PRICE_EXPENSIVE, CONF_ENERGY),
     "heater": (
-        CONF_HEATER_INVERTED, CONF_HEATER_POWER_W, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
-        CONF_HEATER_KI, CONF_HEATER_KD, CONF_TPI_COEF_INT, CONF_TPI_COEF_EXT, CONF_TPI_THRESHOLD_HIGH,
-        CONF_TPI_THRESHOLD_LOW, CONF_MAX_ON_PERCENT, CONF_OUTPUT_MIN, CONF_OUTPUT_MAX, CONF_OUTPUT_MIN_ENTITY,
-        CONF_OUTPUT_MAX_ENTITY, CONF_VALVE, CONF_TRV_TEMPERATURE, CONF_BOILER, CONF_AC_HEAT, CONF_MPC_HEAT_PLAN,
+        CONF_HEATER_INVERTED, CONF_HEATER_POWER_W, CONF_RADIATORS, CONF_HEATER_ALGORITHM, 
+        
+        
+        CONF_VALVE, CONF_TRV_TEMPERATURE, CONF_BOILER, CONF_AC_HEAT, CONF_MPC_HEAT_PLAN,
     ),
     "occupancy": (
         CONF_PRESENCE, CONF_MOTION, CONF_MOTION_AWAY_MIN, CONF_WINDOW, CONF_WINDOW_DELAY_MIN, CONF_WINDOW_ACTUATOR,
@@ -417,12 +415,17 @@ SECTIONS: dict[str, tuple[str, ...]] = {
         CONF_WHOLE_HOUSE_FAN,
     ),
     "devices": (
-        CONF_CLIMATE_2, CONF_POWER_2, CONF_FLEET, CONF_DISPATCH_MODE, CONF_WHOLE_HOUSE_POWER, CONF_SHED_MAX_W,
-        CONF_SHED_LOADS, CONF_COMPRESSOR_GROUP, CONF_MIN_ON_MIN, CONF_MIN_OFF_MIN,
+        CONF_CLIMATE_2, CONF_POWER_2, CONF_DISPATCH_MODE, CONF_WHOLE_HOUSE_POWER, CONF_SHED_MAX_W,
+        CONF_SHED_LOADS, CONF_COMPRESSOR_GROUP, 
     ),
     "advanced": (
-        CONF_CONTROL, CONF_LOCK_PIN, CONF_STALL_WINDOW_S, CONF_NIGHT_PLAN_ACT, CONF_ACCURACY_PANEL, CONF_PEER_ENTRY,
-        CONF_PEER_SETPOINT_MODE, CONF_AI_CONVERSATION, CONF_AI_BUDGET, CONF_SETPOINT_REGULATION,
+        CONF_CONTROL, CONF_LOCK_PIN, CONF_NIGHT_PLAN_ACT, CONF_ACCURACY_PANEL, CONF_PEER_ENTRY,
+        CONF_PEER_SETPOINT_MODE, CONF_AI_CONVERSATION, CONF_AI_BUDGET, 
+    ),
+    "expert": (
+        CONF_HEATER_KP, CONF_HEATER_KI, CONF_HEATER_KD, CONF_TPI_COEF_INT, CONF_TPI_COEF_EXT, CONF_TPI_THRESHOLD_HIGH,
+        CONF_TPI_THRESHOLD_LOW, CONF_MAX_ON_PERCENT, CONF_OUTPUT_MIN, CONF_OUTPUT_MAX, CONF_OUTPUT_MIN_ENTITY, CONF_OUTPUT_MAX_ENTITY,
+        CONF_MIN_ON_MIN, CONF_MIN_OFF_MIN, CONF_STALL_WINDOW_S, CONF_SETPOINT_REGULATION,
     ),
 }
 OPTIONAL_SECTIONS = [name for name in SECTIONS if name != "room"]
@@ -444,11 +447,6 @@ def _section_problems(section: str, data: dict[str, Any]) -> tuple[dict[str, str
             errors["base"] = "need_device"
         elif data.get(CONF_CLIMATE) and not data.get(CONF_POWER) and not data.get(CONF_AC_RATED_W):
             errors[CONF_POWER] = "need_power"
-    if section == "comfort" and _schedule_block_problem(data.get(CONF_SCHEDULE_BLOCKS, [])):
-        errors[CONF_SCHEDULE_BLOCKS] = "invalid_schedule_blocks"
-    if section == "devices" and (problem := _fleet_problem(data.get(CONF_FLEET, []))):
-        errors[CONF_FLEET] = "invalid_fleet"
-        placeholders["fleet_problem"] = problem
     if section == "price":
         errors.update(_price_errors(data))
     return errors, placeholders
@@ -456,6 +454,63 @@ def _section_problems(section: str, data: dict[str, Any]) -> tuple[dict[str, str
 
 # Field names in the form. A reconfigure submit that omits one of these clears it, except the lock PIN.
 FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
+
+# Two settings are lists. Each has its own step, which adds one item per submit and removes the ticked ones.
+LIST_STEPS = ("schedule", "fleet")
+MENU_ORDER = ["comfort", "schedule", "price", "heater", "occupancy", "air_quality", "devices", "fleet", "advanced", "expert"]
+
+
+def _hour(value: Any) -> float | None:
+    """Hours from a time selector value such as "06:30:00", or None when the field is empty."""
+    if not value:
+        return None
+    parts = str(value).split(":")
+    return int(parts[0]) + (int(parts[1]) if len(parts) > 1 else 0) / 60.0
+
+
+def _clock(hour: float) -> str:
+    return f"{int(hour) % 24:02d}:{round((hour % 1) * 60):02d}"
+
+
+def _block_label(block: dict[str, Any]) -> str:
+    return f"{_clock(block['start_h'])} to {_clock(block['end_h'])}: {block['preset']}"
+
+
+def _remove_selector(labels: list[str]) -> Any:
+    return selector.SelectSelector(selector.SelectSelectorConfig(options=labels, multiple=True, mode=selector.SelectSelectorMode.LIST))
+
+
+def _schedule_schema(blocks: list[dict[str, Any]]) -> vol.Schema:
+    fields: dict[Any, Any] = {}
+    if blocks:
+        fields[vol.Optional("remove", default=[])] = _remove_selector([_block_label(b) for b in blocks])
+    fields[vol.Optional("start")] = selector.TimeSelector()
+    fields[vol.Optional("end")] = selector.TimeSelector()
+    fields[vol.Optional("preset", default="eco")] = selector.SelectSelector(
+        selector.SelectSelectorConfig(options=list(SCHEDULE_PRESETS), mode=selector.SelectSelectorMode.DROPDOWN)
+    )
+    fields[vol.Optional("add_another", default=False)] = selector.BooleanSelector()
+    return vol.Schema(fields)
+
+
+def _fleet_schema(devices: list[dict[str, Any]]) -> vol.Schema:
+    fields: dict[Any, Any] = {}
+    if devices:
+        fields[vol.Optional("remove", default=[])] = _remove_selector([str(d["device_id"]) for d in devices])
+    fields[vol.Optional("device_id")] = selector.TextSelector()
+    fields[vol.Optional("kind", default="cool")] = selector.SelectSelector(
+        selector.SelectSelectorConfig(options=["cool", "heat"], mode=selector.SelectSelectorMode.DROPDOWN)
+    )
+    fields[vol.Optional("entity_id")] = selector.EntitySelector(selector.EntitySelectorConfig(domain=["climate", "switch"]))
+    fields[vol.Optional("rated_w")] = selector.NumberSelector(
+        selector.NumberSelectorConfig(min=10, max=20000, step=10, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="W")
+    )
+    fields[vol.Optional("power_sensor")] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", device_class="power"))
+    fields[vol.Optional("rate_k_per_h_per_kw")] = selector.NumberSelector(
+        selector.NumberSelectorConfig(min=0.05, max=20, step=0.05, mode=selector.NumberSelectorMode.BOX)
+    )
+    fields[vol.Optional("add_another", default=False)] = selector.BooleanSelector()
+    return vol.Schema(fields)
 
 
 class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -477,7 +532,7 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _show_menu(self) -> ConfigFlowResult:
         reconfiguring = self.source == SOURCE_RECONFIGURE
-        options = (["room"] if reconfiguring else []) + OPTIONAL_SECTIONS
+        options = (["room"] if reconfiguring else []) + MENU_ORDER
         return self.async_show_menu(step_id="reconfigure" if reconfiguring else "menu", menu_options=["finish"] + options)
 
     async def async_step_menu(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -529,6 +584,49 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_advanced(self, user_input: dict | None = None) -> ConfigFlowResult:
         return await self._async_section("advanced", user_input)
+
+    async def async_step_expert(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self._async_section("expert", user_input)
+
+    async def async_step_schedule(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Schedule blocks: tick the blocks to remove, and fill start, end and preset to add one."""
+        blocks = list(self._data.get(CONF_SCHEDULE_BLOCKS) or [])
+        if user_input is None:
+            return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks))
+        blocks = [b for b in blocks if _block_label(b) not in user_input.get("remove", [])]
+        start, end = _hour(user_input.get("start")), _hour(user_input.get("end"))
+        errors: dict[str, str] = {}
+        if (start is None) != (end is None):
+            errors["base"] = "schedule_needs_both"
+        elif start is not None and start == end:
+            errors["base"] = "schedule_same_time"
+        if errors:
+            return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks), errors=errors)
+        if start is not None:
+            blocks.append({"start_h": start, "end_h": end, "preset": user_input.get("preset", "eco")})
+        self._data[CONF_SCHEDULE_BLOCKS] = blocks
+        if user_input.get("add_another"):
+            return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks))
+        return self._show_menu()
+
+    async def async_step_fleet(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Room devices: tick the devices to remove, and fill the fields to add one."""
+        devices = list(self._data.get(CONF_FLEET) or [])
+        if user_input is None:
+            return self.async_show_form(step_id="fleet", data_schema=_fleet_schema(devices))
+        kept = [d for d in devices if str(d["device_id"]) not in user_input.get("remove", [])]
+        device = {k: user_input[k] for k in ("device_id", "kind", "entity_id", "rated_w", "power_sensor", "rate_k_per_h_per_kw") if user_input.get(k) not in (None, "")}
+        adding = any(k in device for k in ("device_id", "entity_id", "rated_w"))
+        if adding:
+            kept.append(device)
+            if problem := _fleet_problem(kept):
+                return self.async_show_form(
+                    step_id="fleet", data_schema=_fleet_schema(devices), errors={"base": "invalid_fleet"}, description_placeholders={"fleet_problem": problem}
+                )
+        self._data[CONF_FLEET] = kept
+        if user_input.get("add_another"):
+            return self.async_show_form(step_id="fleet", data_schema=_fleet_schema(kept))
+        return self._show_menu()
 
     async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self.source == SOURCE_RECONFIGURE:
