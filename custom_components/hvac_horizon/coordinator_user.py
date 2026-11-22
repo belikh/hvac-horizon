@@ -60,6 +60,7 @@ class UserMixin:
     _preset_now: str | None
     _store: Store[dict[str, Any]]
     _target_override_c: float | None
+    _heat_override_c: float | None
     _timed_duration_min: float
     _timed_preset: str | None
     _timed_started_min: float | None
@@ -107,6 +108,13 @@ class UserMixin:
         if self._target_override_c is not None:
             return self._target_override_c
         return float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
+
+    @property
+    def heat_comfort_c(self) -> float:
+        """The comfort heat target: the low target the user set in auto, else the comfort target. It never exceeds the comfort target."""
+        if self._heat_override_c is not None:
+            return min(self._heat_override_c, self.comfort_c)
+        return self.comfort_c
 
     def effective_target_c(self, heating: bool) -> float:
         """The target the thermostat shows: the heat target when `heating`, else the cool target. Both follow the preset.
@@ -216,9 +224,36 @@ class UserMixin:
             raise HomeAssistantError("HVAC Horizon entry is locked")
 
     def set_user_target(self, target_c: float) -> None:
-        """Store the user's target. Control uses it as the comfort target from the next tick."""
+        """Store the user's target and make it apply now.
+
+        The target is the comfort target, so the room returns to the comfort preset: a timed preset ends, and a schedule
+        block with another preset is set aside until the schedule moves to its next block.
+        """
         self._require_unlocked()
         self._target_override_c = float(target_c)
+        self._heat_override_c = None  # one target serves cooling and heating
+        self._to_comfort_preset()
+
+    def set_user_target_range(self, low_c: float, high_c: float) -> None:
+        """Store separate targets: the room heats to `low_c` and cools above `high_c`. Both apply now, as in set_user_target."""
+        self._require_unlocked()
+        if low_c > high_c:
+            raise HomeAssistantError(f"the low target {low_c} is above the high target {high_c}")
+        self._target_override_c = float(high_c)
+        self._heat_override_c = float(low_c)
+        self._to_comfort_preset()
+
+    async def async_set_ac_option(self, option: str, value: str) -> None:
+        """Pass a fan mode or a swing mode from the room thermostat to the first AC."""
+        self._require_unlocked()
+        await self.hass.services.async_call("climate", f"set_{option}", {"entity_id": self.entry.data[CONF_CLIMATE], option: value}, blocking=True)
+
+    def _to_comfort_preset(self) -> None:
+        self._manual_preset = Preset.COMFORT.value
+        self._manual_scheduled = None
+        self._timed_preset = None
+        self._timed_started_min = None
+        self._timed_duration_min = 0.0
         self._store.async_delay_save(self._save_payload, 0)
 
     def set_user_off(self, off: bool, mode: str | None = None) -> None:

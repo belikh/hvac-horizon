@@ -12,6 +12,18 @@ HVAC Horizon controls the climate of one room in Home Assistant. You give it an 
 
 A new entry starts in observe-only mode. It learns and forecasts, and it sends no commands until you turn control on.
 
+## Who it is for
+
+HVAC Horizon fits a room with an AC that Home Assistant controls and a power sensor on that AC. The room model, the forecast and the cost all come from the measured power. A heater, a valve or a second AC is an addition to that room.
+
+It does not fit these cases:
+
+- A room with heating only. The setup needs an AC `climate` entity.
+- An AC with no power sensor.
+- A house you want on one thermostat. Each entry is one room.
+
+AC cooling has run on one real installation. Every other device type has run in tests and in a simulated room only: see [What has run on real devices](concepts/limits.md#what-has-run-on-real-devices).
+
 ## Where to start
 
 | You want to | Read |

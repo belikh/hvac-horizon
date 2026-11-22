@@ -2,6 +2,17 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.6.2 (unreleased)
+
+- A target set on the room thermostat applies at once. The room returns to the `comfort` preset: a timed preset ends
+  and a schedule block with another preset is set aside until the next block. Before, a target set under `eco`,
+  `boost` or `away` was stored and the thermostat kept showing the preset's setpoint.
+- In `auto`, a room that can heat has a low and a high target on the thermostat. It heats to the low one and cools
+  above the high one. Setting one temperature sets both.
+- The thermostat lists the first AC's fan modes and swing modes and passes a change to the AC. It shows the room
+  humidity when a room humidity sensor is set.
+- The start page says which rooms the integration fits and which it does not.
+
 ## 0.6.1 (2026-11-22)
 
 - The price shift only raises the cool threshold. Before, a price at or below `price_cheap` moved it 1 K down, so a

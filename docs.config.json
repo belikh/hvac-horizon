@@ -3,7 +3,7 @@
   "id": "hvac-horizon",
   "description": "Runs the heating and cooling of one room in Home Assistant and forecasts the time, energy and cost to reach its target.",
   "icon": "home",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "repo": "belikh/hvac-horizon",
   "glossary": {
     "cool threshold": "The room temperature above which the AC cools. It comes from the preset, your target, the price and occupancy.",

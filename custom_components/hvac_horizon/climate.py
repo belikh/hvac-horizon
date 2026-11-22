@@ -3,11 +3,14 @@
 The entity never drives a device. The coordinator applies each change on its next tick through the control,
 lock, inhibit and minimum-time gates.
 
-Target temperature and preset: the temperature shown is the effective target the coordinator planned on its last
-tick. It is the cool threshold while the mode is cool or off, and the heat target while the mode is heat. Both
-follow the preset, so eco shows its own cooling setpoint. Setting a temperature stores the user's comfort target,
-the base the presets work from. It leaves the preset unchanged. Under eco the shown value stays at the eco
-setpoint until the preset changes.
+Target temperature and preset: the temperature shown is the target the coordinator planned on its last tick. It is
+the cool target while the mode is cool or off, and the heat target while the mode is heat. Both follow the preset,
+so eco shows its own cooling setpoint. Setting a temperature stores the user's comfort target and returns the room
+to the comfort preset, so the value applies at once. In auto, a room that can heat shows two targets: it heats to the
+low one and cools above the high one.
+
+Fan mode, swing mode and humidity: the fan and swing modes are the first AC's own, and a change goes to that AC. The
+current humidity is the room humidity sensor's reading.
 
 hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose
 (auto by default). Cool lets only cooling devices run, heat lets only heating devices run, auto lets both run. hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.components.climate import ClimateEntity, HVACAction, ClimateEntityFeature, HVACMode
+from homeassistant.components.climate import ATTR_TARGET_TEMP_HIGH, ATTR_TARGET_TEMP_LOW, ClimateEntity, HVACAction, ClimateEntityFeature, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import Event, HomeAssistant, callback
@@ -27,7 +30,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_CLIMATE, CONF_CONTROL, CONF_DEHUMIDIFIER, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, DOMAIN
+from .const import CONF_CLIMATE, CONF_CONTROL, CONF_DEHUMIDIFIER, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, CONF_ROOM_HUMIDITY, DOMAIN
 from .coordinator import HorizonCoordinator
 
 PRESETS = ["comfort", "eco", "boost", "away"]
@@ -48,7 +51,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     _attr_min_temp = 16.0
     _attr_max_temp = 32.0
     _attr_preset_modes = PRESETS
-    _attr_supported_features = (
+    _BASE_FEATURES = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
         | ClimateEntityFeature.TURN_OFF
@@ -64,6 +67,59 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         # Heat is offered when the entry can heat: a heater switch, the AC or a heating fleet device.
         self._has_heat = coordinator.has_heat
         # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
+
+    def _ac_attribute(self, name: str) -> Any:
+        ac = self.hass.states.get(self._entry.data[CONF_CLIMATE]) if self.hass else None
+        return ac.attributes.get(name) if ac else None
+
+    @property
+    def supported_features(self) -> ClimateEntityFeature:
+        """A room that can heat has a low and a high target in auto. Fan and swing modes are the first AC's, when it has them."""
+        features = self._BASE_FEATURES
+        if self._has_heat:
+            features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
+        if self._ac_attribute("fan_modes"):
+            features |= ClimateEntityFeature.FAN_MODE
+        if self._ac_attribute("swing_modes"):
+            features |= ClimateEntityFeature.SWING_MODE
+        return features
+
+    @property
+    def fan_modes(self) -> list[str] | None:
+        return self._ac_attribute("fan_modes")
+
+    @property
+    def fan_mode(self) -> str | None:
+        return self._ac_attribute("fan_mode")
+
+    @property
+    def swing_modes(self) -> list[str] | None:
+        return self._ac_attribute("swing_modes")
+
+    @property
+    def swing_mode(self) -> str | None:
+        return self._ac_attribute("swing_mode")
+
+    async def async_set_fan_mode(self, fan_mode: str) -> None:
+        await self.coordinator.async_set_ac_option("fan_mode", fan_mode)
+
+    async def async_set_swing_mode(self, swing_mode: str) -> None:
+        await self.coordinator.async_set_ac_option("swing_mode", swing_mode)
+
+    @property
+    def current_humidity(self) -> float | None:
+        """The room humidity sensor's reading, when one is set."""
+        sensor = self._entry.data.get(CONF_ROOM_HUMIDITY)
+        state = self.hass.states.get(sensor) if sensor and self.hass else None
+        try:
+            return float(state.state) if state else None
+        except ValueError:
+            return None
+
+    @property
+    def _ranged(self) -> bool:
+        """True in auto when the room can heat: the card shows the heat target and the cool target as low and high."""
+        return self._has_heat and self.hvac_mode == HVACMode.AUTO
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -97,8 +153,14 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     def _room_temperature(self) -> float | None:
         return self.coordinator.median_room_c()
 
-    def _target(self) -> float:
-        return self.coordinator.effective_target_c(self.hvac_mode == HVACMode.HEAT)
+    def _target(self) -> float | None:
+        return None if self._ranged else self.coordinator.effective_target_c(self.hvac_mode == HVACMode.HEAT)
+
+    def _target_low(self) -> float | None:
+        return self.coordinator.effective_target_c(True) if self._ranged else None
+
+    def _target_high(self) -> float | None:
+        return self.coordinator.effective_target_c(False) if self._ranged else None
 
     if _NATIVE_TEMPERATURE_API:
         _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
@@ -108,8 +170,16 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
             return self._room_temperature()
 
         @property
-        def native_target_temperature(self) -> float:
+        def native_target_temperature(self) -> float | None:
             return self._target()
+
+        @property
+        def native_target_temperature_low(self) -> float | None:
+            return self._target_low()
+
+        @property
+        def native_target_temperature_high(self) -> float | None:
+            return self._target_high()
 
     else:
         _attr_temperature_unit = UnitOfTemperature.CELSIUS
@@ -119,8 +189,16 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
             return self._room_temperature()
 
         @property
-        def target_temperature(self) -> float:
+        def target_temperature(self) -> float | None:
             return self._target()
+
+        @property
+        def target_temperature_low(self) -> float | None:
+            return self._target_low()
+
+        @property
+        def target_temperature_high(self) -> float | None:
+            return self._target_high()
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -151,9 +229,13 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         return HVACMode(self.coordinator.user_mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        if (temperature := kwargs.get(ATTR_TEMPERATURE)) is None:
+        low, high = kwargs.get(ATTR_TARGET_TEMP_LOW), kwargs.get(ATTR_TARGET_TEMP_HIGH)
+        if low is not None and high is not None:
+            self.coordinator.set_user_target_range(low, high)
+        elif (temperature := kwargs.get(ATTR_TEMPERATURE)) is not None:
+            self.coordinator.set_user_target(temperature)
+        else:
             return
-        self.coordinator.set_user_target(temperature)
         await self.coordinator.async_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

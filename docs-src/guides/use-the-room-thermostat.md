@@ -80,15 +80,30 @@ When the room is below the heat threshold and a gate holds the heater off, `pend
 
 The target is the comfort temperature, 16 to 32 °C in steps of 0.5. Setting it stores your value, and HVAC Horizon keeps it across restarts.
 
+A target you set applies at once. The room returns to the `comfort` preset: a timed preset ends, and a schedule block with another preset is set aside until the schedule moves to its next block. Two states still override it: the vacation switch, and an away house or an empty room.
+
 The thermostat shows the target you set, with these exceptions:
 
 - A preset other than `comfort` shows its own setpoint.
 - While the vacation switch is on, it shows `vacation_c`.
-- In `heat` mode it shows the heat target. In the other modes it shows the cool target.
+- In `heat` mode it shows the heat target. In `cool`, `dry` and `off` it shows the cool target.
+- In `auto`, a room that can heat shows two targets. See below.
 
 The threshold the AC cools above can sit above the cool target. A high price raises it by up to 1 K, and the comfort-versus-energy weight and the mould bump raise it too. A low price does not lower it. The Cool above sensor shows the threshold. See [[guides/services-and-presets]].
 
 The AC cools when the room is above the cool threshold. The heater heats when the room is 0.5 K or more below the heat target. The sensors Cool above and Heat below show both values.
+
+## Low and high target in auto
+
+In `auto`, a room that can heat shows a low and a high target. The room heats to the low target and cools above the high one. Set both on the card, or with `climate.set_temperature` and `target_temp_low` and `target_temp_high`. The low target must not be above the high target.
+
+Setting one temperature, in any mode, sets both targets to it. `cool` mode shows the high target and `heat` mode the low one.
+
+## Fan mode, swing mode and humidity
+
+The card lists the fan modes and swing modes of the first AC, when the AC has them. A change goes to that AC at once. With `auto_fan` on, the integration sets the fan mode again on its next tick.
+
+With a room humidity sensor set, the card shows the room humidity.
 
 ## Presets
 

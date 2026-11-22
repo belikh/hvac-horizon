@@ -6183,7 +6183,7 @@ async def test_room_entity_shows_the_eco_cool_threshold_and_the_forecast_uses_it
     entry.runtime_data._forecast = spy
     await refresh(hass, entry)
     state = hass.states.get(_room_climate_id(hass, entry))
-    assert state.attributes["temperature"] == 26.0
+    assert state.attributes["target_temp_high"] == 26.0  # auto with a heater: the cool target is the high one
     assert targets[-1] == pytest.approx(26.0)
     assert entry.runtime_data.data["target_c"] == 26.0
 
@@ -6196,7 +6196,7 @@ async def test_room_entity_set_temperature_sets_the_comfort_target(hass, enable_
     await hass.data["climate"].get_entity(entity_id).async_set_temperature(temperature=23.0)
     await hass.async_block_till_done()
     state = hass.states.get(entity_id)
-    assert state.attributes["temperature"] == 23.0
+    assert (state.attributes["target_temp_low"], state.attributes["target_temp_high"]) == (23.0, 23.0)  # auto with a heater
     assert state.attributes["preset_mode"] == "comfort"
 
 
@@ -8248,8 +8248,8 @@ async def test_the_thermostat_shows_the_target_the_user_set_while_the_price_shif
     entry, _, _ = await _setup_ac_only(hass, config_data, room="26.0")
     hass.states.async_set(PRICE, price, {"unit_of_measurement": "$/kWh"})
     room = _room_climate_id(hass, entry)
-    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": room, "hvac_mode": "cool"}, blocking=True)
-    await hass.services.async_call("climate", "set_temperature", {"entity_id": room, "temperature": 24.0}, blocking=True)
+    entry.runtime_data.set_user_off(False, "cool")  # auto would show a low and a high target
+    entry.runtime_data.set_user_target(24.0)
     await refresh(hass, entry)
     assert entry.runtime_data.data["price_used_per_kwh"] == float(price)
     assert entry.runtime_data.data["cool_on_above_c"] == threshold
@@ -8258,3 +8258,101 @@ async def test_the_thermostat_shows_the_target_the_user_set_while_the_price_shif
     await hass.services.async_call("climate", "set_preset_mode", {"entity_id": room, "preset_mode": "away"}, blocking=True)
     await hass.async_block_till_done()
     assert hass.states.get(room).attributes["temperature"] == entry.runtime_data.data["cool_on_above_c"] > 25.0
+
+
+@pytest.mark.parametrize("how", ["manual", "timed"])
+async def test_setting_a_target_under_another_preset_applies_it_now(hass, enable_custom_integrations, config_data, how):
+    """The room is in the away preset, which cools above 27 C. A target of 25 C returns it to comfort and the card shows 25."""
+    entry, _, _ = await _setup_ac_only(hass, config_data, room="26.0")
+    hass.states.async_set(PRICE, "0.10", {"unit_of_measurement": "$/kWh"})
+    room = _room_climate_id(hass, entry)
+    entry.runtime_data.set_user_off(False, "cool")  # auto would show a low and a high target
+    if how == "manual":
+        await hass.services.async_call("climate", "set_preset_mode", {"entity_id": room, "preset_mode": "away"}, blocking=True)
+    else:
+        await hass.services.async_call(DOMAIN, "start_timed_preset", {"entry_id": entry.entry_id, "preset": "away", "minutes": 60}, blocking=True)
+        await refresh(hass, entry)
+    assert hass.states.get(room).attributes["preset_mode"] == "away"
+    assert hass.states.get(room).attributes["temperature"] == 27.0
+    # _setup_ac_only replaces the climate services with fakes for the AC, so the target goes in as the thermostat sends it.
+    entry.runtime_data.set_user_target(25.0)
+    await refresh(hass, entry)
+    state = hass.states.get(room)
+    assert (state.attributes["preset_mode"], state.attributes["temperature"]) == ("comfort", 25.0)
+    assert entry.runtime_data.data["cool_on_above_c"] == 25.0
+
+
+async def test_auto_with_a_heater_shows_a_low_and_a_high_target_and_stores_both(hass, enable_custom_integrations, config_data, freezer, hass_storage):
+    """In auto the card shows the heat target and the cool target. A range of 20 to 25 C heats to 20 and cools above 25."""
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True, **{CONF_HEATER_SWITCH: "switch.heater"})
+    hass.states.async_set(PRICE, "0.10", {"unit_of_measurement": "$/kWh"})
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "auto"}, blocking=True)
+    attributes = hass.states.get(entity_id).attributes
+    assert (attributes["target_temp_low"], attributes["target_temp_high"], attributes["temperature"]) == (24.0, 24.0, None)
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "target_temp_low": 20, "target_temp_high": 25}, blocking=True)
+    attributes = hass.states.get(entity_id).attributes
+    assert (attributes["target_temp_low"], attributes["target_temp_high"]) == (20.0, 25.0)
+    data = entry.runtime_data.data
+    assert (data["cool_on_above_c"], data["heat_on_below_c"]) == (25.0, 19.5)
+    # Cool mode shows one target, the high one. Heat mode shows the low one.
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "cool"}, blocking=True)
+    attributes = hass.states.get(entity_id).attributes
+    assert (attributes["temperature"], attributes["target_temp_low"], attributes["target_temp_high"]) == (25.0, None, None)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "heat"}, blocking=True)
+    assert hass.states.get(entity_id).attributes["temperature"] == 20.0
+    # Both targets survive a restart.
+    await _restart(hass, entry)
+    assert (entry.runtime_data.comfort_c, entry.runtime_data.heat_comfort_c) == (25.0, 20.0)
+    # One target serves both again.
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "temperature": 23}, blocking=True)
+    assert (entry.runtime_data.comfort_c, entry.runtime_data.heat_comfort_c) == (23.0, 23.0)
+
+
+async def test_a_low_target_above_the_high_target_is_refused(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True, **{CONF_HEATER_SWITCH: "switch.heater"})
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "auto"}, blocking=True)
+    with pytest.raises(HomeAssistantError):
+        await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "target_temp_low": 26, "target_temp_high": 22}, blocking=True)
+    assert entry.runtime_data.comfort_c == 24.0
+
+
+async def test_a_room_without_heat_has_one_target_in_auto(hass, enable_custom_integrations, config_data):
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "auto"}, blocking=True)
+    attributes = hass.states.get(entity_id).attributes
+    assert attributes["temperature"] == 24.0 and "target_temp_low" not in attributes
+
+
+async def test_fan_and_swing_modes_are_the_acs_and_a_change_goes_to_the_ac(hass, enable_custom_integrations, config_data):
+    """The AC lists fan and swing modes. The room thermostat lists the same, and a change is sent to the AC."""
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True)
+    assert "fan_modes" not in hass.states.get(entity_id).attributes
+    sent = []
+    services = hass.services.async_services_internal()["climate"]
+    for name, key in (("set_fan_mode", "fan_mode"), ("set_swing_mode", "swing_mode")):
+        real = services[name]
+
+        def wrap(real=real, key=key):
+            async def handler(call):
+                target = call.data["entity_id"]
+                if CLIMATE in (target if isinstance(target, list) else [target]):
+                    sent.append((key, call.data[key]))
+                    return None
+                return await hass.async_run_hass_job(real.job, call)
+
+            return handler
+
+        hass.services.async_register("climate", name, wrap(), schema=real.schema)
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "fan_modes": ["low", "high"], "fan_mode": "low", "swing_modes": ["off", "vertical"], "swing_mode": "off"})
+    await hass.async_block_till_done()
+    attributes = hass.states.get(entity_id).attributes
+    assert (attributes["fan_modes"], attributes["fan_mode"], attributes["swing_modes"], attributes["swing_mode"]) == (["low", "high"], "low", ["off", "vertical"], "off")
+    await hass.services.async_call("climate", "set_fan_mode", {"entity_id": entity_id, "fan_mode": "high"}, blocking=True)
+    await hass.services.async_call("climate", "set_swing_mode", {"entity_id": entity_id, "swing_mode": "vertical"}, blocking=True)
+    assert sent == [("fan_mode", "high"), ("swing_mode", "vertical")]
+
+
+async def test_the_room_thermostat_shows_the_room_humidity(hass, enable_custom_integrations, config_data):
+    hass.states.async_set("sensor.test_room_humidity", "61", {"unit_of_measurement": "%"})
+    entry, entity_id, _ = await _setup_room_climate(hass, config_data, room_humidity="sensor.test_room_humidity")
+    assert hass.states.get(entity_id).attributes["current_humidity"] == 61.0

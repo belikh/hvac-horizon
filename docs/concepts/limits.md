@@ -45,7 +45,8 @@ dT/dt = k (T_out - T) - c P + g
 
 - Setpoint regulation covers the first AC. A second AC and fleet climates get the plain target.
 - A PID heater settles up to 0.5 K below the heat target, because it stops one deadband below it.
-- In `auto` and `dry` the room thermostat shows one temperature, the cool threshold. It has no separate low and high target.
+- In `dry` the room thermostat shows one temperature, the cool target.
+- The room thermostat has no `fan_only` mode and no humidity target. Its fan and swing modes are those of the first AC.
 - Dry mode has fixed humidity limits: on above 60 %, off at 57 %.
 - The Heatwave sensor is information only. It changes no device command.
 - Two profiles of the simulation suite fail by design and are marked as expected failures: an 8 kW AC overshoots a small room, and the small unit's fitted rate collapses in `economy` mode with two ACs.

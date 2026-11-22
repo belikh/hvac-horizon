@@ -298,7 +298,10 @@ async def test_the_thermostat_shows_the_target_you_set(house, mode):
     home = await house(room_c=22.0, outdoor_c=20.0, mode=mode, target_c=23.5)
     await home.run(10)
     assert home.state.state == mode
-    assert home.state.attributes["temperature"] == 23.5
+    if mode == "auto":  # a room that can heat shows the heat target and the cool target
+        assert (home.state.attributes["target_temp_low"], home.state.attributes["target_temp_high"]) == (23.5, 23.5)
+    else:
+        assert home.state.attributes["temperature"] == 23.5
     assert home.state.attributes["current_temperature"] == 22.0
 
 

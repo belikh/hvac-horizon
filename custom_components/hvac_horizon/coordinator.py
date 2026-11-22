@@ -184,6 +184,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._last_room_data_s: float | None = None
         self._locked = False
         self._target_override_c: float | None = None  # the target the user set on the climate entity; stored
+        self._heat_override_c: float | None = None  # the low target the user set in auto, when it differs from the target; stored
         self._user_off = False  # the user turned the room off on the climate entity; stored
         self._user_mode = "auto"  # the mode the user chose on the climate entity: "cool", "heat" or "auto"; stored with the hold
         self._manual_preset: str | None = None  # a preset the user chose on the climate entity
@@ -690,15 +691,15 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         else:
             heat_target_c = heat_setpoint(
                 preset_name,
-                self.comfort_c,
+                self.heat_comfort_c,
                 _optional_float(self.entry.data.get(CONF_HEAT_ECO_C)),
                 _optional_float(self.entry.data.get(CONF_HEAT_BOOST_C)),
                 motion_idle,
             )
         result["preheat"] = "off"
         result["heat_up_min"] = None
-        if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < comfort_raw:
-            heat_target_c, result["preheat"], result["heat_up_min"] = self._preheat(now_h, blocks, heat_target_c, comfort_raw)
+        if scheduled_name != Preset.COMFORT.value and not vacation_on and not house_away and heat_target_c < self.heat_comfort_c:
+            heat_target_c, result["preheat"], result["heat_up_min"] = self._preheat(now_h, blocks, heat_target_c, self.heat_comfort_c)
         # Boost cools to boost_c. When heating is allowed and the heat target sits above boost_c, the heat side
         # wins: boost_c lifts to the heat target plus the deadband, so the AC does not cool while the heater heats.
         # Outside that case the heater never aims above the cooling threshold (the cap below).

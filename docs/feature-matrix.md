@@ -1,6 +1,8 @@
 # Feature matrix
 
 
+This file is a record of commit 1c70da3, before version 0.3.0. Features added since then are missing, the line numbers no longer match, and the modules have moved into `room_model/` and `engine/`. For the current state read [What has run on real devices](concepts/limits.md#what-has-run-on-real-devices) and `tests/ha/test_settings_effect.py`, which checks every setting on each run.
+
 Checked against commit 1c70da3 on branch `remedy-2`. Code paths are under `custom_components/hvac_horizon/` unless a cell names `tests/`. HA tests are in `tests/ha/test_setup.py`. Unit tests are in `tests/test_*.py`. A test named `Class.method` sits in that class. Line numbers are for `coordinator.py` unless a cell names another file.
 
 Status values:
@@ -12,7 +14,7 @@ Status values:
 
 A `drives` cell that cites no HA test asserting the write starts its evidence with `Proof gap:` and says what is missing. A cell marked `function test only` cites only a unit test in `tests/test_*.py`.
 
-This file reflects the code on this branch at the commit above. Update it when a row changes.
+This file reflects the code at the commit above.
 
 ## Control and climate
 

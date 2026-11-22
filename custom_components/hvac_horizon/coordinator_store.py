@@ -57,6 +57,7 @@ class StoreMixin:
     _switches_on: set[str]
     _t_at_sample: float
     _target_override_c: float | None
+    _heat_override_c: float | None
     _timed_duration_min: float
     _timed_preset: str | None
     _timed_started_min: float | None
@@ -167,6 +168,8 @@ class StoreMixin:
         self._heater_gains = gains if all(v is not None for v in gains.values()) else None
         override = _stored_number(data.get("target_override_c"))
         self._target_override_c = override if override is not None and 0.0 <= override <= 50.0 else None
+        low = _stored_number(data.get("heat_override_c"))
+        self._heat_override_c = low if low is not None and 0.0 <= low <= 50.0 else None
         self._user_off = bool(data.get("user_off", False))
         self._user_mode = data.get("user_mode") if data.get("user_mode") in USER_MODES else "auto"
         auto_gains = _stored_dict(data.get("auto_tpi_gains"))
@@ -283,6 +286,7 @@ class StoreMixin:
             "auto_tpi_gains": {"cool": self._auto_tpi_gain, "heat": self._auto_heat_gain},
             "investigation_report": self._report,
             "target_override_c": self._target_override_c,
+            "heat_override_c": self._heat_override_c,
             "user_off": self._user_off,
             "user_mode": self._user_mode,
             "locked": self._locked,  # the PIN stays in the config entry and is never stored here
