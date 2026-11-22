@@ -413,6 +413,7 @@ class ForecastMixin:
             "improvement_pct": corrections.improvement_pct,
         }
         result["fit_window_days"] = self._fit_window_days
+        result["kept_models"] = self._kept_ages(now)
         result["heat_model"] = self._heat_model_summary()
         result["dry_model"] = None if self._dry_fit is None else {"pct_per_h": round(self._dry_fit.rate, 2), "samples": self._dry_fit.samples}
         other = self._dry_forecast(now) if self._mode_now() == "dry" else self._heat_forecast(now)

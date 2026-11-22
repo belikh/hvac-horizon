@@ -33,6 +33,7 @@ from custom_components.hvac_horizon.room_model.collector import (
 )
 from custom_components.hvac_horizon.room_model.model import Fit, NotEnoughData, Sample, fit
 from custom_components.hvac_horizon.room_model.corrections import Corrections, learn_corrections
+from custom_components.hvac_horizon.room_model.kept import Kept
 from custom_components.hvac_horizon.room_model.mode_models import RateFit, learn_ac_heat, learn_dry
 from custom_components.hvac_horizon.room_model.devices import HEATER, RoomFit, fit_room
 from custom_components.hvac_horizon.room_model.tpi import (
@@ -68,6 +69,8 @@ class LearningMixin:
     _heat_rate: float | None
     _heater_gains: dict[str, float] | None
     _in_band_min: float
+    _kept: Kept
+    _kept_used: set[str]
     _last_cycle_t: float | None
     _mode_counts: dict[str, int]
     _room_fit: dict[str, Any] | None
@@ -150,8 +153,29 @@ class LearningMixin:
         self._auto_heat_gain = adjust_heat_gain(self._auto_heat_gain, sample, duty, self._heat_rate, self._tpi.k, self._tpi.g)
 
     def _refit(self) -> None:
+        self._kept_used = set()
         self._refit_cooling()
         self._refit_modes()
+
+    def _keep(self, name: str, value: Any) -> Any:
+        """Record a new value with the time of the newest reading. With no new value, return the kept one.
+
+        The readings cover 30 days, so a device that stays off for longer leaves nothing to fit. Its last model serves until it runs again.
+        """
+        if value is not None:
+            if self._entries:
+                self._kept[name] = (value, self._entries[-1].t)
+            return value
+        if name not in self._kept:
+            return None
+        self._kept_used.add(name)
+        return self._kept[name][0]
+
+    def _kept_ages(self, now: float) -> dict[str, float] | None:
+        """Age in days of each model in use that comes from the kept values. None when every model is from the readings."""
+        if not self._kept_used:
+            return None
+        return {name: round(max(0.0, now - self._kept[name][1]) / 86400.0, 1) for name in sorted(self._kept_used)}
 
     def _refit_modes(self) -> None:
         """Fit the AC's heating per kW, the drying rate and the corrections for sun, outdoor temperature and humidity."""
@@ -165,15 +189,26 @@ class LearningMixin:
                 self._ac_heat_kw = statistics.fmean(s.power_kw for s in heat) if heat else None
             except NotEnoughData:
                 pass
+        self._ac_heat_fit = self._keep("ac_heat", self._ac_heat_fit)
+        self._ac_heat_kw = self._keep("ac_heat_kw", self._ac_heat_kw)
         dry = humidity_rates_from_entries(self._entries, "dry")
         try:
             self._dry_fit = learn_dry(dry)
             self._dry_kw = statistics.fmean(kw for kw, _ in dry) if dry else None
         except NotEnoughData:
             pass
+        self._dry_fit = self._keep("dry", self._dry_fit)
+        self._dry_kw = self._keep("dry_kw", self._dry_kw)
         active = self._active_fit()
-        if active is not None:
+        if self._kept_used & {"fit", "tpi"}:
+            # A kept room model takes the corrections that were learned with it.
+            self._corrections = self._keep("corrections", None)
+        elif active is not None:
             self._corrections = learn_corrections(samples_from_entries(self._entries), active)
+            if self._corrections is None:
+                self._kept.pop("corrections", None)
+            else:
+                self._keep("corrections", self._corrections)
 
     def _recent_samples(self, samples: list[Sample]) -> tuple[list[Sample], int]:
         """The samples of the last RECENT_FIT_DAYS when they alone give a fit, else every sample. Returns the days used.
@@ -204,24 +239,29 @@ class LearningMixin:
             self._tpi = learn_room_rates(samples)
         except NotEnoughData:
             self._tpi = None
+        self._tpi = self._keep("tpi", self._tpi)
         self._heat_rate = None
         if self._tpi is not None:
             try:
                 self._heat_rate = learn_heat_rate(heat_pairs_from_entries(self._entries), self._tpi.k, self._tpi.g)
             except NotEnoughData:
                 self._heat_rate = None
+        self._heat_rate = self._keep("heat_rate", self._heat_rate)
         self._backtest_runs = []
-        if not has_enough_cycles(samples):
-            self._fit = None
-            self._fit_reason = "need at least 3 hours of AC on and off time over 3 runs"
+        self._fit = None
+        self._fit_reason = "need at least 3 hours of AC on and off time over 3 runs"
+        if has_enough_cycles(samples):
+            try:
+                self._fit = fit(samples)
+                self._fit_reason = "fitted"
+            except NotEnoughData as err:
+                self._fit_reason = str(err)
+        if self._fit is None:
+            self._fit = self._keep("fit", None)
+            if self._fit is not None:
+                self._fit_reason = "kept from the last AC runs"
             return
-        try:
-            self._fit = fit(samples)
-            self._fit_reason = "fitted"
-        except NotEnoughData as err:
-            self._fit = None
-            self._fit_reason = str(err)
-            return
+        self._keep("fit", self._fit)
         target = self.comfort_c
         self._backtest_runs = backtest(every, target_c=target, min_train=60, margin_c=1.0)
         self._forecast_error_min = median_abs_error(self._backtest_runs)

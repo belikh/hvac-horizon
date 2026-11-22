@@ -16,6 +16,7 @@ from custom_components.hvac_horizon.room_model.outdoor import OutdoorBias
 from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTRIES, SAMPLE_INTERVAL_S
 from custom_components.hvac_horizon.room_model.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.room_model.model import Fit
+from custom_components.hvac_horizon.room_model import kept
 from custom_components.hvac_horizon.engine.features import house_mode_from_store
 from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _entries_from_store, _float, _stored_dict, _stored_number
 
@@ -36,6 +37,8 @@ class StoreMixin:
     _heater_gains: dict[str, float] | None
     _heater_switch_driven: str | None
     _inhibit_until_min: float | None
+    _kept: kept.Kept
+    _kept_used: set[str]
     _last_power_w: float
     _last_t: float
     _last_written_mode: str | None
@@ -199,6 +202,7 @@ class StoreMixin:
             if isinstance(v, dict) and _stored_number(v.get("rate"))
         }
         self._outdoor_bias = OutdoorBias.from_dict(data.get("outdoor_bias"))
+        self._kept = kept.from_store(data.get("kept_models"))
         self._refit()
         self._store_loaded = True
 
@@ -213,6 +217,9 @@ class StoreMixin:
         self._tpi = None
         self._heat_rate = None
         self._ac_heat_fit = self._dry_fit = self._corrections = None
+        self._ac_heat_kw = self._dry_kw = None
+        self._kept = {}
+        self._kept_used = set()
         self._auto_tpi_gain = 1.0
         self._auto_heat_gain = 1.0
         self._fit_reason = "learning reset"
@@ -290,6 +297,7 @@ class StoreMixin:
             "actuator_opened_by_us": self._actuator_opened_by_us,
             "device_rates": self._device_rates,
             "outdoor_bias": self._outdoor_bias.to_dict(),
+            "kept_models": kept.to_store(self._kept),
         }
 
     async def async_shutdown_store(self) -> None:

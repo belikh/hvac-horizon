@@ -75,7 +75,7 @@ Every service except `set_house_mode` takes `entry_id`. The services marked resp
 | `hvac_horizon.cancel_autotune` | none | Ends a running relay test and turns the heater off. |
 | `hvac_horizon.respond_suggestion` | `accept` | `true` stores the current heat-gain rate as the baseline. `false` hides the suggestion until the rate changes. Admin. |
 | `hvac_horizon.generate_investigation_report` | none | Builds a 24-hour report on the Status sensor. Admin. |
-| `hvac_horizon.reset_learning` | none | Clears the stored readings, the room model, the backtest and the outdoor bias. Settings stay. Admin. |
+| `hvac_horizon.reset_learning` | none | Clears the stored readings, the room model, the kept models, the backtest and the outdoor bias. Settings stay. Admin. |
 | `hvac_horizon.export_samples` | none | Response only. Returns `samples`, the stored readings. Admin. |
 | `hvac_horizon.export_csv` | none | Response only. Returns `csv`, the stored readings as CSV text. Admin. |
 | `hvac_horizon.what_if` | `room_c`, `target_c`, `outdoor_c`, `power_kw` | Response only. Returns `status`, `minutes`, `energy_kwh`, `cost` and `reason` for the values you give. |

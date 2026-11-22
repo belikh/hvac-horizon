@@ -8,7 +8,7 @@ The code is in `custom_components/hvac_horizon/` and has three layers.
 
 | Layer | Where | Modules | May import |
 | :--- | :--- | :--- | :--- |
-| Room model | `room_model/` | `model.py`, `forecast.py`, `corrections.py`, `mode_models.py`, `outdoor.py`, `solar_model.py`, `collector.py`, `backfill.py`, `devices.py`, `tpi.py`, `pid.py`, `autotune.py` | The standard library and `room_model` |
+| Room model | `room_model/` | `model.py`, `forecast.py`, `corrections.py`, `mode_models.py`, `kept.py`, `outdoor.py`, `solar_model.py`, `collector.py`, `backfill.py`, `devices.py`, `tpi.py`, `pid.py`, `autotune.py` | The standard library and `room_model` |
 | Control engine | `engine/` | `decide.py`, `features.py`, `fleet.py`, `control.py`, `investigator.py` | `room_model`, `engine` and `const.py` |
 | Home Assistant adapter | the package root | `coordinator.py` and the `coordinator_*.py` mixins, `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `diagnostics.py`, `accuracy_api.py` | Anything |
 
@@ -25,6 +25,7 @@ Both packages sit inside the integration folder, because HACS installs that fold
 | `forecast.py` | `forecast()` gives minutes, energy and cost to a target. `price_at()` reads the price slots. |
 | `corrections.py` | `learn_corrections()` fits the sun, outdoor temperature and humidity terms. `apply()` gives the fit at given conditions. |
 | `mode_models.py` | The heating and drying models and their forecasts. |
+| `kept.py` | The last good value of each learned model, to and from the store. |
 | `outdoor.py` | The outdoor temperature series from the hourly forecast, the night low and the sensor-to-forecast bias. |
 | `decide.py` | `decide()` returns one AC action. `cool_above_c()` gives the cool threshold. |
 | `features.py` | Decision functions: presets, stall rule, inhibit, lock, restart delay, PWM, price shift, valve, shed, humidity, free cooling. |

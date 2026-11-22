@@ -35,6 +35,12 @@ Readings where the AC heats, dries or runs its fan only are left out. A reading 
 
 The fit uses the readings of the last 14 days when they alone give a fit, and all 30 days otherwise. The `fit_window_days` sensor shows which.
 
+## Models kept through an idle season
+
+The store holds 30 days of readings. An AC or heater that stays off for longer leaves no reading to fit its model from. Each refit therefore stores the last good value of six models: the room fit, the room rates, the heater rate, the AC heating rate, the drying rate and the corrections. Each is stored with the time of the newest reading behind it. When a refit finds too few readings for a model, the stored value serves. The forecast, the price plan and preheat keep running on it.
+
+The `kept_models` sensor lists each model in use that comes from the store, with its age in days. A new fit replaces the kept value as soon as the readings give one: 3 hours of AC on and off time over 3 runs for cooling, 12 intervals for heating or drying. A kept model describes the room of the season it was learned in, so expect a larger forecast error until the new fit arrives. `reset_learning` clears the kept models.
+
 ## Corrections
 
 `corrections.py` fits three terms on what the room model leaves unexplained.

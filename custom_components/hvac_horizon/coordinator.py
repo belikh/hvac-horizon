@@ -73,6 +73,7 @@ from .const import (
 from custom_components.hvac_horizon.room_model.collector import Entry, running_power_kw
 from custom_components.hvac_horizon.room_model.model import Fit
 from custom_components.hvac_horizon.room_model.corrections import Corrections
+from custom_components.hvac_horizon.room_model.kept import Kept
 from custom_components.hvac_horizon.room_model.mode_models import RateFit
 from custom_components.hvac_horizon.room_model.pid import Pid
 from custom_components.hvac_horizon.engine.decide import Preset, Settings, cool_above_c, raise_cool_thresholds
@@ -212,6 +213,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._dry_kw: float | None = None  # mean AC power in dry mode
         self._corrections: Corrections | None = None  # sun, outdoor temperature and humidity terms on top of the fit
         self._fit_window_days = KEEP_DAYS  # days of readings the fit used
+        self._kept: Kept = {}  # the last good value of each learned model and the time of its newest reading; stored
+        self._kept_used: set[str] = set()  # the models now in use that come from the kept values
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored

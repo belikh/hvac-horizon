@@ -42,7 +42,7 @@ HVAC Horizon takes a reading every 5 minutes. The first room model needs all of 
 3. An outdoor minus room difference that varies by at least 1 K.
 4. AC power that varies by at least 0.05 kW.
 
-The model refits every 12 readings, about once an hour. The store keeps 8640 readings, 30 days. At setup the integration also reads up to 10 days of recorder history, so a room with history can have a model on the first day.
+The model refits every 12 readings, about once an hour. The store keeps 8640 readings, 30 days. At setup the integration also reads up to 10 days of recorder history, so a room with history can have a model on the first day. When a device stays off for more than 30 days its last model is kept and the Kept models sensor gives its age. See [[concepts/design#models-kept-through-an-idle-season|Models kept through an idle season]].
 
 Readings taken while the AC heats, dries or runs its fan only stay out of the cooling model. Readings taken while the outdoor sensor is stalled are not stored.
 

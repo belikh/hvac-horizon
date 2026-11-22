@@ -107,6 +107,7 @@ These 36 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `forecast_target` | Forecast target | none | Target of a heating forecast in °C, or of a drying forecast in percent. Unknown for a cooling forecast. |
 | `fit_corrections` | Fit corrections | none | The kept corrections for sun, outdoor temperature and humidity, with `improvement_pct`. Unknown with none. |
 | `fit_window_days` | Fit window | d | Days of readings the fit used: 14 or 30. |
+| `kept_models` | Kept models | none | Each model in use that comes from an earlier fit, with its age in days: `fit`, `tpi`, `heat_rate`, `ac_heat`, `dry`, `corrections`. Unknown when every model is from the stored readings. |
 | `heat_model` | Heat model | none | The heating model: `source` (`heater` or `ac`), `k_per_h` and `power_kw`. |
 | `dry_model` | Dry model | none | The drying model: `pct_per_h` and `samples`. |
 | `free_cooling` | Free cooling | none | `idle`, `running` or `gave_up`. |

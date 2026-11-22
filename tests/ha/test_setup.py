@@ -1895,8 +1895,8 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
     assert primary == PRIMARY_KEYS and len(primary) == 12
     assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 30
-    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 42
-    assert len(sensors) == 84
+    assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 43
+    assert len(sensors) == 85
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -7967,7 +7967,7 @@ _GARBAGE = ("text", -1, 1e308, [], {}, [1, "a"], {"a": None}, None, True)
 
 @pytest.mark.parametrize("key", [
     "entries", "investigation_report", "heater_gains", "target_override_c", "user_off", "user_mode", "auto_tpi_gains", "locked", "house_mode",
-    "inhibit_until_min", "timed_preset", "shed_loads", "commanded", "shed_at", "actuator_opened_by_us", "device_rates", "outdoor_bias",
+    "inhibit_until_min", "timed_preset", "shed_loads", "commanded", "shed_at", "actuator_opened_by_us", "device_rates", "outdoor_bias", "kept_models",
 ])
 async def test_a_stored_field_with_a_wrong_type_still_loads_and_sends_no_start(hass, enable_custom_integrations, config_data, hass_storage, key):
     """A damaged store field takes its default. The entry loads, and a room held off before stays off."""
@@ -7983,6 +7983,7 @@ async def test_a_stored_field_with_a_wrong_type_still_loads_and_sends_no_start(h
         "device_rates": {"d": {"rate": 1.0, "samples": 5}},
         "shed_at": {"switch.x": 1.0},
         "entries": [{"t": 1.0, "room_c": 20.0, "outdoor_c": 10.0, "power_w": 0.0, "rooms_c": [20.0]}],
+        "kept_models": {"fit": {"t": 1.0, "value": {"k": 0.3, "c": 1.4}}, "tpi": {"t": 1.0, "value": {"k": 0.3, "g": 0.2, "c": 1.4, "samples_off": 12, "samples_on": 12}}, "heat_rate": {"t": 1.0, "value": 2.0}},
     }.get(key)
     if isinstance(whole, dict):
         damaged += [_damaged(payload, key, dict(whole, **{inner: value})) for inner in whole for value in _GARBAGE]
@@ -8152,3 +8153,90 @@ async def test_the_drying_forecast_says_learning_without_dry_intervals(hass, ena
     data = entry.runtime_data.data
     assert (data["forecast_mode"], data["status"]) == ("dry", "learning")
     assert data["reason"] == "need 12 dry intervals with a room humidity reading"
+
+
+def _cycling_entries(end, steps=800):
+    """AC cycles of 30 minutes on and off, ending at `end`. The room gains 0.3/h toward outdoors and the AC cools 1.4 K/h per kW."""
+    temp, entries = 24.0, []
+    for i in range(steps):
+        outdoor = 27.0 + 6.0 * math.sin(i / 9.0)
+        on = 1.0 if (i // 6) % 2 == 0 else 0.0
+        entries.append(Entry(t=end - (steps - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=1000 * on))
+        temp += (0.3 * (outdoor - temp) + 0.2 - 1.4 * on) * (5 / 60)
+    return entries
+
+
+def _idle_entries(end, days):
+    """One reading every 5 minutes with every device off."""
+    steps = int(days * 288)
+    return [Entry(t=end - (steps - i) * 300, room_c=22.0, outdoor_c=22.0 + math.sin(i / 40.0), power_w=0.0) for i in range(steps)]
+
+
+async def test_the_room_model_is_kept_when_the_ac_stays_off_for_two_months(hass, enable_custom_integrations, config_data, freezer):
+    """The AC cycles, then stays off until every stored reading is an idle one. The forecast keeps the model and gives its age."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="27.0", outdoor="24.0")
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    coordinator._entries = _cycling_entries(now - 60 * 86400.0)
+    coordinator._refit()
+    learned = coordinator._fit
+    assert learned is not None and learned.c == pytest.approx(1.4, abs=0.05)
+    assert coordinator._kept_used == set()
+
+    coordinator._entries = _idle_entries(now, 30)
+    coordinator._refit()
+    await refresh(hass, entry)
+    assert coordinator._fit == learned and coordinator._tpi is not None
+    data = coordinator.data
+    assert data["status"] != "learning" and data["minutes"] is not None
+    assert data["kept_models"]["fit"] == pytest.approx(60.0, abs=0.1)
+    assert data["kept_models"]["tpi"] == pytest.approx(60.0, abs=0.1)
+
+    await _restart(hass, entry)
+    coordinator = entry.runtime_data
+    assert coordinator._fit == learned
+    await refresh(hass, entry)
+    assert coordinator.data["kept_models"]["fit"] == pytest.approx(60.0, abs=0.1)
+
+    # New AC runs replace the kept model.
+    coordinator._entries = _cycling_entries(now)
+    coordinator._refit()
+    await refresh(hass, entry)
+    assert coordinator.data["kept_models"] is None
+    assert coordinator._kept["fit"][1] == pytest.approx(now - 300, abs=1.0)
+
+
+async def test_reset_learning_forgets_the_kept_models(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="27.0", outdoor="30.0")
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    coordinator._entries = _cycling_entries(now - 60 * 86400.0)
+    coordinator._refit()
+    assert "fit" in coordinator._kept
+    coordinator.reset_learning()
+    coordinator._entries = _idle_entries(now, 2)
+    coordinator._refit()
+    await refresh(hass, entry)
+    assert coordinator._fit is None and coordinator._tpi is None
+    assert coordinator.data["status"] == "learning" and coordinator.data["kept_models"] is None
+    await _restart(hass, entry)
+    assert entry.runtime_data._fit is None
+
+
+async def test_a_kept_heater_rate_gives_the_heating_forecast_after_an_idle_season(hass, enable_custom_integrations, config_data, freezer):
+    """The heater's rate was learned 90 days ago and no reading of it is left. The heating forecast still gives minutes."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _ = await setup_heater(hass, config_data, room="19.0")
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    then = now - 90 * 86400.0
+    coordinator._kept = {"tpi": (TpiFit(k=0.0, g=0.0, c=1.0, samples_off=12, samples_on=12), then), "heat_rate": (5.0, then)}
+    coordinator._entries = _idle_entries(now, 2)
+    coordinator._refit()
+    await refresh(hass, entry)
+    data = coordinator.data
+    assert (data["forecast_mode"], data["status"]) == ("heat", "reachable")
+    assert data["minutes"] == pytest.approx((coordinator._heat_target_c - 19.0) / 5.0 * 60.0, abs=1.5)
+    assert data["kept_models"] == {"heat_rate": pytest.approx(90.0, abs=0.1), "tpi": pytest.approx(90.0, abs=0.1)}

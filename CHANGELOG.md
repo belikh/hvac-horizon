@@ -20,6 +20,9 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
   every change between them.
 - The pure code moved into two packages: `room_model/` for readings, fits and forecasts, and `engine/` for control
   decisions. A test keeps Home Assistant imports out of both.
+- The last good model of each kind is stored and serves when the readings no longer give one. Before, an AC or heater
+  that stayed off for 30 days lost its model, and the forecast read `learning` until it had run again. The new Kept
+  models sensor gives the age of each model in use that comes from the store.
 - The limits page lists which devices have run on real hardware.
 
 ## 0.5.6 (2026-11-22)
