@@ -2,6 +2,14 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.6.1 (unreleased)
+
+- The price shift only raises the cool threshold. Before, a price at or below `price_cheap` moved it 1 K down, so a
+  target of 24 °C cooled the room to 23 °C. Now the threshold is your target up to the midpoint of `price_cheap` and
+  `price_expensive`, and rises to 1 K above it at `price_expensive`.
+- The room thermostat shows the cool target you set. Before, it showed the threshold after the price shift. The Cool
+  above and Target temperature sensors show the threshold.
+
 ## 0.6.0 (2026-11-22)
 
 - The forecast sensors cover heating and drying. While the mode heats and the room is below the heat target, Minutes,

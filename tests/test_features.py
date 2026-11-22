@@ -88,10 +88,12 @@ if __name__ == "__main__":
 
 
 class PriceShiftTests(unittest.TestCase):
-    def test_cheap_power_cools_further(self):
+    def test_cheap_power_leaves_the_target_alone(self):
         from custom_components.hvac_horizon.engine.features import price_shifted_target
 
-        self.assertEqual(price_shifted_target(24.0, 0.10, 0.15, 0.40), 23.0)
+        self.assertEqual(price_shifted_target(24.0, 0.10, 0.15, 0.40), 24.0)
+        self.assertEqual(price_shifted_target(24.0, 0.20, 0.15, 0.40), 24.0)
+        self.assertAlmostEqual(price_shifted_target(24.0, 0.3375, 0.15, 0.40), 24.5)
 
     def test_expensive_power_relaxes(self):
         from custom_components.hvac_horizon.engine.features import price_shifted_target

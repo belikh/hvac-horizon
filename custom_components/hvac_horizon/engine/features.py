@@ -155,22 +155,19 @@ def round_to_step(value: float, step: float) -> float:
 
 
 def price_shifted_target(comfort_c: float, price_per_kwh: float | None, cheap_per_kwh: float, expensive_per_kwh: float, max_shift_c: float = 1.0) -> float:
-    """Move the target by up to `max_shift_c` with the electricity price.
+    """Raise the target by up to `max_shift_c` when electricity is expensive. The target never moves below comfort.
 
-    Below `cheap_per_kwh` the target moves down by the full shift (cool a little more while power is cheap).
-    Above `expensive_per_kwh` it moves up by the full shift. In between the shift is linear.
-    A missing price leaves the target at comfort.
+    Up to the midpoint of `cheap_per_kwh` and `expensive_per_kwh` the target is comfort. From there the shift is linear,
+    and at or above `expensive_per_kwh` it is the full shift. A missing price leaves the target at comfort.
     """
     if price_per_kwh is None:
         return comfort_c
     if expensive_per_kwh <= cheap_per_kwh:
         raise ValueError("expensive_per_kwh must be above cheap_per_kwh")
-    if price_per_kwh <= cheap_per_kwh:
-        return comfort_c - max_shift_c
     if price_per_kwh >= expensive_per_kwh:
         return comfort_c + max_shift_c
     fraction = (price_per_kwh - cheap_per_kwh) / (expensive_per_kwh - cheap_per_kwh)
-    return comfort_c - max_shift_c + 2.0 * max_shift_c * fraction
+    return comfort_c + max(0.0, 2.0 * fraction - 1.0) * max_shift_c
 
 
 @dataclass(frozen=True)

@@ -257,6 +257,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._someone_home = True
         self._preset_now: str | None = None
         self._cool_above_c: float = DEFAULT_COMFORT_C
+        self._cool_shown_c: float = DEFAULT_COMFORT_C  # the cool target the thermostat shows: the user's, before the price shift
         self._window_advice_open = False  # the last window advice was "open"; it carries the deadband
         self._economizer_open = False  # the last economizer phase was not "off"
         self._heat_target_c: float = DEFAULT_COMFORT_C
@@ -709,6 +710,10 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             and heat_target_c + DEFAULT_HEATER_DEADBAND_C > settings.boost_c
         ):
             settings = replace(settings, boost_c=heat_target_c + DEFAULT_HEATER_DEADBAND_C)
+        # The thermostat shows the cool target as the user set it: the preset's setpoint before the comfort-versus-energy
+        # weight, the price shift and the mould bump. Those three move the threshold, which the Cool above sensor shows.
+        shown_comfort = vacation_target(vacation_on, float(self.entry.data.get(CONF_VACATION_C, DEFAULT_VACATION_C)), comfort_raw)
+        self._cool_shown_c = cool_above_c(replace(settings, comfort_c=shown_comfort), someone_home)
         # Mould risk raises the cooling threshold of every preset by one degree. The heat target is unchanged.
         settings = raise_cool_thresholds(settings, mould)
         self._settings = settings

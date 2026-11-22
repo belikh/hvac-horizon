@@ -77,11 +77,13 @@ When the room is below the heat threshold and a gate holds the heater off, `pend
 
 The target is the comfort temperature, 16 to 32 °C in steps of 0.5. Setting it stores your value, and HVAC Horizon keeps it across restarts.
 
-The temperature shown is the threshold in force. It can differ from the value you set:
+The thermostat shows the target you set, with these exceptions:
 
 - A preset other than `comfort` shows its own setpoint.
-- The price shift moves the target up to 1 K. See [Services and presets](services-and-presets.md).
-- In `heat` mode the thermostat shows the heat target. In the other modes it shows the cool threshold.
+- While the vacation switch is on, it shows `vacation_c`.
+- In `heat` mode it shows the heat target. In the other modes it shows the cool target.
+
+The threshold the AC cools above can sit above the cool target. A high price raises it by up to 1 K, and the comfort-versus-energy weight and the mould bump raise it too. A low price does not lower it. The Cool above sensor shows the threshold. See [Services and presets](services-and-presets.md).
 
 The AC cools when the room is above the cool threshold. The heater heats when the room is 0.5 K or more below the heat target. The sensors Cool above and Heat below show both values.
 

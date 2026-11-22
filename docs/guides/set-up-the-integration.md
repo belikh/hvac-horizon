@@ -52,7 +52,7 @@ The PID gains come from a relay test when you run one. See `start_autotune` in [
 1. Open **Price** and select the price sensor. Its unit is per kWh.
 2. Set **Cheap price threshold** and **Expensive price threshold** in the same unit. The defaults are 0.15 and 0.40.
 
-At or below the cheap price the cool threshold moves 1 K down. At or above the expensive price it moves 1 K up. Between the two the shift is linear. The Cost to setpoint sensor needs a `forecast` attribute on the price sensor: a list of `time` and `value` pairs.
+The price only raises the cool threshold. Up to the midpoint of the cheap and the expensive price the threshold is your target. From there it rises in a line, and at or above the expensive price it is 1 K higher. The Cost to setpoint sensor needs a `forecast` attribute on the price sensor: a list of `time` and `value` pairs.
 
 ## Add presence and motion
 

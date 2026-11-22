@@ -20,7 +20,7 @@ A preset sets the cool threshold and the heat target. HVAC Horizon uses the firs
 
 Three things move these values:
 
-- **Price.** With a price sensor, the cool threshold moves 1 K down at the cheap price and 1 K up at the expensive price.
+- **Price.** With a price sensor, the cool threshold rises above the midpoint of the cheap and the expensive price, up to 1 K at the expensive price. A low price leaves it at your target.
 - **Boost with a heater.** When heating is allowed, boost lifts its cool threshold to the heat target plus 0.5 K. The AC then does not cool while the heater heats.
 - **Vacation.** While the vacation switch is on, `vacation_c` replaces the comfort target and heating holds 16 °C.
 

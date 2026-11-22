@@ -8240,3 +8240,21 @@ async def test_a_kept_heater_rate_gives_the_heating_forecast_after_an_idle_seaso
     assert (data["forecast_mode"], data["status"]) == ("heat", "reachable")
     assert data["minutes"] == pytest.approx((coordinator._heat_target_c - 19.0) / 5.0 * 60.0, abs=1.5)
     assert data["kept_models"] == {"heat_rate": pytest.approx(90.0, abs=0.1), "tpi": pytest.approx(90.0, abs=0.1)}
+
+
+@pytest.mark.parametrize(("price", "threshold"), [("0.10", 24.0), ("0.50", 25.0)])
+async def test_the_thermostat_shows_the_target_the_user_set_while_the_price_shifts_the_threshold(hass, enable_custom_integrations, config_data, price, threshold):
+    """A cheap price leaves the cool threshold at the target and an expensive one moves it 1 K up. The thermostat keeps the 24 C the user set."""
+    entry, _, _ = await _setup_ac_only(hass, config_data, room="26.0")
+    hass.states.async_set(PRICE, price, {"unit_of_measurement": "$/kWh"})
+    room = _room_climate_id(hass, entry)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": room, "hvac_mode": "cool"}, blocking=True)
+    await hass.services.async_call("climate", "set_temperature", {"entity_id": room, "temperature": 24.0}, blocking=True)
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["price_used_per_kwh"] == float(price)
+    assert entry.runtime_data.data["cool_on_above_c"] == threshold
+    assert hass.states.get(room).attributes["temperature"] == 24.0
+    # A preset shows its own setpoint.
+    await hass.services.async_call("climate", "set_preset_mode", {"entity_id": room, "preset_mode": "away"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get(room).attributes["temperature"] == entry.runtime_data.data["cool_on_above_c"] > 25.0

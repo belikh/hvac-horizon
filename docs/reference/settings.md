@@ -42,8 +42,8 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | :--- | :--- | :--- | :--- |
 | `price` | Electricity price sensor | unset | Sets the price used for cost. Without it the target does not move with price. |
 | `energy` | Energy counter (kWh) | unset | Cumulative energy counter. The room model uses it for interval power when the power sensor has no interval mean. |
-| `price_cheap` | Cheap price threshold | `0.15` | At or below this price the target moves 1 K down. |
-| `price_expensive` | Expensive price threshold | `0.4` | At or above this price the target moves 1 K up. |
+| `price_cheap` | Cheap price threshold | `0.15` | Sets where the price shift starts: the midpoint of this price and `price_expensive`. Up to the midpoint the cool threshold is your target. |
+| `price_expensive` | Expensive price threshold | `0.4` | At or above this price the cool threshold is 1 K above your target. |
 
 ## Heater
 

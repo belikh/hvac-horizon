@@ -47,6 +47,7 @@ class UserMixin:
     _autotune_status: str | None
     _baseline_k: float | None
     _cool_above_c: float
+    _cool_shown_c: float
     _dismissed_for_k: float | None
     _fit: Fit | None
     _fit_reason: str
@@ -108,8 +109,11 @@ class UserMixin:
         return float(self.entry.data.get(CONF_COMFORT_C, DEFAULT_COMFORT_C))
 
     def effective_target_c(self, heating: bool) -> float:
-        """The target the last tick planned: the heat target when `heating`, else the cool threshold. Both follow the preset."""
-        return self._heat_target_c if heating else self._cool_above_c
+        """The target the thermostat shows: the heat target when `heating`, else the cool target. Both follow the preset.
+
+        The cool target is the one the user set. The threshold the AC cools above can differ from it by the price shift.
+        """
+        return self._heat_target_c if heating else self._cool_shown_c
 
     def device_action(self) -> str:
         """What the room's devices do now, from their own states: "cooling", "heating", "drying", "idle" or "off".
