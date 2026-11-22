@@ -112,7 +112,7 @@ These 12 values are on or off. Each is a `binary_sensor` entity with the entity 
 
 | Key | Name | Device class | On means | Enabled |
 | :--- | :--- | :--- | :--- | :--- |
-| `drying_needed` | Drying needed | none | Room humidity is above the humidity target (60 % by default) and the room needs no cooling. | yes |
+| `drying_needed` | Drying needed | none | Room humidity is above the humidity target (60 % by default) and the room needs no cooling. In `dry` mode the cooling condition does not apply. | yes |
 | `mould_risk` | Mould risk | `problem` | The estimated surface humidity is 80 % or more. Every cool threshold is then 1 K higher. | yes |
 | `heatwave` | Heatwave | `heat` | `heatwave_warning` is on, or the daily highs reach 30 °C three days running. It changes no device command. | yes |
 | `heating_allowed` | Heating allowed | none | Heating may run. Off while outdoors is above 22 °C in the automatic mode or `dry`: the heater, the boiler and AC heat then stay off. On in `heat` mode. | yes |

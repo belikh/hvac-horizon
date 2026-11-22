@@ -160,7 +160,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_register_accuracy_page(hass)
     coordinator = HorizonCoordinator(hass, entry)
     await coordinator.async_load()
-    await coordinator.async_backfill_from_recorder()
+    # The recorder read takes minutes on a large database, so it runs beside setup. Unload cancels it.
+    entry.async_create_background_task(hass, coordinator.async_backfill_from_recorder(), f"{DOMAIN} recorder backfill")
     coordinator.start_power_tracking()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator

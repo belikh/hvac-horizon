@@ -318,7 +318,7 @@ class AcMixin:
                 self._dry_floor_hold = False
         if self._dry_floor_hold:
             ac_dry_allowed = False
-            result["action"] = "off: dry paused, room below heat threshold"
+            self._report_action(result, "off: dry paused, room below heat threshold")
         # A CO2 rate between 0 and 1 runs the fan for that share of each PWM window. PM2.5 still forces it on.
         # At 0 or 1 the fan follows the on-off rule above.
         co2_rate = ventilation_rate_from_co2(_float(self._optional(CONF_CO2)))
@@ -390,7 +390,7 @@ class AcMixin:
                     self._last_sent_min = now / 60.0
                     self._last_written_mode = "fan_only"
                     self._coil_dry_sent = False
-                result["action"] = "fan: the AC runs its fan only"
+                self._report_action(result, "fan: the AC runs its fan only")
                 return
             if not stalled and await self._drive_coil_dry(climate_id, climate, now):
                 return
@@ -405,6 +405,7 @@ class AcMixin:
                 and self._last_written_mode == "dry"
                 and not self._coil_dry_sent
             ):
+                self._report_action(result, f"dry: humidity {humidity.reason}")
                 return
             if (
                 not stalled
@@ -418,13 +419,22 @@ class AcMixin:
                 wait = self._restart_wait(climate.state in ("cool", "heat", "dry"), climate, self._state_changed_at, now)
                 if wait > 0:
                     self._hold_start(wait, None)
-                    result["action"] = "dry: waiting for restart delay"
+                    self._report_action(result, "dry: waiting for restart delay")
                     return
                 self._record_group_start(now)
                 await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"
+                self._report_action(result, f"dry: humidity {humidity.reason}")
                 return
+            if self.dry_mode and not stalled and not self._dry_floor_hold:
+                # Dry mode with the AC off: the text names the humidity decision, where the cool decision's text would mislead.
+                if not dry_wanted:
+                    self._report_action(result, f"off: dry mode, humidity {humidity.reason}")
+                elif self.settings.get(CONF_DEHUMIDIFIER):
+                    self._report_action(result, f"dry: the dehumidifier runs, humidity {humidity.reason}")
+                elif ac_dry_allowed:
+                    self._report_action(result, "dry: waiting for compressor group")
             if climate.state != "off":
                 await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
                 self._last_sent_min = now / 60.0
@@ -452,6 +462,11 @@ class AcMixin:
             # The fan follows the room gap while the AC was already cooling before this cycle.
             if self.settings.get(CONF_AUTO_FAN, False):
                 await self._write_fan_mode(climate_id, climate, statistics.median(rooms) - self._cool_above_c)
+
+    def _report_action(self, result: dict[str, Any], text: str) -> None:
+        """Set the action text and the Daily briefing that quotes it."""
+        result["action"] = text
+        result["daily_briefing"] = daily_briefing(result.get("day_type") or "unknown", self.comfort_c, text, None)
 
     async def _write_setpoint(self, climate_id: str, climate: State, target_c: float, now: float) -> float:
         """Send `target_c` to the AC when it differs from the device setpoint. Returns the setpoint after rounding and clamping.

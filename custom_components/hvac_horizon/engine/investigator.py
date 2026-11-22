@@ -40,7 +40,7 @@ def investigate(
         mode, _, reason = action.partition(":")
         mode = mode.strip()
         reason = reason.strip() or "no reason recorded"
-        verb = "running" if mode == "cool" else "not running" if mode == "off" else mode
+        verb = {"cool": "running", "off": "not running", "dry": "drying", "heat": "heating", "fan": "running its fan"}.get(mode, mode)
         parts = [f"The AC is {verb}: {reason}."]
         if room_c is not None and cool_above_c is not None:
             parts.append(f"Room {room_c:.1f} C, cool above {cool_above_c:.1f} C.")

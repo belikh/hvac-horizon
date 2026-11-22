@@ -447,7 +447,10 @@ class HorizonCoordinator(_Settings, StoreMixin, UserMixin, LearningMixin, Foreca
         target_fan = self.comfort_c
         result["fan_speed"] = fan_speed_from_gap(statistics.median(rooms_fan), target_fan) if rooms_fan else None
         room_gap = (statistics.median(rooms_fan) - target_fan) if rooms_fan else 1.0
-        result["drying_needed"] = drying_needed(_float(self._optional(CONF_ROOM_HUMIDITY)), self.humidity_target_pct, cool_gap_c=room_gap)
+        # In dry mode nothing cools, so the cool gap does not hold the value off.
+        result["drying_needed"] = drying_needed(
+            _float(self._optional(CONF_ROOM_HUMIDITY)), self.humidity_target_pct, cool_gap_c=0.0 if self.dry_mode else room_gap
+        )
         price_now = _float(self._optional(CONF_PRICE))
         if price_now is not None:
             self._last_good_price = price_now

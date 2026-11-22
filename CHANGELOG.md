@@ -2,6 +2,18 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.7.1 (2026-11-23)
+
+- **Start-up time.** The read of 10 days of recorder history now runs in the background after setup. Before, setup
+  waited for it, and Home Assistant logged "Waiting for integrations to complete setup" for 2 minutes or more on a
+  large database.
+- **Dry mode texts.** The Daily briefing and the `investigation` attribute of Status now name the drying decision in
+  dry mode, for example `dry: humidity 58 % above 47 %` or `off: dry mode, humidity within band`. Before, a room above
+  the cool threshold read `off: mode is dry: no cooling` while the AC dried. Fan mode had the same fault in the
+  briefing. The commands sent to the AC are unchanged.
+- **Drying needed in dry mode.** The binary sensor is on above the humidity target in dry mode. Before, it stayed off
+  while the room was above the cool threshold, in every mode.
+
 ## 0.7.0 (2026-11-23)
 
 This release changes entity IDs, one mode name and where the settings are. Read the first four items before you upgrade.

@@ -974,6 +974,49 @@ async def test_backfill_runs_and_reports_count(hass, enable_custom_integrations,
     assert added >= 0
 
 
+async def test_setup_does_not_wait_for_the_recorder_backfill(hass, enable_custom_integrations, config_data, monkeypatch):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    release = asyncio.Event()
+    finished = []
+
+    async def slow_backfill(self, days=10.0):
+        await release.wait()
+        finished.append(True)
+        return 0
+
+    monkeypatch.setattr(coordinator_module.HorizonCoordinator, "async_backfill_from_recorder", slow_backfill)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is config_entries.ConfigEntryState.LOADED
+    assert not finished
+    release.set()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert finished == [True]
+
+
+async def test_unload_cancels_a_running_recorder_backfill(hass, enable_custom_integrations, config_data, monkeypatch):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    cancelled = []
+
+    async def endless_backfill(self, days=10.0):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+
+    monkeypatch.setattr(coordinator_module.HorizonCoordinator, "async_backfill_from_recorder", endless_backfill)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert cancelled == [True]
+
+
 async def test_export_csv_service_returns_csv_header(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
@@ -7764,6 +7807,35 @@ async def test_dry_mode_dries_a_humid_room_and_never_cools(hass, enable_custom_i
     await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="50")
     assert hass.states.get(CLIMATE).state == "off"
     assert ("set_hvac_mode", CLIMATE, "cool") not in calls
+
+
+async def test_dry_mode_reports_the_drying_decision_in_a_hot_room(hass, enable_custom_integrations, config_data, freezer):
+    """A room above the cool threshold in dry mode: the action, the briefing and the investigation name the drying."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, _calls = await _setup_with_devices(hass, config_data, room="27.0", outdoor="30.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="70")
+    data = entry.runtime_data.data
+    assert hass.states.get(CLIMATE).state == "dry"
+    assert data["action"] == "dry: humidity 70 % above 57 %"
+    assert data["daily_briefing"].endswith("Next: dry: humidity 70 % above 57 %.")
+    assert data["investigation"]["answer"].startswith("The AC is drying: humidity 70 % above 57 %.")
+    assert data["drying_needed"] is True
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="50")
+    data = entry.runtime_data.data
+    assert hass.states.get(CLIMATE).state == "off"
+    assert data["action"] == "off: dry mode, humidity within band"
+    assert data["daily_briefing"].endswith("Next: off: dry mode, humidity within band.")
+    assert data["drying_needed"] is False
+
+
+async def test_drying_needed_stays_off_in_a_hot_humid_room_outside_dry_mode(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, _entity_id, _calls = await _setup_with_devices(hass, config_data, room="27.0", outdoor="30.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0", rh="70")
+    assert entry.runtime_data.data["drying_needed"] is False
 
 
 async def test_dry_mode_runs_the_heater_while_the_ac_dries(hass, enable_custom_integrations, config_data, freezer):
