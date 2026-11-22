@@ -203,3 +203,17 @@ def test_serialiser_check_rejects_a_plain_validator():
     # Negative control: the check above must fail on a field the form cannot render.
     with pytest.raises(AssertionError, match="not a selector"):
         _serialise_field(str)
+
+
+def test_every_sensor_has_a_name_in_the_translations_and_no_name_is_left_over():
+    """Sensor names are Home Assistant entity translations: entity.sensor.<key>.name. The entity sets the key and no name."""
+    from custom_components.hvac_horizon import sensor
+
+    from custom_components.hvac_horizon import binary_sensor
+
+    names = _translations()["entity"]["sensor"]
+    main = {"minutes_to_setpoint", "energy_kwh", "cost", "status", "samples", "forecast_error_min"}
+    assert set(names) == set(sensor.STATUS_KEYS) | main
+    assert set(_translations()["entity"]["binary_sensor"]) == set(binary_sensor.BINARY_KEYS)
+    assert all(entry["name"] and entry["name"][0].isupper() for entry in names.values())
+    assert set(sensor.MEASURES) <= set(names)

@@ -19,14 +19,22 @@ The mode decides which devices may run. A device starts only when the room needs
 
 | Mode | Cooling devices | Heating devices |
 | :-- | :-- | :-- |
-| `auto` | Run above the cool threshold | Run below the heat threshold |
+| `heat_cool` | Run above the high target's threshold | Run below the low target's threshold |
+| `auto` | Run above the cool threshold | None in the room |
 | `cool` | Run above the cool threshold | Stay off |
 | `heat` | Stay off | Run below the heat threshold |
 | `dry` | The AC runs in its dry mode and does not cool | Run below the heat threshold |
 | `fan_only` | The AC runs its fan and does not cool | Stay off |
 | `off` | Stay off | Stay off |
 
-`auto` is the default. The thermostat lists `heat` when the entry can heat: a heater switch, `ac_heat`, `mpc_heat_plan` or a heating fleet device. It lists `dry` when the AC has a dry mode or the entry has a dehumidifier switch. It lists `fan_only` when the first AC has that mode and the room has no fleet devices.
+The default is the automatic mode: the room runs whatever it needs. Its name follows Home Assistant's meaning of the two modes.
+
+- **`heat_cool`** in a room that can heat and cool. The card shows a low and a high target.
+- **`auto`** in a room that only cools. The card shows one target.
+
+Both are one behaviour, and the pages of this manual call it the automatic mode. A room with heating only has `off` and `heat`. Before 0.7.0 the automatic mode was named `auto` in every room. An automation that sets `auto` on a room that can heat must set `heat_cool`.
+
+The thermostat lists `heat` when the entry can heat: a heater switch, `ac_heat`, `mpc_heat_plan` or a heating fleet device. It lists `dry` when the AC has a dry mode or the entry has a dehumidifier switch. It lists `fan_only` when the first AC has that mode and the room has no fleet devices.
 
 Cooling devices are the AC, the second AC, cooling fleet devices, the whole-house fan and the window actuator. Heating devices are the heater switch, the AC in heat mode, the boiler, the valve and heating fleet devices.
 
@@ -36,7 +44,7 @@ The mode is stored. It is the same after a restart.
 
 `off` sends off to every device of the entry in the same call. No minimum run time delays it. Nothing starts while the room is off, including after a restart of Home Assistant.
 
-To leave `off`, choose a mode. The `climate.turn_on` service returns to the mode you had before `off`.
+To leave `off`, choose a mode. The `climate.turn_on` action returns to the mode you had before `off`.
 
 ### Dry
 
@@ -64,17 +72,17 @@ The device starts by itself when the delay ends. Set the delay with `min_off_min
 
 ## Outdoor limits
 
-An entry with a window actuator or a whole-house fan cools with outdoor air first. In `auto` its AC stays off while outdoors is below 16 °C. The limit ends when the open window or the fan has left the room 2 K above the cool threshold for 30 minutes, or cooled it by less than 0.3 K in 30 minutes. An entry with neither has no outdoor cooling limit. `cool` has no outdoor limit: the AC cools whenever the room is above the cool threshold.
+An entry with a window actuator or a whole-house fan cools with outdoor air first. In the automatic mode its AC stays off while outdoors is below 16 °C. The limit ends when the open window or the fan has left the room 2 K above the cool threshold for 30 minutes, or cooled it by less than 0.3 K in 30 minutes. An entry with neither has no outdoor cooling limit. `cool` has no outdoor limit: the AC cools whenever the room is above the cool threshold.
 
-In `auto` the AC does not cool while the heater runs or within 60 minutes of its last run. A room 2 K above the cool threshold cools at once. This stops the heater and the AC from taking turns.
+In the automatic mode the AC does not cool while the heater runs or within 60 minutes of its last run. A room 2 K above the cool threshold cools at once. This stops the heater and the AC from taking turns.
 
-In `auto` and `dry` the heater stays off while outdoors is above 22 °C. `heat` has no outdoor limit: the heater runs whenever the room is below the heat threshold.
+In the automatic mode and `dry` the heater stays off while outdoors is above 22 °C. `heat` has no outdoor limit: the heater runs whenever the room is below the heat threshold.
 
 When the room is below the heat threshold and a gate holds the heater off, `pending` names the gate:
 
 | `pending` | Cause |
 | :-- | :-- |
-| `heat held: outdoors above 22 °C` | The mode is `auto` or `dry` and outdoors is above 22 °C. |
+| `heat held: outdoors above 22 °C` | The mode is automatic or `dry` and outdoors is above 22 °C. |
 | `heat held: window open` | The window sensor reads open. |
 | `heat held: house mode is away` | The house mode is `away`. |
 | `heat held: another room is cooling` | Another entry of the same house cools. |
@@ -92,7 +100,7 @@ The thermostat shows the target you set, with these exceptions:
 - A preset other than `comfort` shows its own setpoint.
 - While the vacation switch is on, it shows `vacation_c`.
 - In `heat` mode it shows the heat target. In `cool`, `dry`, `fan_only` and `off` it shows the cool target.
-- In `auto`, a room that can heat shows two targets. See below.
+- In the automatic mode, a room that can heat shows two targets. See below.
 
 The threshold the AC cools above can sit above the cool target. A high price raises it by up to 1 K, and the comfort-versus-energy weight and the mould bump raise it too. A low price does not lower it. The Cool above sensor shows the threshold. See [[guides/services-and-presets]].
 
@@ -102,7 +110,7 @@ The AC cools when the room is above the cool threshold. The heater heats when th
 
 ## Low and high target in auto
 
-In `auto`, a room that can heat shows a low and a high target. The room heats to the low target and cools above the high one. Set both on the card, or with `climate.set_temperature` and `target_temp_low` and `target_temp_high`. The low target must not be above the high target.
+In the automatic mode, a room that can heat shows a low and a high target. The room heats to the low target and cools above the high one. Set both on the card, or with `climate.set_temperature` and `target_temp_low` and `target_temp_high`. The low target must not be above the high target.
 
 Setting one temperature, in any mode, sets both targets to it. `cool` mode shows the high target and `heat` mode the low one.
 
@@ -155,6 +163,6 @@ The action follows the devices as they change. The mode is your choice and does 
 | `HVAC Horizon entry is locked` | The lock is on, so the target, the preset and the mode cannot change. | Unlock with `hvac_horizon.set_lock`. See [[guides/services-and-presets#lock-and-pin|Lock and PIN]]. |
 
 :::see-also
-- [[guides/services-and-presets]]: presets by schedule, timed presets and the services.
+- [[guides/services-and-presets]]: presets by schedule, timed presets and the actions.
 - [[guides/troubleshoot]]: why a device is on or off.
 :::

@@ -6,15 +6,17 @@ lock, inhibit and minimum-time gates.
 Target temperature and preset: the temperature shown is the target the coordinator planned on its last tick. It is
 the cool target while the mode is cool or off, and the heat target while the mode is heat. Both follow the preset,
 so eco shows its own cooling setpoint. Setting a temperature stores the user's comfort target and returns the room
-to the comfort preset, so the value applies at once. In auto, a room that can heat shows two targets: it heats to the
+to the comfort preset, so the value applies at once. In heat_cool, the automatic mode of a room that can heat and cool, the card shows two targets: it heats to the
 low one and cools above the high one.
 
 Fan mode, swing mode and humidity: the fan and swing modes are the first AC's own, and a change goes to that AC. The
 current humidity is the room humidity sensor's reading. The humidity target is the level above which the room dries: a
 dehumidifier runs above it in every mode, and the AC dries above it in dry mode or with the dry_for_humidity option.
 
-hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose
-(auto by default). Cool lets only cooling devices run, heat lets only heating devices run, auto lets both run. Fan runs the AC's fan and
+hvac_mode is the user's intent: off while the hold is set or control is off, otherwise the mode the user last chose.
+Cool lets only cooling devices run and heat lets only heating devices run. The default mode lets every device of the
+room run as the room needs. It is heat_cool in a room that can heat and cool, with a low and a high target, and auto
+in a room that only cools, with one target. These are Home Assistant's meanings of the two modes. Fan runs the AC's fan and
 nothing heats or cools. hvac_action is what the devices do: cooling or heating while the compressor runs (power at or above
 RUNNING_MIN_KW), idle while the AC runs the fan only. With control off the mode reads off and the `control` attribute
 reads "observe only".
@@ -62,7 +64,6 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         | ClimateEntityFeature.TURN_OFF
         | ClimateEntityFeature.TURN_ON
     )
-    _enable_turn_on_off_backwards_compatibility = False
 
     def __init__(self, coordinator: HorizonCoordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator)
@@ -71,7 +72,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
         # Heat is offered when the entry can heat: a heater switch, the AC or a heating fleet device.
         self._has_heat = coordinator.has_heat
-        # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
+        # Cool only cools, heat only heats, the automatic mode does both. A room with nothing to heat with has no heat mode.
 
     def _ac_attribute(self, name: str) -> Any:
         ac_id = self._entry.data.get(CONF_CLIMATE)
@@ -80,7 +81,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
-        """A room that can heat has a low and a high target in auto. Fan and swing modes are the first AC's, when it has them."""
+        """A room that can heat and cool has a low and a high target in heat_cool. Fan and swing modes are the first AC's, when it has them."""
         features = self._BASE_FEATURES
         if self._has_heat and self.coordinator.has_cool:
             features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -139,19 +140,28 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
 
     @property
     def _ranged(self) -> bool:
-        """True in auto when the room can heat: the card shows the heat target and the cool target as low and high."""
-        return self._has_heat and self.coordinator.has_cool and self.hvac_mode == HVACMode.AUTO
+        """True in heat_cool: the card shows the heat target and the cool target as low and high."""
+        return self.hvac_mode == HVACMode.HEAT_COOL
+
+    @property
+    def _both_mode(self) -> HVACMode:
+        """The mode in which the room's own logic picks what runs.
+
+        Home Assistant names it heat_cool when the entity heats or cools to a low and a high target, and auto when the
+        device follows its own logic with one target. A room that can heat and cool has the first, any other room the second.
+        """
+        return HVACMode.HEAT_COOL if self._has_heat and self.coordinator.has_cool else HVACMode.AUTO
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
-        """Off, cool, auto, heat when the entry can heat, dry when it can dehumidify and fan when the AC has a fan mode. A room with heating only has off and heat."""
+        """Off, cool, heat when the entry can heat, heat_cool or auto, dry when it can dehumidify and fan when the AC has a fan mode. A room with heating only has off and heat."""
         modes = [HVACMode.OFF]
         if self.coordinator.has_cool:
             modes.append(HVACMode.COOL)
         if self._has_heat:
             modes.append(HVACMode.HEAT)
         if self.coordinator.has_cool:
-            modes.append(HVACMode.AUTO)
+            modes.append(self._both_mode)
         if self.coordinator.can_dry:
             modes.append(HVACMode.DRY)
         if self.coordinator.can_fan:
@@ -253,7 +263,8 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         """The user's intent: off while the user hold is set or control is off, else the mode the user last chose (auto by default)."""
         if not self._entry.data.get(CONF_CONTROL) or self.coordinator.user_off:
             return HVACMode.OFF
-        return HVACMode(self.coordinator.user_mode)
+        mode = self.coordinator.user_mode
+        return self._both_mode if mode == "auto" else HVACMode(mode)
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         low, high = kwargs.get(ATTR_TARGET_TEMP_LOW), kwargs.get(ATTR_TARGET_TEMP_HIGH)
@@ -266,9 +277,11 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         await self.coordinator.async_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        # Off holds the room off. Cool lets only cooling devices run, heat only heating devices, auto both.
+        # Off holds the room off. Cool lets only cooling devices run, heat only heating devices, the automatic mode both.
         # A device starts only when the room needs it. The chosen mode is stored with the hold.
-        self.coordinator.set_user_off(hvac_mode == HVACMode.OFF, None if hvac_mode == HVACMode.OFF else str(hvac_mode))
+        # The coordinator stores both heat_cool and auto as "auto": they are one behaviour, named by what the room can do.
+        stored = "auto" if hvac_mode in (HVACMode.HEAT_COOL, HVACMode.AUTO) else str(hvac_mode)
+        self.coordinator.set_user_off(hvac_mode == HVACMode.OFF, None if hvac_mode == HVACMode.OFF else stored)
         await self.coordinator.async_refresh()
 
     async def async_turn_on(self) -> None:

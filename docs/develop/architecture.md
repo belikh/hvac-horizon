@@ -67,7 +67,7 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 
 | Module | Job |
 | :--- | :--- |
-| `__init__.py` | Registers the services, sets up the coordinator and the platforms, runs the safety stop on unload. |
+| `__init__.py` | Registers the actions, sets up the coordinator and the platforms, runs the safety stop on unload. |
 | `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. The two list settings, `schedule_blocks` and `fleet`, have their own steps with `_schedule_schema()` and `_fleet_schema()`. |
 | `const.py` | Setting keys, defaults and limits. |
 | `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |

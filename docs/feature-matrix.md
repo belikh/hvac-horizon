@@ -165,6 +165,7 @@ For what has run on real devices, see [What has run on real devices](concepts/li
 
 | Status sensors | Count |
 | :-- | --: |
-| All status keys | 79 |
+| Status sensors | 67 |
+| Binary sensors | 12 |
 | Diagnostic, enabled | 30 |
 | Diagnostic, disabled by default | 43 |

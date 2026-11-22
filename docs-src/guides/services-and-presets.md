@@ -1,6 +1,6 @@
 ---
-title: Services and presets
-summary: Set presets by schedule or timer, and call the HVAC Horizon services for the lock, house mode, auto-tune, export and what-if.
+title: Actions and presets
+summary: Set presets by schedule or timer, and call the HVAC Horizon actions for the lock, house mode, auto-tune, export and what-if.
 section: guides
 order: 30
 audience: users
@@ -61,11 +61,11 @@ data:
 
 `minutes` is 1 to 720. When the time ends, the schedule preset applies again. Find the `entry_id` in the URL of the entry's page, or in its diagnostics download.
 
-## Services
+## Actions
 
-Every service except `set_house_mode` takes `entry_id`. The services marked response only return data and change nothing. The services marked admin need an administrator: a call from another user fails with `Unauthorized`.
+Every action except `set_house_mode` takes `entry_id`. The actions marked response only return data and change nothing. The actions marked admin need an administrator: a call from another user fails with `Unauthorized`.
 
-| Service | Fields | What it does |
+| Action | Fields | What it does |
 | :-- | :-- | :-- |
 | `hvac_horizon.start_timed_preset` | `preset`, `minutes` | Runs the preset for `minutes`. |
 | `hvac_horizon.set_house_mode` | `mode`: `home` or `away` | Sets the house mode for every entry. `away` makes each room use its away setpoint and heat to 16 °C. |

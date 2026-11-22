@@ -1969,7 +1969,7 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    sensors = [e for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id) if e.domain == sensor.DOMAIN]
+    sensors = [e for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id) if e.domain in (sensor.DOMAIN, "binary_sensor")]
     prefix = f"{entry.entry_id}_"
     primary = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is None and not e.disabled}
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
@@ -1978,6 +1978,7 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 30
     assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 43
     assert len(sensors) == 85
+    assert sum(e.domain == "binary_sensor" for e in sensors) == 12  # the values that are on or off
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -2587,7 +2588,8 @@ async def test_heater_and_threshold_sensors_publish_state(hass, enable_custom_in
     await refresh(hass, entry)
     registry = er.async_get(hass)
     for key in ("heating_failure", "heater_pid_output", "cool_on_above_c", "heat_on_below_c", "backtest_runs"):
-        eid = registry.async_get_entity_id(sensor.DOMAIN, DOMAIN, f"{entry.entry_id}_{key}")
+        domain = "binary_sensor" if key == "heating_failure" else sensor.DOMAIN
+        eid = registry.async_get_entity_id(domain, DOMAIN, f"{entry.entry_id}_{key}")
         assert eid is not None, key
         state = hass.states.get(eid)
         assert state is not None and state.state not in ("unavailable", "unknown"), (key, state)
@@ -5326,7 +5328,7 @@ async def test_climate_entity_reports_room_temperature_and_target(hass, enable_c
 
 async def test_climate_lists_heat_with_a_heater_switch(hass, enable_custom_integrations, config_data):
     _, entity_id, _ = await _setup_room_climate(hass, config_data, **{CONF_HEATER_SWITCH: "switch.heater"})
-    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "auto", "dry", "fan_only"]
+    assert hass.states.get(entity_id).attributes["hvac_modes"] == ["off", "cool", "heat", "heat_cool", "dry", "fan_only"]
 
 
 async def test_climate_set_temperature_sets_the_comfort_target(hass, enable_custom_integrations, config_data, freezer):
@@ -6990,7 +6992,7 @@ async def test_entity_mode_is_off_with_the_hold_and_with_control_off(hass, enabl
 async def test_entity_mode_heat_is_the_last_mode_the_user_chose_and_is_stored(hass, enable_custom_integrations, config_data, freezer, hass_storage):
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, entity_id, calls = await _setup_with_devices(hass, config_data, extra={CONF_HEATER_SWITCH: HEATER}, states={HEATER: ("off", {})})
-    assert hass.states.get(entity_id).state == "auto"  # the default
+    assert hass.states.get(entity_id).state == "heat_cool"  # the default in a room that can heat and cool
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "heat"}, blocking=True)
     await hass.async_block_till_done()
     assert hass.states.get(entity_id).state == "heat"
@@ -7425,6 +7427,8 @@ async def test_room_entity_action_updates_between_ticks(hass, enable_custom_inte
 
 
 async def _set_room_mode(hass, entity_id, mode):
+    if mode == "auto" and "heat_cool" in hass.states.get(entity_id).attributes["hvac_modes"]:
+        mode = "heat_cool"  # a room that can heat and cool names its automatic mode heat_cool
     await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": mode}, blocking=True)
     await hass.async_block_till_done()
 
@@ -7436,8 +7440,8 @@ MODE_CONTRACT = [
     ("cool", "cold", False, False),
     ("heat", "hot", False, False),
     ("heat", "cold", False, True),
-    ("auto", "hot", True, False),
-    ("auto", "cold", False, True),
+    ("heat_cool", "hot", True, False),
+    ("heat_cool", "cold", False, True),
     ("dry", "hot", False, False),
     ("dry", "cold", False, True),
     ("off", "hot", False, False),
@@ -7447,7 +7451,7 @@ MODE_CONTRACT = [
 
 @pytest.mark.parametrize(("mode", "room", "ac_cools", "heater_runs"), MODE_CONTRACT)
 async def test_room_mode_decides_which_devices_may_run(hass, enable_custom_integrations, config_data, freezer, mode, room, ac_cools, heater_runs):
-    """Cool only cools, heat only heats, auto does both, off does neither. The owner's AC cooled in heat mode before this."""
+    """Cool only cools, heat only heats, heat_cool does both, off does neither. The owner's AC cooled in heat mode before this."""
     freezer.move_to("2026-11-20T10:00:00+00:00")
     room_c, outdoor_c = ("27.0", "30.0") if room == "hot" else ("19.0", "10.0")
     # The room starts in a neutral band so setup itself starts nothing.
@@ -8357,10 +8361,10 @@ async def test_setting_a_target_under_another_preset_applies_it_now(hass, enable
 
 
 async def test_auto_with_a_heater_shows_a_low_and_a_high_target_and_stores_both(hass, enable_custom_integrations, config_data, freezer, hass_storage):
-    """In auto the card shows the heat target and the cool target. A range of 20 to 25 C heats to 20 and cools above 25."""
+    """In heat_cool the card shows the heat target and the cool target. A range of 20 to 25 C heats to 20 and cools above 25."""
     entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True, **{CONF_HEATER_SWITCH: "switch.heater"})
     hass.states.async_set(PRICE, "0.10", {"unit_of_measurement": "$/kWh"})
-    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "auto"}, blocking=True)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "heat_cool"}, blocking=True)
     attributes = hass.states.get(entity_id).attributes
     assert (attributes["target_temp_low"], attributes["target_temp_high"], attributes["temperature"]) == (24.0, 24.0, None)
     await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "target_temp_low": 20, "target_temp_high": 25}, blocking=True)
@@ -8384,7 +8388,7 @@ async def test_auto_with_a_heater_shows_a_low_and_a_high_target_and_stores_both(
 
 async def test_a_low_target_above_the_high_target_is_refused(hass, enable_custom_integrations, config_data):
     entry, entity_id, _ = await _setup_room_climate(hass, config_data, control=True, **{CONF_HEATER_SWITCH: "switch.heater"})
-    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "auto"}, blocking=True)
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "heat_cool"}, blocking=True)
     with pytest.raises(HomeAssistantError):
         await hass.services.async_call("climate", "set_temperature", {"entity_id": entity_id, "target_temp_low": 26, "target_temp_high": 22}, blocking=True)
     assert entry.runtime_data.comfort_c == 24.0
@@ -8704,3 +8708,55 @@ async def test_reconfigure_moves_the_device_to_a_new_area_and_leaves_a_hand_move
     assert result["type"] == "abort"
     await hass.async_block_till_done()
     assert devices.async_get(device.id).area_id == second.id
+
+
+async def test_reconfigure_suggests_a_sensor_added_to_the_area_and_drops_a_deleted_area(hass, enable_custom_integrations, config_data):
+    from homeassistant.helpers import area_registry as ar
+
+    areas = ar.async_get(hass)
+    area = areas.async_create("Study")
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Study", data={**config_data, "area": area.id}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    added = registry.async_get_or_create("sensor", "test", "study_co2", suggested_object_id="study_co2", original_device_class="carbon_dioxide")
+    registry.async_update_entity(added.entity_id, area_id=area.id)
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "air_quality"})
+    assert next(k.description["suggested_value"] for k in result["data_schema"].schema if str(k) == "co2") == added.entity_id
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # not accepted: nothing is stored
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    await hass.async_block_till_done()
+    assert "co2" not in entry.data and entry.data["area"] == area.id
+
+    areas.async_delete(area.id)
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    await hass.async_block_till_done()
+    assert "area" not in entry.data
+
+
+async def test_on_off_values_are_binary_sensors_and_their_old_sensor_entities_are_removed(hass, enable_custom_integrations, config_data):
+    """Before 0.7.0 the on or off values were sensors with the text True or False. An upgrade removes those entities."""
+    from custom_components.hvac_horizon.binary_sensor import BINARY_KEYS
+
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    old = registry.async_get_or_create("sensor", DOMAIN, f"{entry.entry_id}_heating_allowed", config_entry=entry, suggested_object_id="hvac_horizon_test_ac_heating_allowed")
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(old.entity_id) is None
+    for key in BINARY_KEYS:
+        assert registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{key}") is None, key
+        entity_id = registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_{key}")
+        assert entity_id is not None, key
+        state = hass.states.get(entity_id)
+        assert state is None or state.state in ("on", "off", "unknown"), (key, state)
+    allowed = hass.states.get(registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_heating_allowed"))
+    assert allowed.state == "off"  # 30 C outdoors: above the 22 C heating limit
+    problem = registry.async_get(registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_mould_risk"))
+    assert problem.original_device_class == "problem"

@@ -1,6 +1,6 @@
 """Every key the coordinator writes to its result is shown on an entity or read back by the coordinator.
 
-A key counts as shown when sensor.py lists it in STATUS_KEYS or returns it from extra_state_attributes.
+A key counts as shown when sensor.py lists it in STATUS_KEYS, binary_sensor.py lists it in BINARY_KEYS, or sensor.py returns it from extra_state_attributes.
 A key counts as read when coordinator.py or a coordinator_*.py mixin reads it from result. ALLOWED holds internal keys, each with a reason.
 """
 
@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from custom_components.hvac_horizon.binary_sensor import BINARY_KEYS
 from custom_components.hvac_horizon.sensor import STATUS_KEYS
 
 PKG = Path(__file__).resolve().parents[1] / "custom_components" / "hvac_horizon"
@@ -79,7 +80,7 @@ def _attribute_keys() -> set[str]:
 
 
 WRITTEN = sorted(_written_keys())
-SHOWN = set(STATUS_KEYS) | _attribute_keys()
+SHOWN = set(STATUS_KEYS) | set(BINARY_KEYS) | _attribute_keys()
 READ = _read_keys()
 
 

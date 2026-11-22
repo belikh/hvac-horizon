@@ -4,6 +4,25 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 
 ## Unreleased
 
+This release changes entity IDs and one mode name. Read the first three items before you upgrade.
+
+- **Mode name.** In a room that can heat and cool, the automatic mode is now `heat_cool`, with its low and high
+  target. Home Assistant defines `heat_cool` for a target range and `auto` for a device with one target that follows
+  its own logic. A room that only cools keeps `auto`. An automation or script that sets `auto` on a room that can
+  heat must set `heat_cool`. The stored mode carries over.
+- **Binary sensors.** Twelve values that are on or off are now `binary_sensor` entities: Drying needed, Mould risk,
+  Heatwave, Heating allowed, Heater PWM on, External change, Vacation mode, Boiler demand, Whole-house fan, Heating
+  failure, House cooling and Outdoor forecast used. Before, they were sensors that read `True` or `False`. Their
+  entity IDs change from `sensor.` to `binary_sensor.`, and the old entities are removed at the first start.
+- **Energy to setpoint** has the energy device class and no state class, so Home Assistant records no new
+  long-term statistics for it. It is a forecast, and the energy class allows statistics for meter totals only.
+- Sensors have device classes: temperature, temperature difference, duration, energy and power. Home Assistant shows
+  them in your unit system.
+- Entity names are entity translations in `translations/en.json`. Entity IDs of the remaining sensors do not change.
+- The docs and the forms say action where they said service, as Home Assistant does since 2024.8.
+- Reconfigure suggests entities added to the room's area since setup, and drops an area that was deleted. The Area
+  step also suggests the area's CO2 and PM2.5 sensors.
+
 - Setup starts with an Area step. Pick the Home Assistant area of the room, and the next forms suggest the AC, its
   power sensor, the temperature sensors and the humidity, motion and window sensors found in it. The entry is named
   after the area and its thermostat and sensors are placed in it. The step is optional, and existing entries can be

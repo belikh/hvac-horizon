@@ -4,13 +4,13 @@
 
 ## What it does
 
-HVAC Horizon controls the climate of one room in Home Assistant. You give it an air conditioner or a heater, room temperature sensors and an outdoor temperature sensor. It adds one thermostat for the room and 85 sensors.
+HVAC Horizon controls the climate of one room in Home Assistant. You give it an air conditioner or a heater, room temperature sensors and an outdoor temperature sensor. It adds one thermostat for the room, 73 sensors and 12 binary sensors.
 
 - It learns how fast the room gains heat and how fast the AC cools it, from readings it takes every 5 minutes.
 - It forecasts the minutes, the energy and the cost for the room to reach its target.
 - With control on, it drives the AC, a heater, and any second AC, fan, valve, cover or window actuator you add.
 
-<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="diagrams/overview-dark.svg"><img alt="The room sensors, the outdoor sensor, the AC power and an optional price sensor feed HVAC Horizon. It gives a room thermostat and 85 sensors, and with control on it drives the AC, the heater, fans and valves." src="diagrams/overview-light.svg"></picture></p>
+<p align="center"><picture><source media="(prefers-color-scheme: dark)" srcset="diagrams/overview-dark.svg"><img alt="The room sensors, the outdoor sensor, the AC power and an optional price sensor feed HVAC Horizon. It gives a room thermostat and 85 sensor entities, and with control on it drives the AC, the heater, fans and valves." src="diagrams/overview-light.svg"></picture></p>
 
 A new entry starts in observe-only mode. [Architecture](develop/architecture.md) has a diagram of every part. It learns and forecasts, and it sends no commands until you turn control on.
 

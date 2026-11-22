@@ -73,7 +73,7 @@
   <rect x="544" y="28" width="166" height="121"/>
   <text stroke="none" x="556" y="48" font-size="14" fill="#e6e4df" font-weight="700">Entities</text>
   <text stroke="none" x="556" y="66" font-size="13" fill="#9a9fab">room thermostat</text>
-  <text stroke="none" x="556" y="83" font-size="13" fill="#9a9fab">85 sensors</text>
+  <text stroke="none" x="556" y="83" font-size="13" fill="#9a9fab">85 sensor entities</text>
   <text stroke="none" x="556" y="100" font-size="13" fill="#9a9fab">repair issues</text>
   <text stroke="none" x="556" y="117" font-size="13" fill="#9a9fab">diagnostics</text>
   <text stroke="none" x="556" y="134" font-size="13" fill="#9a9fab">accuracy panel</text>

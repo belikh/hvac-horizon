@@ -16,10 +16,11 @@ HVAC Horizon is a Home Assistant custom integration for one room. It learns how 
 
 Each entry creates one device with these entities:
 
-- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``auto``, ``heat`` (with a heater), ``dry`` (with an AC dry mode or a dehumidifier) and ``fan_only`` (with an AC fan mode). In ``auto`` it has a low and a high target, and with a room humidity sensor a humidity target.
-- 85 sensors. 12 are forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error among them. 73 are diagnostic sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 43 of those are disabled until you enable them.
+- A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``heat`` (with a heater), ``heat_cool`` (a room that heats and cools, with a low and a high target) or ``auto`` (a room that only cools), ``dry`` (with an AC dry mode or a dehumidifier) and ``fan_only`` (with an AC fan mode). With a room humidity sensor it has a humidity target.
+- 73 sensors. 12 are forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error among them. 61 are diagnostic sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 40 of those are disabled until you enable them.
+- 12 binary sensors for the values that are on or off, such as Heating allowed, Mould risk and Heating failure.
 
-Services cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
+Actions cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
 
 ----
 
@@ -32,7 +33,7 @@ Open HACS, search for *HVAC Horizon*, download it and restart Home Assistant. If
    :target: https://hacs.xyz/
    :alt: HACS custom repository
 
-Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon*, pick the area of the room, and check the AC climate entity with its power sensor or rated power, or a heater switch for a room with heating only, and the room and outdoor temperature sensors, then choose *Finish now* in the menu, or open any of the optional sections first. To turn control on later, open the integration card, select the entry menu, choose *Reconfigure* and open *Advanced*.
+Open *Settings > Devices & actions*, select *Add integration*, search for *HVAC Horizon*, pick the area of the room, and check the AC climate entity with its power sensor or rated power, or a heater switch for a room with heating only, and the room and outdoor temperature sensors, then choose *Finish now* in the menu, or open any of the optional sections first. To turn control on later, open the integration card, select the entry menu, choose *Reconfigure* and open *Advanced*.
 
 The status sensor shows *learning* until the first fit. The fit needs at least three hours with the AC on and three hours with it off, in at least three separate runs.
 
@@ -43,10 +44,10 @@ Documentation: `Install <https://docs.jupiter.au/hvac-horizon/start/install/>`__
 Privacy
 -------
 
-HVAC Horizon sends no data outside your Home Assistant. It makes no network requests of its own and has no account, no cloud service and no telemetry.
+HVAC Horizon sends no data outside your Home Assistant. It makes no network requests of its own and has no account, no cloud action and no telemetry.
 
 - It reads the entities you select and stores their readings in Home Assistant's ``.storage`` folder, up to 30 days. Removing the entry deletes that file.
-- It calls the ``weather.get_forecasts`` service of the weather entity you select. That integration fetches its own forecast.
+- It calls the ``weather.get_forecasts`` action of the weather entity you select. That integration fetches its own forecast.
 - With an AI conversation agent set, it sends that agent a short text with the room's recent temperatures, AC modes and actions. The agent's own integration decides where that text goes. The default is no agent and no calls.
 - The diagnostics download replaces entity IDs and the lock PIN with ``**REDACTED**``.
 

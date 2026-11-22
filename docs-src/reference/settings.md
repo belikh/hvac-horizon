@@ -25,7 +25,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `ac_rated_w` | AC rated power (W) | unset | For an AC with no power sensor. The AC counts as drawing this while its `hvac_action` is `cooling`, `heating` or `drying`. An AC that reports no action counts by its mode. |
 | `heater_switch` | Heater switch | unset | Switch for the heater plug. The heater output runs in 10 minute windows. |
 | `room_sensors` | Room temperature sensors | required | One or more temperature sensors in the room. The room temperature is their median. A stalled sensor drops out of the median. |
-| `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit of `auto` with a window actuator or whole-house fan, and the 22 °C heating limit of `auto` and `dry`. |
+| `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit of the automatic mode with a window actuator or whole-house fan, and the 22 °C heating limit of the automatic mode and `dry`. |
 
 ## Comfort and presets
 

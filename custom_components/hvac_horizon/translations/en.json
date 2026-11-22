@@ -165,7 +165,7 @@
           "dehumidifier": "On while the room is above the thermostat's humidity target (60 % by default), off 3 points below it. Needs a room humidity sensor.",
           "humidifier": "On while the room is below 40 % humidity, off at 43 %. Needs a room humidity sensor.",
           "coil_dry": "Runs the AC in its dry mode for 20 minutes after each cooling run. Needs an AC with a dry mode. Default off.",
-          "dry_for_humidity": "In cool and auto, runs the AC's dry mode while the room is above the humidity target and needs no cooling. Needs a room humidity sensor, an AC with a dry mode and no dehumidifier switch. Dry mode makes a lot of water. Default off.",
+          "dry_for_humidity": "In cool and in the automatic mode, runs the AC's dry mode while the room is above the humidity target and needs no cooling. Needs a room humidity sensor, an AC with a dry mode and no dehumidifier switch. Dry mode makes a lot of water. Default off.",
           "house_sealed": "Turn on while the house must stay closed, for example for smoke outside. Has no effect without a whole-house fan.",
           "economizer_fan": "Runs the room fan while outdoor air can cool the room. Needs a room fan switch. Default off.",
           "whole_house_fan": "Runs when the room is above its cooling target and outdoors is at least 2 °C cooler. The AC stays off while it runs, and takes over when the fan does not cool the room within 30 minutes."
@@ -207,8 +207,8 @@
           "ai_budget_per_day": "Explanations per day"
         },
         "data_description": {
-          "control": "Off (default): observe only. The room learns and forecasts and sends no commands. On: it sets the AC and drives the heater and the other devices. With control on and the mode auto, a device starts as soon as the room calls for it.",
-          "lock_pin": "The PIN that the set_lock service asks for to unlock. It guards against changes by accident and is stored as plain text. Leave the box empty to keep the stored PIN.",
+          "control": "Off (default): observe only. The room learns and forecasts and sends no commands. On: it sets the AC and drives the heater and the other devices. With control on and the thermostat in its automatic mode, a device starts as soon as the room calls for it.",
+          "lock_pin": "The PIN that the set_lock action asks for to unlock. It guards against changes by accident and is stored as plain text. Leave the box empty to keep the stored PIN.",
           "night_plan_act": "With a weather entity, cools the room before a hot night and holds the AC off on a cool one. Default off: the night plan is shown on its sensor only.",
           "accuracy_panel": "Adds a sidebar panel that lists past forecasts against the measured times. One panel serves every room.",
           "peer_entry": "The title or entry ID of another HVAC Horizon room. When this room is 2 °C warmer than that one, the other room's valve opens. Most homes leave it empty.",
@@ -508,6 +508,267 @@
     "mode_mismatch": {
       "title": "HVAC Horizon mode does not match",
       "description": "The AC is in a different mode than HVAC Horizon last set. Check whether it was changed on the unit or another automation."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "minutes_to_setpoint": {
+        "name": "Minutes to setpoint"
+      },
+      "energy_kwh": {
+        "name": "Energy to setpoint"
+      },
+      "cost": {
+        "name": "Cost to setpoint"
+      },
+      "status": {
+        "name": "Status"
+      },
+      "samples": {
+        "name": "Samples collected"
+      },
+      "forecast_error_min": {
+        "name": "Forecast error"
+      },
+      "day_type": {
+        "name": "Day type"
+      },
+      "night_plan": {
+        "name": "Night plan"
+      },
+      "precool_status": {
+        "name": "Pre-cool status"
+      },
+      "daily_briefing": {
+        "name": "Daily briefing"
+      },
+      "window_advice": {
+        "name": "Window advice"
+      },
+      "ventilation": {
+        "name": "Ventilation"
+      },
+      "ventilation_rate": {
+        "name": "Ventilation rate"
+      },
+      "humidity": {
+        "name": "Humidity action"
+      },
+      "compliance_pct": {
+        "name": "Comfort compliance"
+      },
+      "fan_speed": {
+        "name": "Fan speed"
+      },
+      "price_used_per_kwh": {
+        "name": "Price used per kWh"
+      },
+      "occupancy": {
+        "name": "Occupancy"
+      },
+      "solar_gain_kw": {
+        "name": "Solar gain"
+      },
+      "band_action": {
+        "name": "Band action"
+      },
+      "target_c": {
+        "name": "Target temperature"
+      },
+      "preset": {
+        "name": "Preset"
+      },
+      "samples_heat": {
+        "name": "AC heat intervals"
+      },
+      "samples_dry": {
+        "name": "AC dry intervals"
+      },
+      "heater_feedback": {
+        "name": "Heater feedback"
+      },
+      "valve_opening_pct": {
+        "name": "Valve opening"
+      },
+      "cover_action": {
+        "name": "Cover action"
+      },
+      "second_ac": {
+        "name": "Second AC"
+      },
+      "learning_suggestion": {
+        "name": "Learning suggestion"
+      },
+      "sensors_stalled": {
+        "name": "Stalled sensors"
+      },
+      "commands_unconfirmed": {
+        "name": "Unconfirmed commands"
+      },
+      "free_cooling": {
+        "name": "Free cooling"
+      },
+      "forecast_mode": {
+        "name": "Forecast mode"
+      },
+      "forecast_target": {
+        "name": "Forecast target"
+      },
+      "fit_corrections": {
+        "name": "Fit corrections"
+      },
+      "fit_window_days": {
+        "name": "Fit window"
+      },
+      "kept_models": {
+        "name": "Kept models"
+      },
+      "heat_model": {
+        "name": "Heat model"
+      },
+      "dry_model": {
+        "name": "Dry model"
+      },
+      "watchdog_trips": {
+        "name": "Watchdog trips"
+      },
+      "rooms_max_age_s": {
+        "name": "Room reading age"
+      },
+      "safety_output_pct": {
+        "name": "Safety output"
+      },
+      "economizer": {
+        "name": "Economizer"
+      },
+      "motion_preset": {
+        "name": "Motion preset"
+      },
+      "shed": {
+        "name": "Loads shed"
+      },
+      "restored": {
+        "name": "Load switched back on"
+      },
+      "mpc_plan": {
+        "name": "MPC plan steps"
+      },
+      "mpc_status": {
+        "name": "MPC plan effect"
+      },
+      "mpc_heat_steps": {
+        "name": "MPC heat plan steps"
+      },
+      "solar_scale": {
+        "name": "Solar scale"
+      },
+      "heat_source": {
+        "name": "Heat source"
+      },
+      "heater_pid_output": {
+        "name": "Heater PID output"
+      },
+      "heater_output_pct": {
+        "name": "Heater output"
+      },
+      "tpi_output_pct": {
+        "name": "TPI output"
+      },
+      "preheat": {
+        "name": "Preheat"
+      },
+      "heat_up_min": {
+        "name": "Heat-up time"
+      },
+      "cool_on_above_c": {
+        "name": "Cool above"
+      },
+      "heat_on_below_c": {
+        "name": "Heat below"
+      },
+      "backtest_runs": {
+        "name": "Backtest runs"
+      },
+      "trv_offset_k": {
+        "name": "TRV offset"
+      },
+      "room_fit": {
+        "name": "Two-device room fit"
+      },
+      "forecast_days": {
+        "name": "Forecast day counts"
+      },
+      "dispatch": {
+        "name": "Room dispatch"
+      },
+      "pending": {
+        "name": "Pending action"
+      },
+      "ac_setpoint_sent_c": {
+        "name": "Setpoint sent"
+      },
+      "ac_sensor_offset_k": {
+        "name": "Sensor offset"
+      },
+      "minutes_low": {
+        "name": "Minutes to setpoint, low"
+      },
+      "minutes_high": {
+        "name": "Minutes to setpoint, high"
+      },
+      "outdoor_forecast_next_c": {
+        "name": "Outdoor forecast ahead"
+      },
+      "outdoor_source": {
+        "name": "Outdoor source"
+      },
+      "solar_factor": {
+        "name": "Solar cloud factor"
+      },
+      "outdoor_bias_now_k": {
+        "name": "Outdoor forecast bias"
+      },
+      "outdoor_bias_pairs": {
+        "name": "Outdoor bias pairs"
+      }
+    },
+    "binary_sensor": {
+      "drying_needed": {
+        "name": "Drying needed"
+      },
+      "mould_risk": {
+        "name": "Mould risk"
+      },
+      "heatwave": {
+        "name": "Heatwave"
+      },
+      "heating_allowed": {
+        "name": "Heating allowed"
+      },
+      "heater_pwm_on": {
+        "name": "Heater PWM on"
+      },
+      "external_change": {
+        "name": "External change"
+      },
+      "vacation": {
+        "name": "Vacation mode"
+      },
+      "boiler_demand": {
+        "name": "Boiler demand"
+      },
+      "whole_house_fan": {
+        "name": "Whole-house fan"
+      },
+      "heating_failure": {
+        "name": "Heating failure"
+      },
+      "house_cooling": {
+        "name": "House cooling"
+      },
+      "outdoor_forecast_used": {
+        "name": "Outdoor forecast used"
+      }
     }
   }
 }

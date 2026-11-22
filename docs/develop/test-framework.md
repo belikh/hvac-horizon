@@ -9,13 +9,13 @@ The suite tests the integration at four levels. Each level catches what the one 
 | Level | Where | What runs | What it proves |
 | :--- | :--- | :--- | :--- |
 | Pure | `tests/test_*.py` | One function of `room_model/` or `engine/` | The model and each decision, on exact numbers and on random inputs |
-| Entry | `tests/ha/` | One entry in a test Home Assistant | Setup, the forms, the thermostat, services, restarts and unload |
+| Entry | `tests/ha/` | One entry in a test Home Assistant | Setup, the forms, the thermostat, actions, restarts and unload |
 | Basics | `tests/ha/test_basics.py` | The thermostat against a room that warms and cools | The rules every thermostat user expects, read from the outside |
 | Closed loop | `tests/sim/` | 12 to 24 simulated hours of a house the integration does not know | Comfort, cycling, safety stops and device faults over a whole day |
 
 ## Fake devices
 
-`tests/fakes.py` holds `FakeAc` and `FakeSwitch`. Each is a real `ClimateEntity` or `SwitchEntity`, added to Home Assistant's own `climate` and `switch` integrations with `add_devices()`. A command the integration sends goes through Home Assistant's services, as it does to a real device.
+`tests/fakes.py` holds `FakeAc` and `FakeSwitch`. Each is a real `ClimateEntity` or `SwitchEntity`, added to Home Assistant's own `climate` and `switch` integrations with `add_devices()`. A command the integration sends goes through Home Assistant's actions, as it does to a real device.
 
 **A cool-only AC and a heater plug**
 
@@ -114,7 +114,7 @@ Two of these runs found defects when they were written. A cool-only AC was sent 
 3. A way a device fails: add a flag to the fake, a test of the flag to `tests/ha/test_fakes.py`, and a `DeviceFault` kind.
 4. A new behaviour of a real device that the fake lacks: change the fake and its test in the same commit.
 
-`tests/ha/test_setup.py` and `tests/ha/test_settings_effect.py` predate the fake devices. Most of their tests set a device's state directly and register their own service handlers. Use the fake devices for new tests in those files.
+`tests/ha/test_setup.py` and `tests/ha/test_settings_effect.py` predate the fake devices. Most of their tests set a device's state directly and register their own action handlers. Use the fake devices for new tests in those files.
 
 **See also**
 

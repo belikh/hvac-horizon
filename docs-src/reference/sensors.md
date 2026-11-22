@@ -9,9 +9,11 @@ status: draft
 
 ## Entities per entry
 
-Each entry creates one device named `HVAC Horizon` and the entry's title: the area's name, or the AC's when no area is set. The device holds one `climate` entity for the room and 85 sensors. See [[guides/use-the-room-thermostat]] for the climate entity.
+Each entry creates one device named `HVAC Horizon` and the entry's title: the area's name, or the AC's when no area is set. The device holds one `climate` entity for the room, 73 sensors and 12 binary sensors. See [[guides/use-the-room-thermostat]] for the climate entity.
 
-A sensor's entity ID is `sensor.hvac_horizon_<ac name>_<name>`. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
+A sensor's entity ID is `sensor.hvac_horizon_<title>_<name>`, and a binary sensor's starts with `binary_sensor`. The names are entity translations, so Home Assistant can show them in the user's language once a translation exists.
+
+Numeric sensors have a device class: temperatures, temperature differences, durations, energy and power. Home Assistant shows them in your unit system. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
 
 ## Primary sensors
 
@@ -34,7 +36,7 @@ These 12 sensors have no entity category. Home Assistant shows them on the devic
 
 ## Diagnostic sensors
 
-These 30 sensors have the entity category `diagnostic` and are enabled. They show under **Diagnostic** on the device page.
+These 21 sensors have the entity category `diagnostic` and are enabled. They show under **Diagnostic** on the device page.
 
 | Key | Name | Unit | Meaning |
 | :-- | :-- | :-- | :-- |
@@ -46,30 +48,21 @@ These 30 sensors have the entity category `diagnostic` and are enabled. They sho
 | `window_advice` | Window advice | none | `open`, `close` or `hold` for windows, from the room, the outdoor temperature and the outdoor humidity. |
 | `ventilation` | Ventilation | none | Why the room fan runs or not, from CO2 and PM2.5. |
 | `humidity` | Humidity action | none | `dehumidify`, `humidify` or `within band`, from room humidity. |
-| `drying_needed` | Drying needed | none | True when room humidity is above the humidity target (60 % by default) and the room needs no cooling. |
-| `mould_risk` | Mould risk | none | True when the estimated surface humidity is 80 % or more. Raises every cool threshold by 1 K. |
 | `compliance_pct` | Comfort compliance | % | Share of stored readings inside the comfort band. |
-| `heatwave` | Heatwave | none | On when `heatwave_warning` is on or the daily highs reach 30 °C three days running. It changes no device command. |
 | `occupancy` | Occupancy | none | `home` or `away`, from the presence sources and `away_delay_min`. |
-| `heating_allowed` | Heating allowed | none | False when outdoors is above 22 °C and the mode is `auto` or `dry`. The heater, the boiler and AC heat then stay off. Always True in `heat` mode. |
 | `learning_suggestion` | Learning suggestion | none | Set when the fitted heat-gain rate drifts from the stored baseline. Answer with `respond_suggestion`. |
-| `external_change` | External change | none | Set when the AC setpoint or mode changed outside HVAC Horizon. |
 | `sensors_stalled` | Stalled sensors | none | The sensors with no report inside the stall window. |
 | `mpc_status` | MPC plan effect | none | Whether the cooling plan changed the decision this tick. |
-| `vacation` | Vacation mode | none | True while the vacation switch is on. |
 | `heat_source` | Heat source | none | `boiler` at 5 °C outdoors or below, otherwise `ac`. |
-| `whole_house_fan` | Whole-house fan | none | True while the whole-house fan may run. |
-| `heating_failure` | Heating failure | none | True when the heater ran 60 minutes and the room rose less than 0.5 K. |
 | `dispatch` | Room dispatch | none | The fleet devices chosen for the current gap, with each device's rate and power. |
 | `pending` | Pending action | none | A start held by the restart delay, for example `start in 2 min: restart delay`, or the gate that holds a wanted heater off, for example `heat held: window open`. |
 | `ac_setpoint_sent_c` | Setpoint sent | °C | The setpoint last sent to the AC, after setpoint regulation. |
 | `ac_sensor_offset_k` | Sensor offset | K | Room median minus the AC's own temperature reading. |
-| `outdoor_forecast_used` | Outdoor forecast used | none | True when a fresh hourly forecast feeds the forecast, the plans, pre-cool and preheat. |
 | `outdoor_source` | Outdoor source | none | `sensor`, or `forecast` while the outdoor sensor is stale and the hourly forecast is under 2 hours old. |
 
 ## Sensors disabled by default
 
-These 43 sensors hold internal detail. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
+These 40 sensors hold internal detail. To use one, open it in **Settings > Devices & actions > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
 
 | Key | Name | Unit | Meaning |
 | :-- | :-- | :-- | :-- |
@@ -81,7 +74,6 @@ These 43 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `samples_heat` | AC heat intervals | none | Stored intervals with the AC in heat mode. The cooling fit leaves them out. |
 | `samples_dry` | AC dry intervals | none | Stored intervals with the AC in dry mode. The cooling fit leaves them out. |
 | `heater_feedback` | Heater feedback | none | Whether the heater switch state matches the command. |
-| `heater_pwm_on` | Heater PWM on | none | Heater on or off inside the current 10 minute window. |
 | `valve_opening_pct` | Valve opening | % | Valve opening sent to the TRV. |
 | `cover_action` | Cover action | none | `close`, `open` or none for the cover, from solar gain. |
 | `second_ac` | Second AC | none | State of the second AC drive. |
@@ -94,8 +86,6 @@ These 43 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `mpc_plan` | MPC plan steps | none | Cooling plan steps, 15 minutes each for 4 hours. |
 | `mpc_heat_steps` | MPC heat plan steps | none | Heat plan steps. |
 | `solar_scale` | Solar scale | none | Learned ratio of measured to modelled solar gain. |
-| `boiler_demand` | Boiler demand | none | True when the boiler should run. |
-| `house_cooling` | House cooling | none | True when another entry in the house group cools. |
 | `heater_pid_output` | Heater PID output | % | PID output before limits. |
 | `heater_output_pct` | Heater output | % | Heater output after limits and gates. |
 | `tpi_output_pct` | TPI output | % | TPI output. |
@@ -120,6 +110,27 @@ These 43 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `watchdog_trips` | Watchdog trips | none | Times the watchdog turned the outputs off since the entry loaded. Enabled by default. |
 
 A list or dict value shows as JSON text cut to 255 characters in the state. The full value is in the `value` attribute. A key the coordinator did not publish this tick reads `unknown`.
+
+## Binary sensors
+
+These 12 values are on or off. Each is a `binary_sensor` entity with the entity category `diagnostic`. Before 0.7.0 they were sensors that read `True` or `False`.
+
+| Key | Name | Device class | On means | Enabled |
+| :-- | :-- | :-- | :-- | :-- |
+| `drying_needed` | Drying needed | none | Room humidity is above the humidity target (60 % by default) and the room needs no cooling. | yes |
+| `mould_risk` | Mould risk | `problem` | The estimated surface humidity is 80 % or more. Every cool threshold is then 1 K higher. | yes |
+| `heatwave` | Heatwave | `heat` | `heatwave_warning` is on, or the daily highs reach 30 °C three days running. It changes no device command. | yes |
+| `heating_allowed` | Heating allowed | none | Heating may run. Off while outdoors is above 22 °C in the automatic mode or `dry`: the heater, the boiler and AC heat then stay off. On in `heat` mode. | yes |
+| `external_change` | External change | none | The AC setpoint differs from the one HVAC Horizon last wrote: someone changed it by hand. | yes |
+| `vacation` | Vacation mode | none | The vacation switch is on. | yes |
+| `whole_house_fan` | Whole-house fan | `running` | The whole-house fan may run. | yes |
+| `heating_failure` | Heating failure | `problem` | The heater ran 60 minutes and the room rose less than 0.5 K. | yes |
+| `outdoor_forecast_used` | Outdoor forecast used | none | A fresh hourly forecast feeds the forecast, the plans, pre-cool and preheat. | yes |
+| `heater_pwm_on` | Heater PWM on | `running` | The heater is on inside the current 10 minute window. | no |
+| `boiler_demand` | Boiler demand | none | The boiler should run. | no |
+| `house_cooling` | House cooling | none | Another entry of the same house cools. | no |
+
+A binary sensor reads `unknown` until its value is computed.
 
 ## Attributes
 

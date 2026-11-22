@@ -11,7 +11,7 @@ status: draft
 
 HVAC Horizon has no **Configure** button. You change an entry with **Reconfigure**.
 
-1. Open **Settings > Devices & services** and select **HVAC Horizon**.
+1. Open **Settings > Devices & actions** and select **HVAC Horizon**.
 2. On the entry, select the three-dot menu, then **Reconfigure**. The menu is titled **Edit HVAC Horizon**.
 3. Select a section, change its fields and select **Submit**. The menu returns.
 4. Select **Save and close**. The form reports `Settings updated. Stored samples are kept.`
@@ -55,7 +55,7 @@ An entry reads the entities you stored. A sensor you add to the area later is us
 1. Open **Room** and select the heater's switch in **Heater switch**.
 2. Select **Submit**, then **Save and close**.
 
-The room thermostat now lists `heat`. The options in the table below are in **Heater**. The heater runs when the room is 0.5 K or more below the heat target. In `auto` it also needs outdoors at or below 22 °C. `heat` has no outdoor limit. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
+The room thermostat now lists `heat`. The options in the table below are in **Heater**. The heater runs when the room is 0.5 K or more below the heat target. In the automatic mode it also needs outdoors at or below 22 °C. `heat` has no outdoor limit. The heater output is a share of a 10 minute window, so the switch turns on and off inside each window.
 
 | To | Set |
 | :-- | :-- |

@@ -167,8 +167,8 @@ def _mode_rows():
             ("heat", HOT_ROOM_C, outdoor_c, False, False),
             ("cool", HOT_ROOM_C, outdoor_c, False, True),
             ("cool", COLD_ROOM_C, outdoor_c, False, False),
-            ("auto", COLD_ROOM_C, outdoor_c, outdoor_c <= 22.0, False),
-            ("auto", HOT_ROOM_C, outdoor_c, False, True),
+            ("heat_cool", COLD_ROOM_C, outdoor_c, outdoor_c <= 22.0, False),
+            ("heat_cool", HOT_ROOM_C, outdoor_c, False, True),
             ("off", COLD_ROOM_C, outdoor_c, False, False),
             ("off", HOT_ROOM_C, outdoor_c, False, False),
         ]
@@ -186,7 +186,7 @@ async def test_the_mode_and_the_target_decide_what_runs(house, mode, room_c, out
 
 async def test_auto_cools_with_the_window_on_a_cold_day_and_leaves_the_ac_off(house):
     """A room with a window actuator, 10 C outdoors: auto opens the window, the room cools and the AC stays off."""
-    home = await house(room_c=HOT_ROOM_C, outdoor_c=10.0, mode="auto", thermal=True, window_actuator=WINDOW_ACTUATOR)
+    home = await house(room_c=HOT_ROOM_C, outdoor_c=10.0, mode="heat_cool", thermal=True, window_actuator=WINDOW_ACTUATOR)
     await home.run(180)
     assert home.window_opened
     assert not home.cooled(180)
@@ -195,7 +195,7 @@ async def test_auto_cools_with_the_window_on_a_cold_day_and_leaves_the_ac_off(ho
 
 async def test_auto_runs_the_ac_when_the_open_window_does_not_cool_the_room(house):
     """The window opens and the room stays 3 K above the target. Auto closes the window and the AC cools, at 10 C outdoors too."""
-    home = await house(room_c=HOT_ROOM_C, outdoor_c=10.0, mode="auto", window_actuator=WINDOW_ACTUATOR)
+    home = await house(room_c=HOT_ROOM_C, outdoor_c=10.0, mode="heat_cool", window_actuator=WINDOW_ACTUATOR)
     await home.run(60)
     assert home.window_opened
     assert home.ac_mode == "cool"
@@ -204,7 +204,7 @@ async def test_auto_runs_the_ac_when_the_open_window_does_not_cool_the_room(hous
 
 async def test_auto_runs_the_ac_when_the_open_window_cools_the_room_too_little(house):
     """A sunny room, 20 C outdoors. The open window holds the room 0.8 K above the target and no lower, so the AC takes over."""
-    home = await house(room_c=23.5, outdoor_c=20.0, mode="auto", thermal=True, window_actuator=WINDOW_ACTUATOR)
+    home = await house(room_c=23.5, outdoor_c=20.0, mode="heat_cool", thermal=True, window_actuator=WINDOW_ACTUATOR)
     home.gain_k_per_h = 2.8
     await home.run(240)
     assert home.window_opened
@@ -214,7 +214,7 @@ async def test_auto_runs_the_ac_when_the_open_window_cools_the_room_too_little(h
 
 @pytest.mark.parametrize(
     ("mode", "start_c", "outdoor_c"),
-    [("heat", 17.0, 5.0), ("heat", 17.0, 18.0), ("cool", 28.0, 33.0), ("cool", 28.0, 24.0), ("auto", 17.0, 5.0), ("auto", 28.0, 33.0)],
+    [("heat", 17.0, 5.0), ("heat", 17.0, 18.0), ("cool", 28.0, 33.0), ("cool", 28.0, 24.0), ("heat_cool", 17.0, 5.0), ("heat_cool", 28.0, 33.0)],
 )
 async def test_the_room_reaches_the_target_and_stays_there(house, mode, start_c, outdoor_c):
     """After 4 hours the room is within 1 K of the target, and it stays within 1 K for the next 2 hours."""
@@ -227,7 +227,7 @@ async def test_the_room_reaches_the_target_and_stays_there(house, mode, start_c,
 @pytest.mark.parametrize(("start_c", "outdoor_c", "idle"), [(17.0, 5.0, "ac"), (17.0, 14.0, "ac"), (28.0, 33.0, "heater"), (28.0, 26.0, "heater")])
 async def test_auto_does_not_take_turns_between_the_heater_and_the_ac(house, start_c, outdoor_c, idle):
     """On a cold day auto heats and the AC stays off for the whole day. On a hot day it cools and the heater stays off."""
-    home = await house(room_c=start_c, outdoor_c=outdoor_c, mode="auto", thermal=True)
+    home = await house(room_c=start_c, outdoor_c=outdoor_c, mode="heat_cool", thermal=True)
     await home.run(480)
     if idle == "ac":
         assert home.heated(480) and not home.cooled(480)
@@ -259,12 +259,12 @@ async def test_lowering_the_target_starts_the_ac_and_raising_it_stops_the_ac(hou
     assert home.ac_mode == "off"
 
 
-@pytest.mark.parametrize("mode", ["heat", "cool", "auto"])
+@pytest.mark.parametrize("mode", ["heat", "cool", "heat_cool"])
 async def test_the_thermostat_shows_the_target_you_set(house, mode):
     home = await house(room_c=22.0, outdoor_c=20.0, mode=mode, target_c=23.5)
     await home.run(10)
     assert home.state.state == mode
-    if mode == "auto":  # a room that can heat shows the heat target and the cool target
+    if mode == "heat_cool":  # a room that can heat shows the heat target and the cool target
         assert (home.state.attributes["target_temp_low"], home.state.attributes["target_temp_high"]) == (23.5, 23.5)
     else:
         assert home.state.attributes["temperature"] == 23.5
@@ -368,7 +368,7 @@ async def test_a_random_day_with_noisy_sensors_a_restart_and_a_new_target(house,
     short-cycle, and the room ends within 1.5 K of the target on the side the mode controls.
     """
     rng = random.Random(seed)
-    mode = rng.choice(["heat", "cool", "auto", "off"])
+    mode = rng.choice(["heat", "cool", "heat_cool", "off"])
     start_c, outdoor_c = rng.uniform(16.0, 29.0), rng.uniform(0.0, 38.0)
     targets = [float(rng.randint(19, 25)), float(rng.randint(19, 25))]
     home = await house(room_c=start_c, outdoor_c=outdoor_c, mode=mode, target_c=targets[0], thermal=True)
@@ -389,9 +389,9 @@ async def test_a_random_day_with_noisy_sensors_a_restart_and_a_new_target(house,
     assert _starts(heater) <= 36, f"{case}: the heater started {_starts(heater)} times in 6 hours"
     assert _starts(cooling) <= 18, f"{case}: the AC started {_starts(cooling)} times in 6 hours"
     last_hour = home.rooms(60)
-    if mode in ("heat", "auto"):
+    if mode in ("heat", "heat_cool"):
         heats = mode == "heat" or outdoor_c <= 22.0
         if heats:
             assert min(last_hour) >= targets[1] - 1.5, case
-    if mode in ("cool", "auto"):
+    if mode in ("cool", "heat_cool"):
         assert max(last_hour) <= targets[1] + 1.5, case

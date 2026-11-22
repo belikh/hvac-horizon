@@ -55,7 +55,7 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 | :--- | :--- |
 | `tests/test_*.py` | The pure modules, such as `decide.py`, `features.py`, `model.py` and `fleet.py`. `tests/test_model.py` checks the solver on 500 random systems and the constrained fit on 300 random data sets against a search of every allowed fit. |
 | `tests/ha/test_config_flow.py` | The setup and reconfigure forms. |
-| `tests/ha/test_setup.py` | Setup, control, the room thermostat, services, restarts and unload, against fake devices. |
+| `tests/ha/test_setup.py` | Setup, control, the room thermostat, actions, restarts and unload, against fake devices. |
 | `tests/ha/test_basics.py` | The basics of a thermostat, from the outside: mode, target, off, restart and dead sensors against a simulated room. |
 | `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |
 | `tests/fakes.py` | The fake AC and switch, real Home Assistant entities. `tests/ha/test_fakes.py` tests them. See [Test framework](test-framework.md). |
@@ -79,8 +79,8 @@ Four groups of tests exist to stop work that looks done and does nothing.
 - The room reaches the target within 4 hours and stays within 1 K of it.
 - A new target starts or ends a run. The thermostat shows the target you set.
 - `off` and a mode change end a run in the same call.
-- The heater and the AC do not run against each other at any minute, and `auto` does not take turns between them over a day.
-- With a window actuator, `auto` cools with the window on a cold day and runs the AC when the window does not help.
+- The heater and the AC do not run against each other at any minute, and the automatic mode does not take turns between them over a day.
+- With a window actuator, the automatic mode cools with the window on a cold day and runs the AC when the window does not help.
 - The mode and the target survive a restart. Dead room sensors turn the devices off.
 - Twelve seeded random days hold the same rules: a random mode, start and outdoor temperature, sensors with 0.15 K of noise, one restart and one target change at random minutes. The heater starts at most 36 times and the AC at most 18 times in 6 hours.
 

@@ -9,8 +9,10 @@ from homeassistant.util import dt as dt_util
 
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 
 from .const import CONF_AREA, CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
+from .binary_sensor import BINARY_KEYS
 from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
 from .room_model.forecast import Forecast, PriceSlot, forecast
@@ -18,7 +20,7 @@ from .room_model.model import Fit, NotEnoughData, Sample, fit
 
 __all__ = ["Fit", "Forecast", "NotEnoughData", "PriceSlot", "Sample", "fit", "forecast"]
 
-PLATFORMS = [Platform.SENSOR, Platform.CLIMATE]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.CLIMATE]
 
 
 SERVICE_RESET = "reset_learning"
@@ -146,9 +148,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(hass.bus.async_listen(EVENT_HOMEASSISTANT_STOP, _on_stop))
     entry.async_on_unload(coordinator.start_watchdog())
     sync_accuracy_panel(hass)
+    _remove_sensors_that_became_binary_sensors(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _place_in_area(hass, entry)
     return True
+
+
+def _remove_sensors_that_became_binary_sensors(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the sensor entities of values that are binary sensors since 0.7.0, so no dead entity stays in the registry."""
+    registry = er.async_get(hass)
+    for key in BINARY_KEYS:
+        if entity_id := registry.async_get_entity_id(Platform.SENSOR, DOMAIN, f"{entry.entry_id}_{key}"):
+            registry.async_remove(entity_id)
 
 
 def _place_in_area(hass: HomeAssistant, entry: ConfigEntry) -> None:

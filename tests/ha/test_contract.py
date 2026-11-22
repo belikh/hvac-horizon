@@ -83,10 +83,10 @@ def room(hass, enable_custom_integrations, freezer) -> Room:
     ("ac_modes", "heater", "settings", "offered"),
     [
         (ALL_MODES, False, {}, ["off", "cool", "auto", "dry", "fan_only"]),
-        (ALL_MODES, True, {}, ["off", "cool", "heat", "auto", "dry", "fan_only"]),
-        (ALL_MODES, False, {"ac_heat": True}, ["off", "cool", "heat", "auto", "dry", "fan_only"]),
+        (ALL_MODES, True, {}, ["off", "cool", "heat", "heat_cool", "dry", "fan_only"]),
+        (ALL_MODES, False, {"ac_heat": True}, ["off", "cool", "heat", "heat_cool", "dry", "fan_only"]),
         (("off", "cool"), False, {"ac_heat": True, "mpc_heat_plan": True}, ["off", "cool", "auto"]),  # a cool-only AC cannot heat
-        (("off", "cool"), True, {}, ["off", "cool", "heat", "auto"]),
+        (("off", "cool"), True, {}, ["off", "cool", "heat", "heat_cool"]),
         (("off", "cool", "dry"), False, {}, ["off", "cool", "auto", "dry"]),
         (("off", "cool"), False, {"dehumidifier": "switch.contract_dehumidifier"}, ["off", "cool", "auto", "dry"]),
         (None, True, {}, ["off", "heat"]),  # a room with heating only

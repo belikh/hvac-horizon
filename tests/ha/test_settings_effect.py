@@ -601,6 +601,7 @@ def render_feature_matrix() -> str:
     import json
 
     from custom_components.hvac_horizon import config_flow
+    from custom_components.hvac_horizon import binary_sensor as binary_module
     from custom_components.hvac_horizon import sensor as sensor_module
 
     steps = json.loads((Path(config_flow.__file__).parent / "translations" / "en.json").read_text())["config"]["step"]
@@ -641,7 +642,8 @@ def render_feature_matrix() -> str:
         "",
         "| Status sensors | Count |",
         "| :-- | --: |",
-        f"| All status keys | {len(sensor_module.STATUS_KEYS)} |",
+        f"| Status sensors | {len(sensor_module.STATUS_KEYS)} |",
+        f"| Binary sensors | {len(binary_module.BINARY_KEYS)} |",
         f"| Diagnostic, enabled | {len(sensor_module.DIAGNOSTIC_ENABLED_KEYS)} |",
         f"| Diagnostic, disabled by default | {len(sensor_module.DIAGNOSTIC_DISABLED_KEYS)} |",
         "",

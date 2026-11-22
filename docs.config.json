@@ -13,7 +13,10 @@
     "tick": "One run of the control loop. It happens every 5 minutes and after each change on the room thermostat.",
     "restart delay": "The time a device stays off before it may start again, 3 minutes by default.",
     "room model": "The three learned values k, c and g that describe how the room gains heat and how the AC cools it.",
-    "observe only": "The state of an entry with control off. It learns and forecasts and sends no commands."
+    "observe only": "The state of an entry with control off. It learns and forecasts and sends no commands.",
+    "automatic mode": "The thermostat mode in which the room runs whatever it needs. Home Assistant names it heat_cool in a room that can heat and cool, and auto in a room that only cools.",
+    "area": "A Home Assistant area, such as Bedroom. A room entry can belong to one: setup suggests the area's entities, and the room's thermostat and sensors are placed in it.",
+    "action": "What Home Assistant called a service before 2024.8, such as hvac_horizon.set_lock. Call one from Developer tools > Actions or from an automation."
   },
   "sections": [
     {

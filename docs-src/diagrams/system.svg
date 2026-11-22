@@ -72,7 +72,7 @@
   <rect x="544" y="28" width="166" height="121"/>
   <text x="556" y="48" font-size="14" fill="currentColor" font-weight="700">Entities</text>
   <text x="556" y="66" font-size="13" fill="var(--jp-text-muted)">room thermostat</text>
-  <text x="556" y="83" font-size="13" fill="var(--jp-text-muted)">85 sensors</text>
+  <text x="556" y="83" font-size="13" fill="var(--jp-text-muted)">85 sensor entities</text>
   <text x="556" y="100" font-size="13" fill="var(--jp-text-muted)">repair issues</text>
   <text x="556" y="117" font-size="13" fill="var(--jp-text-muted)">diagnostics</text>
   <text x="556" y="134" font-size="13" fill="var(--jp-text-muted)">accuracy panel</text>

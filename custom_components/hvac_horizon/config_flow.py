@@ -523,6 +523,8 @@ def area_suggestions(hass: HomeAssistant, area_id: str) -> dict[str, Any]:
         found[CONF_ROOM_SENSORS] = temperatures
     for field, domain, classes in (
         (CONF_ROOM_HUMIDITY, "sensor", ("humidity",)),
+        (CONF_CO2, "sensor", ("carbon_dioxide",)),
+        (CONF_PM25, "sensor", ("pm25",)),
         (CONF_MOTION, "binary_sensor", ("motion", "occupancy", "presence")),
         (CONF_WINDOW, "binary_sensor", ("window", "door", "opening")),
     ):
@@ -617,6 +619,12 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
             entry = self._get_reconfigure_entry()
             self._data = dict(entry.data)
             self._stored_pin = entry.data.get(CONF_LOCK_PIN)
+            if area_id := self._data.get(CONF_AREA):
+                if ar.async_get(self.hass).async_get_area(area_id) is None:
+                    self._data.pop(CONF_AREA)  # the area was deleted in Home Assistant
+                else:
+                    # Entities added to the area since setup are suggested in the fields that are still empty.
+                    self._suggested = area_suggestions(self.hass, area_id)
         return self._show_menu()
 
     def _show_menu(self) -> ConfigFlowResult:

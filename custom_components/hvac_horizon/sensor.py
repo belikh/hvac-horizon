@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfEnergy, UnitOfPower, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -17,87 +18,20 @@ from .coordinator import HorizonCoordinator
 
 # Published keys shown as plain sensors. Each key is read from coordinator.data. A list or dict key shows its
 # content: the state is the JSON text, cut to 255 characters, and the attribute "value" holds the full value.
-STATUS_KEYS: dict[str, str] = {
-    "day_type": "Day type",
-    "night_plan": "Night plan",
-    "precool_status": "Pre-cool status",
-    "daily_briefing": "Daily briefing",
-    "window_advice": "Window advice",
-    "ventilation": "Ventilation",
-    "ventilation_rate": "Ventilation rate",
-    "humidity": "Humidity action",
-    "drying_needed": "Drying needed",
-    "mould_risk": "Mould risk",
-    "compliance_pct": "Comfort compliance",
-    "heatwave": "Heatwave",
-    "fan_speed": "Fan speed",
-    "price_used_per_kwh": "Price used per kWh",
-    "occupancy": "Occupancy",
-    "solar_gain_kw": "Solar gain",
-    "band_action": "Band action",
-    "target_c": "Target temperature",
-    "preset": "Preset",
-    "heating_allowed": "Heating allowed",
-    "samples_heat": "AC heat intervals",
-    "samples_dry": "AC dry intervals",
-    "heater_feedback": "Heater feedback",
-    "heater_pwm_on": "Heater PWM on",
-    "valve_opening_pct": "Valve opening",
-    "cover_action": "Cover action",
-    "second_ac": "Second AC",
-    "learning_suggestion": "Learning suggestion",
-    "external_change": "External change",
-    "sensors_stalled": "Stalled sensors",
-    "commands_unconfirmed": "Unconfirmed commands",
-    "free_cooling": "Free cooling",
-    "forecast_mode": "Forecast mode",
-    "forecast_target": "Forecast target",
-    "fit_corrections": "Fit corrections",
-    "fit_window_days": "Fit window",
-    "kept_models": "Kept models",
-    "heat_model": "Heat model",
-    "dry_model": "Dry model",
-    "watchdog_trips": "Watchdog trips",
-    "rooms_max_age_s": "Room reading age",
-    "safety_output_pct": "Safety output",
-    "economizer": "Economizer",
-    "motion_preset": "Motion preset",
-    "shed": "Loads shed",
-    "restored": "Load switched back on",
-    "mpc_plan": "MPC plan steps",
-    "mpc_status": "MPC plan effect",
-    "mpc_heat_steps": "MPC heat plan steps",
-    "solar_scale": "Solar scale",
-    "vacation": "Vacation mode",
-    "heat_source": "Heat source",
-    "boiler_demand": "Boiler demand",
-    "whole_house_fan": "Whole-house fan",
-    "heating_failure": "Heating failure",
-    "house_cooling": "House cooling",
-    "heater_pid_output": "Heater PID output",
-    "heater_output_pct": "Heater output",
-    "tpi_output_pct": "TPI output",
-    "preheat": "Preheat",
-    "heat_up_min": "Heat-up time",
-    "cool_on_above_c": "Cool above",
-    "heat_on_below_c": "Heat below",
-    "backtest_runs": "Backtest runs",
-    "trv_offset_k": "TRV offset",
-    "room_fit": "Two-device room fit",
-    "forecast_days": "Forecast day counts",
-    "dispatch": "Room dispatch",
-    "pending": "Pending action",
-    "ac_setpoint_sent_c": "Setpoint sent",
-    "ac_sensor_offset_k": "Sensor offset",
-    "minutes_low": "Minutes to setpoint, low",
-    "minutes_high": "Minutes to setpoint, high",
-    "outdoor_forecast_used": "Outdoor forecast used",
-    "outdoor_forecast_next_c": "Outdoor forecast ahead",
-    "outdoor_source": "Outdoor source",
-    "solar_factor": "Solar cloud factor",
-    "outdoor_bias_now_k": "Outdoor forecast bias",
-    "outdoor_bias_pairs": "Outdoor bias pairs",
-}
+# Every status sensor, in the order they are created. The names are in translations/en.json under entity.sensor.
+# The values that are on or off are binary sensors: see BINARY_KEYS in binary_sensor.py.
+STATUS_KEYS: tuple[str, ...] = (
+    "day_type", "night_plan", "precool_status", "daily_briefing", "window_advice", "ventilation", "ventilation_rate", "humidity",
+    "compliance_pct", "fan_speed", "price_used_per_kwh", "occupancy", "solar_gain_kw", "band_action", "target_c", "preset",
+    "samples_heat", "samples_dry", "heater_feedback", "valve_opening_pct", "cover_action", "second_ac",
+    "learning_suggestion", "sensors_stalled", "commands_unconfirmed", "free_cooling", "forecast_mode", "forecast_target",
+    "fit_corrections", "fit_window_days", "kept_models", "heat_model", "dry_model", "watchdog_trips", "rooms_max_age_s", "safety_output_pct",
+    "economizer", "motion_preset", "shed", "restored", "mpc_plan", "mpc_status", "mpc_heat_steps", "solar_scale", "heat_source",
+    "heater_pid_output", "heater_output_pct", "tpi_output_pct", "preheat",
+    "heat_up_min", "cool_on_above_c", "heat_on_below_c", "backtest_runs", "trv_offset_k", "room_fit", "forecast_days", "dispatch", "pending",
+    "ac_setpoint_sent_c", "ac_sensor_offset_k", "minutes_low", "minutes_high", "outdoor_forecast_next_c", "outdoor_source",
+    "solar_factor", "outdoor_bias_now_k", "outdoor_bias_pairs",
+)
 
 # Sensors a user reads every day. They are enabled and have no entity category.
 PRIMARY_KEYS = frozenset(
@@ -125,27 +59,21 @@ DIAGNOSTIC_DISABLED_KEYS = frozenset(
         "economizer", "free_cooling", "fit_corrections", "fit_window_days", "kept_models", "heat_model", "dry_model", "forecast_target", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
     }
 )
-STATUS_UNITS = {
-    "target_c": "°C",
-    "cool_on_above_c": "°C",
-    "heat_on_below_c": "°C",
-    "compliance_pct": "%",
-    "safety_output_pct": "%",
-    "valve_opening_pct": "%",
-    "heater_pid_output": "%",
-    "heater_output_pct": "%",
-    "tpi_output_pct": "%",
-    "heat_up_min": "min",
-    "fit_window_days": "d",
-    "minutes_low": "min",
-    "minutes_high": "min",
-    "rooms_max_age_s": "s",
-    "solar_gain_kw": "kW",
-    "trv_offset_k": "K",
-    "ac_setpoint_sent_c": "°C",
-    "ac_sensor_offset_k": "K",
-    "outdoor_bias_now_k": "K",
-    "price_used_per_kwh": None,
+_TEMPERATURE = (SensorDeviceClass.TEMPERATURE, UnitOfTemperature.CELSIUS)
+_DIFFERENCE = (SensorDeviceClass.TEMPERATURE_DELTA, UnitOfTemperature.KELVIN)
+_MINUTES = (SensorDeviceClass.DURATION, UnitOfTime.MINUTES)
+# The device class and unit of each numeric sensor. With a device class Home Assistant shows the value in the user's
+# unit system and keeps statistics. A percentage and a price have no device class that fits, so they carry a unit only.
+MEASURES: dict[str, tuple[SensorDeviceClass | None, str | None]] = {
+    "minutes_to_setpoint": _MINUTES, "minutes_low": _MINUTES, "minutes_high": _MINUTES, "forecast_error_min": _MINUTES, "heat_up_min": _MINUTES,
+    "energy_kwh": (SensorDeviceClass.ENERGY, UnitOfEnergy.KILO_WATT_HOUR),
+    "target_c": _TEMPERATURE, "cool_on_above_c": _TEMPERATURE, "heat_on_below_c": _TEMPERATURE, "ac_setpoint_sent_c": _TEMPERATURE,
+    "trv_offset_k": _DIFFERENCE, "ac_sensor_offset_k": _DIFFERENCE, "outdoor_bias_now_k": _DIFFERENCE,
+    "rooms_max_age_s": (SensorDeviceClass.DURATION, UnitOfTime.SECONDS),
+    "fit_window_days": (SensorDeviceClass.DURATION, UnitOfTime.DAYS),
+    "solar_gain_kw": (SensorDeviceClass.POWER, UnitOfPower.KILO_WATT),
+    "compliance_pct": (None, PERCENTAGE), "safety_output_pct": (None, PERCENTAGE), "valve_opening_pct": (None, PERCENTAGE),
+    "heater_pid_output": (None, PERCENTAGE), "heater_output_pct": (None, PERCENTAGE), "tpi_output_pct": (None, PERCENTAGE),
 }
 
 
@@ -153,18 +81,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator: HorizonCoordinator = entry.runtime_data
     async_add_entities(
         [
-            HorizonSensor(coordinator, entry, "minutes_to_setpoint", "Minutes to setpoint", "min", SensorStateClass.MEASUREMENT),
-            HorizonSensor(coordinator, entry, "energy_kwh", "Energy to setpoint", "kWh", SensorStateClass.MEASUREMENT),
-            HorizonSensor(coordinator, entry, "cost", "Cost to setpoint", None, SensorStateClass.MEASUREMENT),
-            HorizonSensor(coordinator, entry, "status", "Status", None, None),
-            HorizonSensor(coordinator, entry, "samples", "Samples collected", None, SensorStateClass.MEASUREMENT),
-            HorizonSensor(coordinator, entry, "forecast_error_min", "Forecast error", "min", SensorStateClass.MEASUREMENT),
+            HorizonSensor(coordinator, entry, "minutes_to_setpoint", SensorStateClass.MEASUREMENT),
+            # A forecast of energy is no meter reading, so it has no state class: Home Assistant allows only totals for the energy class.
+            HorizonSensor(coordinator, entry, "energy_kwh", None),
+            HorizonSensor(coordinator, entry, "cost", SensorStateClass.MEASUREMENT),
+            HorizonSensor(coordinator, entry, "status", None),
+            HorizonSensor(coordinator, entry, "samples", SensorStateClass.MEASUREMENT),
+            HorizonSensor(coordinator, entry, "forecast_error_min", SensorStateClass.MEASUREMENT),
         ]
-        + [HorizonStatusSensor(coordinator, entry, key, name) for key, name in STATUS_KEYS.items()]
+        + [HorizonStatusSensor(coordinator, entry, key) for key in STATUS_KEYS]
     )
 
 
-def _set_category(entity: SensorEntity, key: str) -> None:
+def _set_category(entity: Entity, key: str) -> None:
     """Mark every sensor outside PRIMARY_KEYS diagnostic, and the internal ones disabled by default."""
     if key in PRIMARY_KEYS:
         return
@@ -175,11 +104,11 @@ def _set_category(entity: SensorEntity, key: str) -> None:
 class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry, key, name, unit, state_class) -> None:
+    def __init__(self, coordinator, entry, key, state_class) -> None:
         super().__init__(coordinator)
         self._key = key
-        self._attr_name = name
-        self._attr_native_unit_of_measurement = unit
+        self._attr_translation_key = key
+        self._attr_device_class, self._attr_native_unit_of_measurement = MEASURES.get(key, (None, None))
         self._attr_state_class = state_class
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
@@ -240,11 +169,13 @@ class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, entry, key, name) -> None:
+    def __init__(self, coordinator, entry, key) -> None:
         super().__init__(coordinator)
         self._key = key
-        self._attr_name = name
-        self._attr_native_unit_of_measurement = STATUS_UNITS.get(key)
+        self._attr_translation_key = key
+        self._attr_device_class, self._attr_native_unit_of_measurement = MEASURES.get(key, (None, None))
+        if self._attr_device_class is not None:
+            self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
         _set_category(self, key)

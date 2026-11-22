@@ -103,7 +103,7 @@ The preset, your target, the price shift, occupancy, vacation and the mould bump
 
 `decide()` in `decide.py` returns one action for the AC. Its order is:
 
-1. A window open longer than its delay: off. In `auto`, with a window actuator or a whole-house fan, outdoors below 16 °C: off, until free cooling has failed for 30 minutes. `cool` mode has no outdoor limit. In `auto` the AC also waits 60 minutes after the heater ran, unless the room is 2 K above the cool threshold.
+1. A window open longer than its delay: off. In the automatic mode, with a window actuator or a whole-house fan, outdoors below 16 °C: off, until free cooling has failed for 30 minutes. `cool` mode has no outdoor limit. In the automatic mode the AC also waits 60 minutes after the heater ran, unless the room is 2 K above the cool threshold.
 2. A night pre-cool, when `night_plan_act` is on.
 3. An unoccupied room: pre-cool when a schedule event is near, else cool only above the setback.
 4. An occupied room: cool above the threshold.
@@ -126,7 +126,7 @@ A heater switch runs as a share of a 10 minute window. `pid.py` or `tpi.py` give
 The heater stays off in each of these cases:
 
 - The thermostat's mode does not heat.
-- Outdoors is above 22 °C and the mode is `auto` or `dry`. `heat` mode has no outdoor limit.
+- Outdoors is above 22 °C and the mode is automatic or `dry`. `heat` mode has no outdoor limit.
 - A window is open, the house is away or the lock is on.
 - A sensor is stalled.
 - The AC cools.
@@ -152,6 +152,9 @@ The entry stores its readings, the room model, the kept models, the thermostat's
 
 ## Terms
 
+- <a id="term-action"></a>**action**: What Home Assistant called a service before 2024.8, such as hvac_horizon.set_lock. Call one from Developer tools > Actions or from an automation.
+- <a id="term-area"></a>**area**: A Home Assistant area, such as Bedroom. A room entry can belong to one: setup suggests the area's entities, and the room's thermostat and sensors are placed in it.
+- <a id="term-automatic-mode"></a>**automatic mode**: The thermostat mode in which the room runs whatever it needs. Home Assistant names it heat_cool in a room that can heat and cool, and auto in a room that only cools.
 - <a id="term-cool-threshold"></a>**cool threshold**: The room temperature above which the AC cools. It comes from the preset, your target, the price and occupancy.
 - <a id="term-heat-target"></a>**heat target**: The room temperature the heater aims at.
 - <a id="term-heat-threshold"></a>**heat threshold**: The heat target minus 0.5 K. A PID heater and AC heat start below it.

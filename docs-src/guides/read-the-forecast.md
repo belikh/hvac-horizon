@@ -70,7 +70,7 @@ The Forecast mode sensor names what the forecast sensors show.
 | `forecast_mode` | When | Minutes to setpoint counts down to |
 | :-- | :-- | :-- |
 | `cool` | Every other time, including `fan_only` | The cool threshold |
-| `heat` | The mode is `heat`, or `auto` with the room below the heat target | The heat target |
+| `heat` | The mode is `heat`, or `heat_cool` with the room below the heat target | The heat target |
 | `dry` | The mode is `dry` | 3 points below the humidity target (57 % by default) |
 
 In observe-only the mode is the AC's own mode. The `forecast_target` sensor holds the target of the forecast shown.
