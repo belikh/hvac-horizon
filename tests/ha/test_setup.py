@@ -7999,6 +7999,64 @@ async def test_a_stored_field_with_a_wrong_type_still_loads_and_sends_no_start(h
         await refresh(hass, entry)
         assert entry.runtime_data.data is not None, f"{key}={value!r}"
         if key != "user_off":
-            assert not [c for c in calls if c[0] == "turn_on"], f"{key}={value!r}: {calls}"
+            assert "turn_on" not in calls, f"{key}={value!r}: {calls}"
         assert await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
+
+
+async def test_watchdog_turns_the_outputs_off_when_no_tick_finishes(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
+    """Every tick raises for 20 minutes. The watchdog turns the heater off, and the next good tick resumes control."""
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    hass.states.async_set(HEATER, "on")
+    coordinator = entry.runtime_data
+    assert coordinator.data["watchdog_trips"] == 0
+
+    async def broken(now, result):
+        raise RuntimeError("tick failed")
+
+    good = coordinator._async_update_steps
+    monkeypatch.setattr(coordinator, "_async_update_steps", broken)
+    monkeypatch.setattr(coordinator, "_async_heater_step", broken)  # the tick's own heater fallback fails too
+    calls.clear()
+    for _ in range(20):
+        freezer.tick(timedelta(minutes=1))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
+    assert "turn_off" in calls
+    assert "turn_on" not in calls
+    monkeypatch.undo()
+    assert coordinator._async_update_steps == good
+    hass.states.async_set(HEATER, "off")
+    keep_sensors_fresh(hass, outdoor="10.0", room="20.0")
+    calls.clear()
+    await refresh(hass, entry)
+    assert coordinator.data["watchdog_trips"] == 1
+    assert "turn_on" in calls
+
+
+async def test_watchdog_does_not_trip_on_a_clock_jump(hass, enable_custom_integrations, config_data, freezer):
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    freezer.tick(timedelta(hours=3))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["watchdog_trips"] == 0
+
+
+async def test_a_heater_that_ignores_its_command_is_listed_after_two_ticks(hass, enable_custom_integrations, config_data, freezer):
+    """The fake switch records the call and stays off. One tick of difference is normal, two are reported."""
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    assert "turn_on" in calls
+    assert entry.runtime_data.data["commands_unconfirmed"] == []
+    freezer.tick(timedelta(minutes=5))
+    keep_sensors_fresh(hass, outdoor="10.0", room="20.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["commands_unconfirmed"] == [f"{HEATER}: expected on, is off"]
+    hass.states.async_set(HEATER, "on")
+    freezer.tick(timedelta(minutes=5))
+    keep_sensors_fresh(hass, outdoor="10.0", room="20.0")
+    await refresh(hass, entry)
+    assert entry.runtime_data.data["commands_unconfirmed"] == []

@@ -53,6 +53,7 @@ class House:
         self.rng = random.Random(0)
         self.window_opened = False  # True once the window actuator has been open
         self.thermostat = ""
+        self.unconfirmed = ""  # the Unconfirmed commands sensor
         self.entry: MockConfigEntry | None = None
         self.log: list[tuple[float, bool, bool]] = []  # per minute: room temperature, heater on, AC cooling
 
@@ -128,6 +129,7 @@ class House:
         await self.hass.async_block_till_done()
         registry = er.async_get(self.hass)
         self.thermostat = next(e.entity_id for e in er.async_entries_for_config_entry(registry, self.entry.entry_id) if e.domain == "climate")
+        self.unconfirmed = next(e.entity_id for e in er.async_entries_for_config_entry(registry, self.entry.entry_id) if e.unique_id.endswith("_commands_unconfirmed"))
 
     async def restart(self) -> None:
         """Unload and set up the entry again, as a restart of Home Assistant does."""
@@ -151,6 +153,8 @@ class House:
             self.log.append((self.room_c, self.heater_on, self.ac_mode == "cool"))
             self.window_opened = self.window_opened or self.window_open
             assert not (self.heater_on and self.ac_mode == "cool"), "the heater and the AC ran against each other"
+            if self.sensors_alive and self.unconfirmed:
+                assert self.hass.states.get(self.unconfirmed).state == "[]", "a device that obeys every command was reported as unconfirmed"
 
     async def set_mode(self, mode: str) -> None:
         await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": self.thermostat, "hvac_mode": mode}, blocking=True)

@@ -77,6 +77,7 @@ from custom_components.hvac_horizon.decide import Preset, Settings, cool_above_c
 from custom_components.hvac_horizon.autotune import RelayTuner
 from custom_components.hvac_horizon.devices import RoomFit
 from custom_components.hvac_horizon.features import (
+    FreeCooling,
     ScheduleBlock,
     band_action,
     boiler_demand,
@@ -206,9 +207,12 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._heat_rate: float | None = None  # heater rate, K/h at full output, learned from heating intervals; drives preheat
         self._auto_tpi_gain = 1.0  # online gain on the fitted cooling c, learned each interval; stored
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
-        self._free_cooling_since: float | None = None  # when the window this entry opened, or the fan, started
-        self._free_cooling_mark: tuple[float, float] | None = None  # time and room temperature at the start of the current check period
-        self._free_cooling_gave_up = False  # free cooling failed to hold the room; the window stays shut until the room is at the threshold
+        self._last_tick_done_s: float | None = None  # when the last tick finished without raising; the watchdog reads it
+        self._watchdog_stale_checks = 0
+        self._watchdog_trips = 0  # times the watchdog turned the outputs off since the entry loaded
+        self._unconfirmed_seen: set[str] = set()  # devices whose state differed from the last command on the previous tick
+        self._unconfirmed_warned: set[str] = set()
+        self._free_cooling = FreeCooling()  # idle, running or gave_up; see features.free_cooling_step
         self._actuator_opened_by_us = False  # set when this integration opens the window actuator; only then does it close it
         self._prev_room_c: float | None = None  # room median at the previous TPI tick; its change is the trend the thresholds read
         self._room_fit: dict[str, Any] | None = None  # two-device fit, published when a second power sensor is set
@@ -291,7 +295,9 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         result: dict[str, Any] = {}
         self._heater_step_done = False
         try:
-            return await self._async_update_steps(now, result)
+            done = await self._async_update_steps(now, result)
+            self._last_tick_done_s = dt_util.utcnow().timestamp()
+            return done
         except Exception:  # KeyboardInterrupt, SystemExit and CancelledError pass through; the unload and stop paths turn devices off
             if not self._heater_step_done:
                 # A step failed before the heater step. Close the gate and cancel the PWM timers, then turn the heater off.
@@ -332,6 +338,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         result["outdoor_bias_now_k"] = round(self._bias_at(now), 2)
         result["outdoor_bias_pairs"] = self._outdoor_bias.total
         result["sensors_stalled"] = self._stalled_sensors(now)
+        result["commands_unconfirmed"] = self._unconfirmed_commands()
+        result["watchdog_trips"] = self._watchdog_trips
         result["rooms_max_age_s"] = self._rooms_max_age_s(now)
         self._report_stalls(result["sensors_stalled"])
         if self._rooms() or self._last_room_data_s is None:
@@ -385,6 +393,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
             # Heat mode is the user's order to heat, so the outdoor limit applies in auto and dry only.
             result["heating_allowed"] = self.user_mode == "heat" or outdoor_allows("heat", outdoor_now)
         await self._drive_window_actuator(result)
+        result["free_cooling"] = self._free_cooling.phase
         # The motion preset sets occupancy in _plan_control. The idle clock starts at the first tick, as presence does.
         motion_state = self._optional(CONF_MOTION)
         motion_on: bool | None = None

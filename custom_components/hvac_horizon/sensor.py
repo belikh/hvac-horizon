@@ -48,6 +48,9 @@ STATUS_KEYS: dict[str, str] = {
     "learning_suggestion": "Learning suggestion",
     "external_change": "External change",
     "sensors_stalled": "Stalled sensors",
+    "commands_unconfirmed": "Unconfirmed commands",
+    "free_cooling": "Free cooling",
+    "watchdog_trips": "Watchdog trips",
     "rooms_max_age_s": "Room reading age",
     "safety_output_pct": "Safety output",
     "economizer": "Economizer",
@@ -99,7 +102,7 @@ PRIMARY_KEYS = frozenset(
 # Diagnostic sensors that stay enabled: a user reads or acts on them.
 DIAGNOSTIC_ENABLED_KEYS = frozenset(
     {
-        "sensors_stalled", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
+        "sensors_stalled", "commands_unconfirmed", "watchdog_trips", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
         "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
         "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
         "learning_suggestion", "external_change", "pending", "outdoor_forecast_used", "outdoor_source", "ac_setpoint_sent_c", "ac_sensor_offset_k",
@@ -112,7 +115,7 @@ DIAGNOSTIC_DISABLED_KEYS = frozenset(
         "mpc_plan", "mpc_heat_steps", "shed", "restored", "room_fit", "backtest_runs", "rooms_max_age_s", "samples_heat",
         "samples_dry", "forecast_days", "outdoor_forecast_next_c", "solar_factor", "outdoor_bias_now_k", "outdoor_bias_pairs", "trv_offset_k", "valve_opening_pct", "solar_scale", "solar_gain_kw",
         "ventilation_rate", "fan_speed", "band_action", "house_cooling", "heat_up_min", "boiler_demand", "second_ac",
-        "economizer", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
+        "economizer", "free_cooling", "motion_preset", "price_used_per_kwh", "cover_action", "preheat",
     }
 )
 STATUS_UNITS = {

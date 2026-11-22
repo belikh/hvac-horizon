@@ -1181,3 +1181,69 @@ def test_whole_house_fan_needs_a_room_above_the_cool_threshold():
     assert whole_house_fan_allowed(False, False, 20.0, 25.0, cool_above_c=24.0) is True
     assert whole_house_fan_allowed(False, False, 20.0, 23.8, fan_on=True, cool_above_c=24.0) is True  # holds for the deadband
     assert whole_house_fan_allowed(False, False, 20.0, 23.4, fan_on=True, cool_above_c=24.0) is False
+
+
+class FreeCoolingStateTests(unittest.TestCase):
+    """Every legal change of phase, and a random walk that finds no other."""
+
+    def step(self, state, minute, room_c, air_moving, cool_above_c=24.0):
+        from custom_components.hvac_horizon.features import free_cooling_step
+
+        return free_cooling_step(state, now_s=minute * 60.0, room_c=room_c, cool_above_c=cool_above_c, air_moving=air_moving)
+
+    def test_idle_runs_when_air_moves_and_returns_to_idle_when_it_ends(self):
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        running = self.step(FreeCooling(), 0, 25.0, True)
+        self.assertEqual(running.phase, "running")
+        self.assertEqual(self.step(running, 5, 25.0, False).phase, "idle")
+
+    def test_running_gives_up_when_the_room_is_2k_above_after_30_minutes(self):
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        state = self.step(FreeCooling(), 0, 27.5, True)
+        state = self.step(state, 25, 26.9, True)
+        self.assertEqual(state.phase, "running")
+        self.assertEqual(self.step(state, 30, 26.5, True).phase, "gave_up")
+
+    def test_running_gives_up_when_the_room_falls_too_little(self):
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        state = self.step(FreeCooling(), 0, 25.0, True)
+        self.assertEqual(self.step(state, 30, 24.8, True).phase, "gave_up")
+
+    def test_running_continues_while_the_room_falls(self):
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        state = self.step(FreeCooling(), 0, 25.5, True)
+        for minute, room in ((30, 25.1), (60, 24.7), (90, 24.3)):
+            state = self.step(state, minute, room, True)
+            self.assertEqual(state.phase, "running")
+
+    def test_gave_up_holds_until_the_room_is_at_the_threshold(self):
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        gave_up = FreeCooling("gave_up")
+        self.assertEqual(self.step(gave_up, 0, 24.1, True).phase, "gave_up")
+        self.assertEqual(self.step(gave_up, 0, 24.1, False).phase, "gave_up")
+        self.assertEqual(self.step(gave_up, 0, 24.0, False).phase, "idle")
+        self.assertEqual(self.step(gave_up, 0, 24.0, True).phase, "running")
+
+    def test_a_random_walk_makes_only_the_listed_changes(self):
+        import random
+
+        from custom_components.hvac_horizon.features import FreeCooling
+
+        legal = {("idle", "running"), ("running", "idle"), ("running", "gave_up"), ("gave_up", "idle"), ("gave_up", "running")}
+        rng = random.Random(3)
+        state, room = FreeCooling(), 25.0
+        for minute in range(0, 50000, 5):
+            room = min(29.0, max(22.0, room + rng.uniform(-0.3, 0.3)))
+            after = self.step(state, minute, room, rng.random() < 0.7)
+            if after.phase != state.phase:
+                self.assertIn((state.phase, after.phase), legal)
+                if after.phase == "gave_up":
+                    self.assertGreater(room, 24.0)
+            if room <= 24.0:
+                self.assertNotEqual(after.phase, "gave_up")
+            state = after

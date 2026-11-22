@@ -14,6 +14,8 @@ from homeassistant.components import persistent_notification
 from .const import CONF_CONTROL, CONF_COVER, CONF_OUTDOOR, CONF_WHOLE_HOUSE_FAN, CONF_WINDOW_ACTUATOR, DOMAIN
 from custom_components.hvac_horizon.features import (
     TEMP_ADVICE_DEADBAND_K,
+    FreeCooling,
+    free_cooling_step,
     effective_home,
     fan_mode_for_gap,
     house_mode_from_store,
@@ -24,15 +26,13 @@ from custom_components.hvac_horizon.features import (
     valve_exercise_due,
     window_actuator_command,
 )
-from custom_components.hvac_horizon.coordinator_common import FREE_COOLING_GIVE_UP_K, FREE_COOLING_GIVE_UP_MIN, FREE_COOLING_MIN_DROP_K, _float
+from custom_components.hvac_horizon.coordinator_common import _float
 
 
 class AuxMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _actuator_opened_by_us: bool
-    _free_cooling_gave_up: bool
-    _free_cooling_since: float | None
-    _free_cooling_mark: tuple[float, float] | None
+    _free_cooling: FreeCooling
     _cool_above_c: float
     _heat_on_below_c: float
     _inhibit_until_min: float | None
@@ -154,37 +154,21 @@ class AuxMixin:
     def _update_free_cooling(self, room_c: float | None) -> None:
         """Give up on free cooling when it cannot hold the room, and allow it again once the room is at the threshold.
 
-        A window this entry opened, or a running whole-house fan, gets FREE_COOLING_GIVE_UP_MIN to work. If the room is
-        still more than FREE_COOLING_GIVE_UP_K above the cool threshold after that, free cooling is given up: the
-        window closes, the fan stops and the AC cools. It is also given up when the room is above the threshold and
-        fell by less than FREE_COOLING_MIN_DROP_K over a period of that length.
+        The phases and every legal change between them are in features.free_cooling_step. While the phase is gave_up
+        the window closes, the fan stops and the AC cools.
         """
         if room_c is None:
             return
-        now = dt_util.utcnow().timestamp()
         fan = self.entry.data.get(CONF_WHOLE_HOUSE_FAN)
         fan_state = self.hass.states.get(fan) if fan else None
-        free_cooling = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
-        if not free_cooling:
-            self._free_cooling_since = None
-            self._free_cooling_mark = None
-        elif self._free_cooling_since is None:
-            self._free_cooling_since = now
-            self._free_cooling_mark = (now, room_c)
-        if room_c <= self._cool_above_c:
-            self._free_cooling_gave_up = False
-            return
-        if self._free_cooling_mark is not None and now - self._free_cooling_mark[0] >= FREE_COOLING_GIVE_UP_MIN * 60.0:
-            if self._free_cooling_mark[1] - room_c < FREE_COOLING_MIN_DROP_K:
-                self._free_cooling_gave_up = True
-                return
-            self._free_cooling_mark = (now, room_c)
-        if (
-            self._free_cooling_since is not None
-            and now - self._free_cooling_since >= FREE_COOLING_GIVE_UP_MIN * 60.0
-            and room_c > self._cool_above_c + FREE_COOLING_GIVE_UP_K
-        ):
-            self._free_cooling_gave_up = True
+        air_moving = self._free_cooling_open() or (fan_state is not None and fan_state.state == "on")
+        self._free_cooling = free_cooling_step(
+            self._free_cooling, now_s=dt_util.utcnow().timestamp(), room_c=room_c, cool_above_c=self._cool_above_c, air_moving=air_moving
+        )
+
+    @property
+    def _free_cooling_gave_up(self) -> bool:
+        return self._free_cooling.phase == "gave_up"
 
     def _free_cooling_open(self) -> bool:
         """True while the window actuator is open and this entry opened it."""

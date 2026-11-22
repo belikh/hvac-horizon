@@ -1146,3 +1146,56 @@ def room_devices(entry_data: dict) -> dict[str, list[str]]:
     heating = [entry_data[CONF_HEATER_SWITCH]] if entry_data.get(CONF_HEATER_SWITCH) else []
     valves = [entry_data[CONF_VALVE]] if entry_data.get(CONF_VALVE) else []
     return {"cooling": cooling, "heating": heating, "valves": valves}
+
+
+FREE_COOLING_GIVE_UP_K = 2.0  # free cooling that leaves the room this far above the cool threshold is given up
+FREE_COOLING_GIVE_UP_MIN = 30.0  # minutes free cooling runs before it can be given up, and the length of one check period
+FREE_COOLING_MIN_DROP_K = 0.3  # free cooling that cools the room by less than this in one check period is given up
+
+
+@dataclass(frozen=True)
+class FreeCooling:
+    """The state of free cooling: outdoor air through a window this entry opened, or the whole-house fan.
+
+    phase       meaning
+    idle        no air is moving, and free cooling may start
+    running     the window is open or the fan runs
+    gave_up     free cooling did not hold the room; it may not start again until the room is at the cool threshold
+    """
+
+    phase: str = "idle"
+    since_s: float | None = None  # when this run started
+    mark_s: float | None = None  # start of the current check period
+    mark_c: float | None = None  # room temperature at that time
+
+
+def free_cooling_step(state: FreeCooling, *, now_s: float, room_c: float, cool_above_c: float, air_moving: bool) -> FreeCooling:
+    """The state after one tick.
+
+    from      to        when
+    idle      running   air starts to move
+    running   idle      air no longer moves
+    running   gave_up   the room is more than FREE_COOLING_GIVE_UP_K above the threshold after FREE_COOLING_GIVE_UP_MIN,
+                        or it is above the threshold and fell by less than FREE_COOLING_MIN_DROP_K in one check period
+    gave_up   idle      the room is at or below the threshold
+    gave_up   running   the room is at or below the threshold and air moves
+
+    A room at or below the threshold is never given up. No other change of phase exists.
+    """
+    period_s = FREE_COOLING_GIVE_UP_MIN * 60.0
+    at_threshold = room_c <= cool_above_c
+    if state.phase == "gave_up" and not at_threshold:
+        return FreeCooling("gave_up")
+    if not air_moving:
+        return FreeCooling("idle")
+    if state.phase != "running" or state.since_s is None or state.mark_s is None or state.mark_c is None:
+        return FreeCooling("running", now_s, now_s, room_c)
+    if at_threshold:
+        return state
+    if now_s - state.mark_s >= period_s:
+        if state.mark_c - room_c < FREE_COOLING_MIN_DROP_K:
+            return FreeCooling("gave_up")
+        state = FreeCooling("running", state.since_s, now_s, room_c)
+    if now_s - state.since_s >= period_s and room_c > cool_above_c + FREE_COOLING_GIVE_UP_K:
+        return FreeCooling("gave_up")
+    return state

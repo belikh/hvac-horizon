@@ -25,7 +25,7 @@ TO_REDACT = {
     "whole_house_fan", "window_actuator", "whole_house_power", "peer_entry", "shed_loads",
     "fleet", "device_id", "power_sensor", "heatwave_warning", "compressor_group", "entity_id",
     # Result keys whose values are entity ids, device names or free text built from them.
-    "sensors_stalled", "shed", "restored", "shed_skipped", "dispatch", "investigation", "investigation_ai",
+    "sensors_stalled", "commands_unconfirmed", "shed", "restored", "shed_skipped", "dispatch", "investigation", "investigation_ai",
     "investigation_report", "external_change",
 }
 

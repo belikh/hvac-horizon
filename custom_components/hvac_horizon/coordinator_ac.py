@@ -97,7 +97,6 @@ class AcMixin:
     _inhibit_until_min: float | None
     _inhibited_for_setpoint: float | None
     _inputs_seen: bool
-    _free_cooling_gave_up: bool
     _heater_stopped_min: float | None
     _heater_was_on: bool
     _last_sent_min: float | None
