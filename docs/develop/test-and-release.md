@@ -58,7 +58,9 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 | `tests/ha/test_setup.py` | Setup, control, the room thermostat, services, restarts and unload, against fake devices. |
 | `tests/ha/test_basics.py` | The basics of a thermostat, from the outside: mode, target, off, restart and dead sensors against a simulated room. |
 | `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |
-| `tests/sim/` | The integration in a closed loop with a simulated room, 24 simulated hours for each of 9 profiles. Marker `sim`. |
+| `tests/fakes.py` | The fake AC and switch, real Home Assistant entities. `tests/ha/test_fakes.py` tests them. See [Test framework](test-framework.md). |
+| `tests/ha/test_device_faults.py` | A device that raises does not end the tick or the safety stop. |
+| `tests/sim/` | The integration in a closed loop with a simulated room: 24 simulated hours for each of 9 cooling profiles, and the device modes and device faults. Marker `sim`. |
 | `tests/test_no_dead_code.py` | Every public function has a caller. |
 | `tests/test_layers.py` | A module in `room_model/` or `engine/` imports only its layer. |
 | `tests/test_published_keys.py` | Every key the coordinator publishes is on a sensor or read back. |
@@ -134,4 +136,5 @@ HACS offers the newest release to users. A user installs it from HACS and restar
 
 **See also**
 
+- [Test framework](test-framework.md): the fake devices, the simulated house and the harness.
 - [Architecture](architecture.md): the modules and the tick that the tests cover.

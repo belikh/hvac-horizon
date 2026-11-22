@@ -174,13 +174,19 @@ class UserMixin:
     def user_off(self) -> bool:
         return self._user_off
 
+    def _ac_lists(self, mode: str) -> bool:
+        """True when the first AC lists `mode`. An AC whose mode list is not known yet counts as able."""
+        climate = self.hass.states.get(self._ac_id)
+        modes = None if climate is None else climate.attributes.get("hvac_modes")
+        return modes is None or mode in modes
+
     @property
     def has_heat(self) -> bool:
-        """True when the entry can heat: a heater switch, the AC (ac_heat or mpc_heat_plan) or a heating fleet device."""
+        """True when the entry can heat: a heater switch, the AC (ac_heat or mpc_heat_plan, and a heat mode on the AC) or a heating fleet device."""
         data = self.entry.data
         return (
             bool(data.get(CONF_HEATER_SWITCH))
-            or (self.has_ac and (bool(data.get(CONF_AC_HEAT, False)) or bool(data.get(CONF_MPC_HEAT_PLAN, False))))
+            or (self.has_ac and self._ac_lists("heat") and (bool(data.get(CONF_AC_HEAT, False)) or bool(data.get(CONF_MPC_HEAT_PLAN, False))))
             or any(device.kind == HEAT for device in self._fleet())
         )
 
@@ -200,9 +206,7 @@ class UserMixin:
             return True
         if not self.has_ac or any(device.entity_id for device in self._fleet()):
             return False
-        climate = self.hass.states.get(self._ac_id)
-        modes = None if climate is None else climate.attributes.get("hvac_modes")
-        return modes is None or "dry" in modes
+        return self._ac_lists("dry")
 
     @property
     def can_fan(self) -> bool:
@@ -212,9 +216,7 @@ class UserMixin:
         """
         if not self.has_ac or any(device.entity_id for device in self._fleet()):
             return False
-        climate = self.hass.states.get(self._ac_id)
-        modes = None if climate is None else climate.attributes.get("hvac_modes")
-        return modes is None or "fan_only" in modes
+        return self._ac_lists("fan_only")
 
     @property
     def user_mode(self) -> str:

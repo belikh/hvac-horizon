@@ -80,12 +80,13 @@ def any_on(row) -> bool:
 
 
 @pytest.mark.parametrize("name", NAMES)
-async def test_no_tick_raises(hass, freezer, name):
+async def test_no_tick_raises_and_no_device_refuses_a_command(hass, freezer, name):
     trace = await traced(hass, freezer, name)
     assert len(trace.ticks) == 24 * 12 + 1
     assert trace.updates == len(trace.ticks)  # one coordinator update per tick
     failed = [t for t in trace.ticks if not t[1]]
     assert failed == []
+    assert trace.command_failures == []  # the AC is a real climate entity and refuses a mode or setpoint it does not have
     assert trace.cool_above_c == COMFORT_C
 
 

@@ -1,22 +1,25 @@
 """Closed-loop harness: the real integration against a simulated house.
 
-Each 5 minute tick the harness writes the sensor states from the house, refreshes the coordinator and lets the
-fake climate and switch services update the simulated devices. Between ticks it advances the frozen clock one
+The ACs and the heater plug are real Home Assistant entities from tests/fakes.py, each wrapping a simulated device.
+A command the integration sends goes through Home Assistant's own climate and switch services, which refuse a mode
+or a setpoint the device does not have. Each 5 minute tick the harness writes the sensor states from the house and
+refreshes the coordinator. Between ticks it advances the frozen clock one
 minute at a time, fires the timers that fall due (the heater PWM edges) and steps the house. The result is a
 Trace: one row per minute, every service call, and the outcome of every tick.
 
-The run uses no price, humidity, weather, presence or schedule entities, so no MPC plan and no setback runs.
-The controller reads the room sensors, the outdoor sensor and one power sensor.
+The run uses no price, weather, presence or schedule entities, so no MPC plan and no setback runs. The controller
+reads the room sensors, the outdoor sensor and one power sensor. A profile can add the room humidity sensor, leave
+the power sensor out, choose the thermostat mode and add settings.
 """
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
 
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
@@ -32,11 +35,13 @@ from custom_components.hvac_horizon.const import (
     SAMPLE_INTERVAL_S,
 )
 from custom_components.hvac_horizon.coordinator import HorizonCoordinator
+from tests.fakes import ALL_MODES, FakeAc, FakeSwitch, add_devices
 from tests.sim.house import AcSpec, Ac, Envelope, Heater, House, SensorFault, Weather
 
 ROOM_A = "sensor.sim_room_a"
 ROOM_B = "sensor.sim_room_b"
 OUTDOOR = "sensor.sim_outdoor"
+ROOM_RH = "sensor.sim_room_humidity"
 POWER = "sensor.sim_power"
 HEATER = "switch.sim_heater"
 START = "2026-07-15T00:00:00+00:00"
@@ -58,6 +63,23 @@ class Profile:
     min_off_min: float = 5.0
     start_air_c: float = 26.0
     start_mass_c: float = 27.0
+    ac_modes: tuple[str, ...] = ALL_MODES  # the modes each AC has
+    power_sensor: bool = True  # False: the entry gets the AC's rated power and reads its hvac_action
+    rated_w: float = 1000.0
+    room_humidity: bool = False  # True adds the room humidity sensor
+    start_rh_pct: float = 55.0
+    mode: str | None = None  # the thermostat mode set after setup; None leaves auto
+    settings: tuple[tuple[str, Any], ...] = ()  # extra settings of the entry
+
+
+@dataclass(frozen=True)
+class DeviceFault:
+    """From start_min to end_min the device `entity_id` fails. kind: "unavailable", "ignores" or "errors" (see tests/fakes.py)."""
+
+    start_min: float
+    end_min: float
+    entity_id: str
+    kind: str
 
 
 @dataclass(frozen=True)
@@ -80,6 +102,7 @@ class Row:
     compressors: dict[str, bool]
     heater_on: bool
     power_w: float
+    rh_pct: float = 55.0
 
 
 @dataclass
@@ -90,11 +113,13 @@ class Trace:
     ticks: list[tuple[int, bool, str]] = field(default_factory=list)  # minute, last_update_success, action
     updates: int = 0  # coordinator update calls, one per tick
     cool_above_c: float | None = None
+    command_failures: list[str] = field(default_factory=list)  # every command a device or Home Assistant refused
+    unconfirmed: list[tuple[int, list[str]]] = field(default_factory=list)  # minute and the commands_unconfirmed list, when not empty
     dispatch: list[dict[str, Any]] = field(default_factory=list)
 
 
 class Harness:
-    def __init__(self, hass, freezer, profile: Profile, faults: list[SensorFault] | None = None, seed: int = 1) -> None:
+    def __init__(self, hass, freezer, profile: Profile, faults: list[SensorFault] | None = None, seed: int = 1, device_faults: list[DeviceFault] | None = None) -> None:
         self.hass = hass
         self.freezer = freezer
         self.profile = profile
@@ -107,52 +132,43 @@ class Harness:
             start_hour=profile.start_hour,
             start_air_c=profile.start_air_c,
             start_mass_c=profile.start_mass_c,
+            start_rh_pct=profile.start_rh_pct,
             faults=list(faults or []),
         )
+        self.device_faults = list(device_faults or [])
+        self.acs: dict[str, FakeAc] = {}
+        self.heater_plug: FakeSwitch | None = None
+        self.thermostat = ""
         self.trace = Trace(profile)
         self.coordinator: HorizonCoordinator | None = None
 
-    # device states and services
+    # devices
 
-    def _put(self, entity_id: str, state: str, attributes: dict[str, Any] | None = None) -> None:
-        """Set a climate or switch state stamped with the frozen clock, so last_changed is the simulated time."""
-        self.hass.states.async_set(entity_id, state, attributes or {}, timestamp=time.time())
+    def _log_call(self, entity_id: str, service: str, value: Any) -> None:
+        key = {"set_hvac_mode": "hvac_mode", "set_temperature": "temperature", "set_fan_mode": "fan_mode"}.get(service)
+        data = {"entity_id": entity_id, **({key: value} if key else {})}
+        self.trace.calls.append(Call(self.house.minute, entity_id.split(".", 1)[0], service, entity_id, data))
 
-    def _mirror_ac(self, entity_id: str) -> None:
-        ac = self.house.acs[entity_id]
-        self._put(entity_id, ac.mode, {"temperature": ac.setpoint_c})
+    async def _add_devices(self) -> None:
+        for entity, unit in self.house.acs.items():
+            unit.sensed_c = round(self.house.air_c + unit.spec.sensor_bias_c, 1)
+            self.acs[entity] = FakeAc(entity, name="Sim AC", modes=self.profile.ac_modes, unit=unit, listener=self._log_call)
+        devices: list[Any] = list(self.acs.values())
+        if self.house.heater:
+            heater = self.house.heater
+            self.heater_plug = FakeSwitch(HEATER, name="Sim heater", on_change=lambda on: setattr(heater, "on", on), listener=self._log_call)
+            devices.append(self.heater_plug)
+        await add_devices(self.hass, *devices)
 
-    def _register_services(self) -> None:
-        hass, house, trace = self.hass, self.house, self.trace
-
-        async def set_hvac_mode(call):
-            entity = call.data["entity_id"]
-            trace.calls.append(Call(house.minute, "climate", "set_hvac_mode", entity, dict(call.data)))
-            house.acs[entity].mode = call.data["hvac_mode"]
-            self._mirror_ac(entity)
-
-        async def set_temperature(call):
-            entity = call.data["entity_id"]
-            trace.calls.append(Call(house.minute, "climate", "set_temperature", entity, dict(call.data)))
-            house.acs[entity].setpoint_c = float(call.data["temperature"])
-            self._mirror_ac(entity)
-
-        async def turn_on(call):
-            entity = call.data["entity_id"]
-            trace.calls.append(Call(house.minute, "switch", "turn_on", entity, dict(call.data)))
-            house.heater.on = True
-            self._put(entity, "on")
-
-        async def turn_off(call):
-            entity = call.data["entity_id"]
-            trace.calls.append(Call(house.minute, "switch", "turn_off", entity, dict(call.data)))
-            house.heater.on = False
-            self._put(entity, "off")
-
-        hass.services.async_register("climate", "set_hvac_mode", set_hvac_mode)
-        hass.services.async_register("climate", "set_temperature", set_temperature)
-        hass.services.async_register("switch", "turn_on", turn_on)
-        hass.services.async_register("switch", "turn_off", turn_off)
+    def _refresh_acs(self) -> None:
+        """Publish what each unit does now: its compressor decides hvac_action, its sensor current_temperature."""
+        devices: dict[str, Any] = {**self.acs, **({HEATER: self.heater_plug} if self.heater_plug else {})}
+        for entity_id, device in devices.items():
+            kinds = {f.kind for f in self.device_faults if f.entity_id == entity_id and f.start_min <= self.house.minute < f.end_min}
+            device.available_now = "unavailable" not in kinds
+            device.ignore_commands = "ignores" in kinds
+            device.fail_commands = "errors" in kinds
+            device.async_write_ha_state()
 
     # sensors
 
@@ -171,7 +187,10 @@ class Harness:
             elif kind == "unavailable":
                 hass.states.async_set(entity, "unavailable", temp_attrs)
         power_attrs = {"unit_of_measurement": "W", "device_class": "power"}
-        hass.states.async_set(POWER, str(round(house.power_w(), 1)), power_attrs)
+        if self.profile.power_sensor:
+            hass.states.async_set(POWER, str(round(house.power_w(), 1)), power_attrs)
+        if self.profile.room_humidity and not (fault is not None and "room" in fault.targets):
+            hass.states.async_set(ROOM_RH, str(round(house.rh_pct, 1)), {"unit_of_measurement": "%", "device_class": "humidity"})
         for device in self.profile.fleet:  # each fleet unit has its own meter
             if device.get("power_sensor"):
                 ac = house.acs[device["entity_id"]]
@@ -188,6 +207,7 @@ class Harness:
                 {e: ac.compressor for e, ac in house.acs.items()},
                 bool(house.heater and house.heater.on),
                 house.power_w(),
+                house.rh_pct,
             )
         )
 
@@ -199,20 +219,20 @@ class Harness:
         data = coordinator.data or {}
         self.trace.ticks.append((self.house.minute, bool(coordinator.last_update_success), str(data.get("action"))))
         self.trace.cool_above_c = data.get("cool_on_above_c")
+        if data.get("commands_unconfirmed"):
+            self.trace.unconfirmed.append((self.house.minute, list(data["commands_unconfirmed"])))
         if data.get("dispatch"):
             self.trace.dispatch.append({"minute": self.house.minute, **data["dispatch"]})
 
     async def run(self, hours: float) -> Trace:
         profile, hass = self.profile, self.hass
         self.freezer.move_to(START)
-        for entity, _spec in profile.acs:
-            self._mirror_ac(entity)
-        if self.house.heater:
-            self._put(HEATER, "off")
-        self._register_services()
+        await self._add_devices()
         data: dict[str, Any] = {
             CONF_CLIMATE: profile.acs[0][0],
-            CONF_POWER: POWER,
+            **({CONF_POWER: POWER} if profile.power_sensor else {"ac_rated_w": profile.rated_w}),
+            **({"room_humidity": ROOM_RH} if profile.room_humidity else {}),
+            **dict(profile.settings),
             CONF_ROOM_SENSORS: [ROOM_A, ROOM_B],
             CONF_OUTDOOR: OUTDOOR,
             "control": True,
@@ -238,6 +258,11 @@ class Harness:
             assert await hass.config_entries.async_setup(entry.entry_id)
             await hass.async_block_till_done()
             self.coordinator = entry.runtime_data
+            registry = er.async_get(hass)
+            self.thermostat = next(e.entity_id for e in er.async_entries_for_config_entry(registry, entry.entry_id) if e.domain == "climate")
+            if profile.mode:
+                await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": self.thermostat, "hvac_mode": profile.mode}, blocking=True)
+                await hass.async_block_till_done()
             data_now = self.coordinator.data or {}
             self.trace.ticks.append((0, bool(self.coordinator.last_update_success), str(data_now.get("action"))))
             self._record()
@@ -245,9 +270,11 @@ class Harness:
                 for minute_in_tick in range(TICK_MIN):
                     self.freezer.tick(timedelta(minutes=1))
                     self.house.step()
+                    self._refresh_acs()
                     self._record()
                     if minute_in_tick < TICK_MIN - 1:
                         async_fire_time_changed(hass, dt_util.utcnow())
                         await hass.async_block_till_done()
                 await self._tick()
+            self.trace.command_failures = list(self.coordinator._command_failures)
         return self.trace

@@ -175,13 +175,13 @@ class FleetMixin:
                     return False
                 self._record_group_start(now)
             self._fleet_changed_at[device.device_id] = now
-            await self.hass.services.async_call(
+            await self._send(
                 "climate", "set_hvac_mode", {"entity_id": device.entity_id, "hvac_mode": mode if on else "off"}, blocking=True
             )
         if on and setpoint_c is not None:
             current = self.hass.states.get(device.entity_id).attributes.get("temperature")
             if current is None or float(current) != float(setpoint_c):
-                await self.hass.services.async_call(
+                await self._send(
                     "climate", "set_temperature", {"entity_id": device.entity_id, "temperature": setpoint_c}, blocking=True
                 )
         return True

@@ -63,10 +63,11 @@ dT/dt = k (T_out - T) - c P + g
 | Device or function | Unit tests | Simulated room | Real device |
 | :-- | :-- | :-- | :-- |
 | AC cooling through a climate entity, with a power sensor | yes | yes | one installation |
-| AC with rated power and no power sensor | yes | no | no |
+| AC with rated power and no power sensor | yes | yes | no |
 | Room with a heater and no AC | yes | no | no |
 | Heater switch, PID and TPI | yes | yes | no |
-| AC heat mode and dry mode | yes | yes | no |
+| AC heat mode, dry mode and fan mode | yes | yes | no |
+| A device that is offline, ignores commands or raises | yes | yes | no |
 | Second AC and fleet devices | yes | yes | no |
 | Valve and TRV offset | yes | yes | no |
 | Boiler, fan, humidifier, dehumidifier, cover | yes | no | no |

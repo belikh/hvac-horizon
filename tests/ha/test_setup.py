@@ -2073,18 +2073,14 @@ async def test_heater_turns_off_when_a_sensor_is_stalled(hass, enable_custom_int
     assert entry.runtime_data.data["safety_output_pct"] == 0.0
 
 
-async def test_heater_safety_step_runs_when_a_window_actuator_raises(hass, enable_custom_integrations, config_data, freezer):
-    from homeassistant.exceptions import HomeAssistantError
+async def test_heater_safety_step_runs_when_a_tick_step_raises(hass, enable_custom_integrations, config_data, freezer):
+    """A tick that raises part way still runs the heater step: the heater goes off and its PWM timers end."""
+    from unittest.mock import patch
+
     from homeassistant.helpers.event import async_call_later
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
-
-    async def failing_open(call):
-        raise HomeAssistantError("cover offline")
-
-    hass.services.async_register("cover", "close_cover", failing_open)
-    hass.states.async_set("cover.test_window", "unavailable")
-    entry, calls = await setup_heater(hass, config_data, outdoor="18.0", room="26.0", extra={"window_actuator": "cover.test_window"})
+    entry, calls = await setup_heater(hass, config_data, outdoor="18.0", room="26.0")
     coordinator = entry.runtime_data
     coordinator._unschedule_refresh()
     # A heater that is on with a live PWM timer, as in the middle of a window.
@@ -2092,11 +2088,13 @@ async def test_heater_safety_step_runs_when_a_window_actuator_raises(hass, enabl
     coordinator._heater_gated = False
     coordinator._heater_commanded_on = True
     coordinator._pwm_cancel.append(async_call_later(hass, 120, coordinator._pwm_timer))
-    # The heater is on, so the open advice has ended. The cover reads open and this integration opened it, so the actuator step calls close_cover and raises.
-    coordinator._actuator_opened_by_us = True
-    hass.states.async_set("cover.test_window", "open")
     calls.clear()
-    await refresh(hass, entry)
+
+    async def broken(result):
+        raise RuntimeError("a step of the tick failed")
+
+    with patch.object(coordinator, "_drive_window_actuator", broken):
+        await refresh(hass, entry)
     assert coordinator.last_update_success is False
     assert "turn_off" in calls
     assert "turn_on" not in calls

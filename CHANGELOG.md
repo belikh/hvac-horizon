@@ -10,6 +10,17 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
   dehumidifier and the AC's dry mode run above it and go off 3 points below it. The range is 35 to 75 %, the default
   is 60 % and the value is stored. Before, the limit was fixed at 60 %.
 
+- A command that a device refuses no longer ends the tick. The tick goes on to the other devices, the failure is
+  logged once and listed by the Unconfirmed commands sensor, and the next tick sends the command again. Before, an AC
+  whose integration raised made every tick fail, and the watchdog's stop then raised at the same AC before it
+  reached the other outputs.
+- An AC that lists no `heat` mode is never sent `heat`, and one with no `dry` mode is never sent `dry`. Before,
+  `ac_heat` or `mpc_heat_plan` on a cool-only AC sent `heat` and the tick failed.
+- Tests: the fake AC and switch are real Home Assistant entities (`tests/fakes.py`), so Home Assistant refuses a mode
+  or a setpoint the device does not have. The simulated AC has heat, dry and fan modes, its own sensor and a humidity
+  node. New closed-loop runs cover a heat pump, dry mode, fan mode, an AC with rated power, an AC whose sensor reads
+  low, a cool-only AC and three device faults. See `docs/develop/test-framework.md`.
+
 ## 0.6.2 (2026-11-22)
 
 - A target set on the room thermostat applies at once. The room returns to the `comfort` preset: a timed preset ends

@@ -116,7 +116,7 @@ These 43 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `heat_model` | Heat model | none | The heating model: `source` (`heater` or `ac`), `k_per_h` and `power_kw`. |
 | `dry_model` | Dry model | none | The drying model: `pct_per_h` and `samples`. |
 | `free_cooling` | Free cooling | none | `idle`, `running` or `gave_up`. |
-| `commands_unconfirmed` | Unconfirmed commands | none | Devices whose state differs from the last command on two ticks in a row. Enabled by default. |
+| `commands_unconfirmed` | Unconfirmed commands | none | Devices whose state differs from the last command on two ticks in a row, and commands a device refused since the last tick. Enabled by default. |
 | `watchdog_trips` | Watchdog trips | none | Times the watchdog turned the outputs off since the entry loaded. Enabled by default. |
 
 A list or dict value shows as JSON text cut to 255 characters in the state. The full value is in the `value` attribute. A key the coordinator did not publish this tick reads `unknown`.

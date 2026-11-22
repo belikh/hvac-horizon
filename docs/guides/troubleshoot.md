@@ -100,7 +100,9 @@ Open the entry, select the three-dot menu and **Download diagnostics**. The file
 
 ## A device does not follow a command
 
-The Unconfirmed commands sensor lists each device whose state differs from the last command on two ticks in a row, as `switch.heater: expected on, is off`. The log has one warning for each.
+The Unconfirmed commands sensor lists each device whose state differs from the last command on two ticks in a row, as `switch.heater: expected on, is off`. A command that the device refused is listed on the next tick, as `climate.ac: climate.set_hvac_mode failed:` and the reason. The log has one warning for each device.
+
+A device that fails does not hold up the others. The tick goes on to the next device, and the safety stop turns every other output off.
 
 | Cause | Fix |
 | :--- | :--- |

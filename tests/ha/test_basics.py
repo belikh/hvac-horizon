@@ -2,7 +2,7 @@
 
 Each test uses the room thermostat as a person does: it sets a mode and a target, lets time pass and looks at the heater
 switch, the AC and the thermostat's own state. No test reads the coordinator or its data. The house is simulated: the
-heater and the AC answer service calls as real devices do, and the room warms and cools from them and from outdoors.
+heater and the AC are real Home Assistant entities from tests/fakes.py, and the room warms and cools from them and from outdoors.
 
 A failure here means the integration breaks a rule every thermostat user expects, whatever the internal tests say.
 """
@@ -14,10 +14,10 @@ from datetime import timedelta
 
 import pytest
 from homeassistant.helpers import entity_registry as er
-from homeassistant.util import dt as dt_util
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from custom_components.hvac_horizon.const import DOMAIN
+from tests.fakes import FakeAc, FakeSwitch, add_devices
 
 AC = "climate.basics_ac"
 AC_POWER = "sensor.basics_ac_power"
@@ -81,47 +81,13 @@ class House:
         watts = "1000" if self.ac_mode in ("cool", "dry", "heat") else "0"
         self.hass.states.async_set(AC_POWER, watts, {"unit_of_measurement": "W", "device_class": "power"})
 
-    def _register_devices(self) -> None:
-        hass = self.hass
-        services = hass.services.async_services_internal()["climate"]
-        real = {name: services[name] for name in ("set_hvac_mode", "set_temperature")}
-
-        def target_of(call) -> str:
-            target = call.data["entity_id"]
-            return target[0] if isinstance(target, list) else target
-
-        def climate_handler(name):
-            async def handler(call):
-                target = target_of(call)
-                if target != AC:
-                    return await hass.async_run_hass_job(real[name].job, call)  # the room thermostat itself
-                state = hass.states.get(AC)
-                now = dt_util.utcnow().timestamp()
-                if name == "set_hvac_mode":
-                    hass.states.async_set(AC, call.data["hvac_mode"], dict(state.attributes), timestamp=now)
-                else:
-                    hass.states.async_set(AC, state.state, {**state.attributes, "temperature": call.data["temperature"]}, timestamp=now)
-
-            return handler
-
-        def switch_handler(new_state):
-            async def handler(call):
-                hass.states.async_set(target_of(call), new_state, timestamp=dt_util.utcnow().timestamp())
-
-            return handler
-
-        for name in real:
-            hass.services.async_register("climate", name, climate_handler(name), schema=services[name].schema)
-        hass.services.async_register("switch", "turn_on", switch_handler("on"))
-        hass.services.async_register("switch", "turn_off", switch_handler("off"))
-
     async def start(self, **settings) -> None:
         """Install the entry with control on and a heater switch, as a user does, and find the room thermostat."""
-        self.hass.states.async_set(AC, "off", {"temperature": 24.0, "friendly_name": "Basics AC", "target_temp_step": 1.0, "hvac_modes": ["off", "cool", "dry", "fan_only"]})
-        self.hass.states.async_set(HEATER, "off")
-        self.hass.states.async_set(WINDOW_ACTUATOR, "off")
+        self.ac = FakeAc(AC, name="Basics AC", modes=("off", "cool", "dry", "fan_only"))
+        self.heater = FakeSwitch(HEATER, name="Basics heater")
+        self.window = FakeSwitch(WINDOW_ACTUATOR, name="Basics window")
+        await add_devices(self.hass, self.ac, self.heater, self.window)
         self._publish()
-        self._register_devices()
         data = {"climate": AC, "power": AC_POWER, "room_sensors": [ROOM_1, ROOM_2], "outdoor": OUTDOOR, "heater_switch": HEATER, "control": True, **settings}
         self.entry = MockConfigEntry(domain=DOMAIN, title="Basics AC", data=data, unique_id=AC)
         self.entry.add_to_hass(self.hass)

@@ -186,7 +186,7 @@ class AcMixin:
             and keep_alive_climate is not None
             and keep_alive_climate.state not in ("unavailable", "unknown")
         ):
-            await self.hass.services.async_call(
+            await self._send(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": self._last_written_setpoint}, blocking=True
             )
             self._last_sent_min = now_min
@@ -304,7 +304,7 @@ class AcMixin:
         # Dry mode with no room humidity sensor dries until the user changes the mode, as the AC's own dry mode does.
         dry_wanted = humidity.action == "dehumidify" or (self.dry_mode and room_humidity is None)
         # The AC dries in dry mode, and in cool or auto when the dry_for_humidity option is on.
-        ac_dry_allowed = self.dry_mode or (bool(self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted)
+        ac_dry_allowed = self._ac_lists("dry") and (self.dry_mode or (bool(self.entry.data.get(CONF_DRY_FOR_HUMIDITY, False)) and self.cooling_permitted))
         # Drying cools the room. Without a heater that keeps up, the AC pauses DRY_FLOOR_BELOW_HEAT_K below the heat
         # threshold and resumes once the room is back at the threshold.
         dry_rooms = self._rooms()
@@ -386,7 +386,7 @@ class AcMixin:
             if self.fan_only_mode and not stalled:
                 # Fan mode: the AC runs its fan. The fan starts no compressor, so no restart delay applies.
                 if climate.state != "fan_only":
-                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "fan_only"}, blocking=True)
+                    await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "fan_only"}, blocking=True)
                     self._last_sent_min = now / 60.0
                     self._last_written_mode = "fan_only"
                     self._coil_dry_sent = False
@@ -421,12 +421,12 @@ class AcMixin:
                     result["action"] = "dry: waiting for restart delay"
                     return
                 self._record_group_start(now)
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "dry"
                 return
             if climate.state != "off":
-                await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"
                 self._coil_dry_sent = False
@@ -435,7 +435,7 @@ class AcMixin:
         self._dry_started_min = None
         if climate.state != "cool":
             self._record_group_start(now)
-            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
+            await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "cool"}, blocking=True)
             self._last_sent_min = now / 60.0
             self._last_written_mode = "cool"
             self._last_start_min["climate_1"] = now / 60.0
@@ -467,7 +467,7 @@ class AcMixin:
         if high is not None:
             setpoint = min(setpoint, high)
         if current is None or float(current) != setpoint:
-            await self.hass.services.async_call(
+            await self._send(
                 "climate", "set_temperature", {"entity_id": climate_id, "temperature": setpoint}, blocking=True
             )
             self._last_written_setpoint = setpoint
@@ -555,6 +555,7 @@ class AcMixin:
             and not self._user_off
             and self.heating_permitted
             and not self.dry_mode  # the AC dries in dry mode, so it cannot heat at the same time
+            and self._ac_lists("heat")
             and (bool(self.entry.data.get(CONF_AC_HEAT, False)) or plan_heat)
             and result.get("heat_source") == "ac"
             and self._heater_switch() is None
@@ -583,7 +584,7 @@ class AcMixin:
             if not self._group_start_ok(now):
                 return True
             self._record_group_start(now)
-            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "heat"}, blocking=True)
+            await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "heat"}, blocking=True)
             self._state_changed_at = now
             self._last_sent_min = now / 60.0
             self._last_written_mode = "heat"
@@ -618,12 +619,12 @@ class AcMixin:
                         return False
                     self._record_group_start(now)
                     self._coil_dry_sent = True
-                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                    await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
                 handled = True
             elif self._dry_started_min is not None:
                 self._dry_started_min = None
                 if climate.state == "dry":
-                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                    await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
                     self._coil_dry_sent = False
                     handled = True
         self._was_cooling = now_cooling
@@ -650,7 +651,7 @@ class AcMixin:
                         return
                     self._record_group_start(now)
                     self._second_ac_commanded_on = True
-                    await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
+                    await self._send("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "cool"}, blocking=True)
                     self._last_start_min["climate_2"] = now / 60.0
                     self._second_changed_at = now
                     result["second_ac"] = "driven"
@@ -658,12 +659,12 @@ class AcMixin:
                     result["second_ac"] = "waiting to stagger"
             current = second.attributes.get("temperature")
             if current is None or float(current) != float(action.setpoint_c):
-                await self.hass.services.async_call(
+                await self._send(
                     "climate", "set_temperature", {"entity_id": climate_2_id, "temperature": action.setpoint_c}, blocking=True
                 )
                 result["second_ac"] = "driven"
         elif action.mode is Mode.OFF and second.state != "off":
-            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
+            await self._send("climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True)
             self._second_ac_commanded_on = False
             self._second_changed_at = now
             result["second_ac"] = "driven"
@@ -776,7 +777,7 @@ class AcMixin:
             state = self.hass.states.get(entity_id) if entity_id else None
             if state is None or state.state in ("off", "unavailable", "unknown"):
                 continue
-            await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)
+            await self._send("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)
             if entity_id == climate_id:
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"

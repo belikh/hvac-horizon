@@ -1,0 +1,123 @@
+---
+title: Test framework
+summary: The fake devices, the simulated house and the closed-loop harness that the tests run the integration against, and how to add a case.
+section: develop
+order: 15
+audience: developers
+status: draft
+---
+
+## Four levels
+
+The suite tests the integration at four levels. Each level catches what the one before it cannot.
+
+| Level | Where | What runs | What it proves |
+| :-- | :-- | :-- | :-- |
+| Pure | `tests/test_*.py` | One function of `room_model/` or `engine/` | The model and each decision, on exact numbers and on random inputs |
+| Entry | `tests/ha/` | One entry in a test Home Assistant | Setup, the forms, the thermostat, services, restarts and unload |
+| Basics | `tests/ha/test_basics.py` | The thermostat against a room that warms and cools | The rules every thermostat user expects, read from the outside |
+| Closed loop | `tests/sim/` | 12 to 24 simulated hours of a house the integration does not know | Comfort, cycling, safety stops and device faults over a whole day |
+
+## Fake devices
+
+`tests/fakes.py` holds `FakeAc` and `FakeSwitch`. Each is a real `ClimateEntity` or `SwitchEntity`, added to Home Assistant's own `climate` and `switch` integrations with `add_devices()`. A command the integration sends goes through Home Assistant's services, as it does to a real device.
+
+```python title="A cool-only AC and a heater plug"
+ac = FakeAc("climate.bedroom", modes=("off", "cool"), min_c=17, max_c=30, fan_modes=("auto", "high"))
+plug = FakeSwitch("switch.heater")
+await add_devices(hass, ac, plug)
+```
+
+| A real device does this | The fake does it too |
+| :-- | :-- |
+| Refuses a mode it does not list | Home Assistant raises `ServiceValidationError` |
+| Refuses a setpoint outside `min_temp` to `max_temp` | The same error |
+| Reports `hvac_modes`, `target_temp_step`, `current_temperature`, `hvac_action`, `fan_modes` | Every attribute comes from the entity |
+| Changes `last_changed` on a new mode and keeps it on a new setpoint | Home Assistant's state machine sets it |
+| Is changed with its remote control | `ac.press_remote(mode="cool")`, `plug.flip_by_hand(True)` |
+
+Each fake records the commands it received in `calls`. Three flags make it fail as real devices fail:
+
+| Flag | The device | Stands for |
+| :-- | :-- | :-- |
+| `available_now = False` | Reads `unavailable` | A device that is offline |
+| `ignore_commands = True` | Accepts a command and does not change | A lost radio packet, a stuck relay |
+| `fail_commands = True` | Raises `HomeAssistantError` on a command | An integration that lost its connection |
+
+`tests/ha/test_fakes.py` holds the fakes to this table. A test built on a fake that drifts from Home Assistant would prove nothing.
+
+## Simulated house
+
+`tests/sim/house.py` is a room in plain Python with no Home Assistant import. It is richer than the model the integration fits, so the integration never sees its own equation back.
+
+| Part | Model |
+| :-- | :-- |
+| Room | Two thermal nodes, air and mass. The integration fits one. |
+| Weather | A daily sine with slow noise, solar gain from 06:00 to 18:00, an outdoor humidity |
+| AC | The modes `off`, `cool`, `heat`, `dry` and `fan_only`. Capacity and COP fall on a hot day, heating capacity falls on a cold one. |
+| AC thermostat | Starts 0.5 K past the setpoint and stops 1 K on the other side, on the unit's own sensor |
+| AC sensor | Can read a fixed bias away from the room air, as a return-air sensor does |
+| Compressor | A minimum run time, a restart lockout and a stop on a change of mode |
+| Humidity | One node: it moves toward outdoors, rises with people and falls while a compressor cools or dries |
+| Heater | A resistive load on a switch |
+| Sensors | Noise, and two faults: `dropout` (unavailable) and `stuck` (no new report) |
+
+All randomness comes from one seeded generator. A run repeats exactly.
+
+## Closed-loop harness
+
+`Harness` in `tests/sim/harness.py` wraps each simulated device in a fake device, installs a real entry and runs the clock. Each minute it steps the house and fires due timers. Every 5 minutes it writes the sensors and runs one tick. The result is a `Trace`:
+
+| Field | Holds |
+| :-- | :-- |
+| `rows` | One row per minute: air, mass and outdoor temperature, humidity, each AC's mode and compressor, the heater, the power |
+| `calls` | Every command a device received, with its minute |
+| `ticks` | Each tick's minute, whether it finished, and its action text |
+| `command_failures` | Every command a device or Home Assistant refused |
+| `unconfirmed` | The Unconfirmed commands list at each tick where it was not empty |
+
+A `Profile` describes one run: the envelope, the weather, the ACs and their modes, a heater, the thermostat mode and extra settings. `SensorFault` and `DeviceFault` schedule failures by minute.
+
+```python title="A heat pump on a cold night"
+profile = Profile("heat_pump", TIMBER, COOL_NIGHT, ((AC, NORMAL_AC),), start_hour=18.0, mode="heat", settings=(("ac_heat", True),))
+trace = await Harness(hass, freezer, profile).run(12)
+assert all(ok for _, ok, _ in trace.ticks) and trace.command_failures == []
+```
+
+## What the closed loop asserts
+
+`tests/sim/test_closed_loop.py` runs nine cooling profiles for 24 hours each, and each again with the room sensors failing for an hour.
+
+- No tick fails and no device refuses a command.
+- An AC starts at most 6 times in an hour and only after its restart delay.
+- The heater and an AC never run in the same minute.
+- After 3 hours the room is within 1.5 K of the target for 90 % of the minutes.
+- With every room sensor dead, each device is off within 20 minutes and stays off.
+
+`tests/sim/test_device_modes.py` runs the device types that have not run on real hardware:
+
+| Run | Asserts |
+| :-- | :-- |
+| Heat pump, cold night | The AC heats, never cools, and holds the room within 1.5 K |
+| Dry mode, humid room | The AC dries to 3 points below the humidity target and never cools |
+| Fan mode, hot day | The AC stays in `fan_only` for 12 hours and no compressor starts |
+| AC with rated power | The comfort band holds from `hvac_action` alone |
+| AC whose sensor reads 2 K low | The room still reaches the target |
+| Cool-only AC, cold humid night | With AC heat and AC dry enabled, the AC receives only `off` and `cool` |
+| AC unavailable, ignoring or raising for an hour | Every tick finishes, the fault is reported, and the room recovers |
+
+Two of these runs found defects when they were written. A cool-only AC was sent `heat`. An AC that raised on a command ended every tick, and the watchdog's stop then raised at the same device before it reached the other outputs.
+
+## Add a case
+
+1. A fault a user reports about basic behaviour: add a test to `tests/ha/test_basics.py` first, then fix it.
+2. A device type or a mode: add a run to `tests/sim/test_device_modes.py` with a `Profile`.
+3. A way a device fails: add a flag to the fake, a test of the flag to `tests/ha/test_fakes.py`, and a `DeviceFault` kind.
+4. A new behaviour of a real device that the fake lacks: change the fake and its test in the same commit.
+
+`tests/ha/test_setup.py` and `tests/ha/test_settings_effect.py` predate the fake devices. Most of their tests set a device's state directly and register their own service handlers. Use the fake devices for new tests in those files.
+
+:::see-also
+- [[develop/test-and-release]]: run the suite, the guard tests and the release steps.
+- [[concepts/limits#what-has-run-on-real-devices|What has run on real devices]]: which rows the simulation covers.
+:::

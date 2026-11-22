@@ -81,11 +81,11 @@ class AuxMixin:
             if valve_exercise_due((now_min - self._valve_moved_min) / (24 * 60.0)):
                 step = opening - 10.0 if opening > 90.0 else opening + 10.0
                 self._record_valve(valve, step)
-                await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": step}, blocking=True)
+                await self._send("number", "set_value", {"entity_id": valve, "value": step}, blocking=True)
                 self._valve_moved_min = now_min
             return
         self._record_valve(valve, opening)
-        await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
+        await self._send("number", "set_value", {"entity_id": valve, "value": opening}, blocking=True)
         self._valve_moved_min = now_min
 
     def _record_valve(self, valve: str, opening: float) -> None:
@@ -103,7 +103,7 @@ class AuxMixin:
             return
         for entity_id in to_shed:
             command = Context()
-            await self.hass.services.async_call("switch", "turn_off", {"entity_id": entity_id}, blocking=True, context=command)
+            await self._send("switch", "turn_off", {"entity_id": entity_id}, blocking=True, context=command)
             self._shed_loads.add(entity_id)
             self._shed_at[entity_id] = dt_util.utcnow().timestamp()
             self._shed_context[entity_id] = command.id
@@ -219,7 +219,7 @@ class AuxMixin:
             return
         domain = actuator.split(".", 1)[0]
         service = {"open": "open_cover" if domain == "cover" else "turn_on", "close": "close_cover" if domain == "cover" else "turn_off"}[command]
-        await self.hass.services.async_call(domain, service, {"entity_id": actuator}, blocking=True)
+        await self._send(domain, service, {"entity_id": actuator}, blocking=True)
         opened = command == "open"
         if opened != self._actuator_opened_by_us:
             self._actuator_opened_by_us = opened
@@ -234,7 +234,7 @@ class AuxMixin:
             return
         if inhibited(dt_util.utcnow().timestamp() / 60.0, self._inhibit_until_min):
             return
-        await self.hass.services.async_call(
+        await self._send(
             "cover", "close_cover" if action == "close" else "open_cover", {"entity_id": cover_id}, blocking=True
         )
 
@@ -243,4 +243,4 @@ class AuxMixin:
         mode = fan_mode_for_gap(gap_c, climate.attributes.get("fan_modes"))
         if mode is None or climate.attributes.get("fan_mode") == mode:
             return
-        await self.hass.services.async_call("climate", "set_fan_mode", {"entity_id": climate_id, "fan_mode": mode}, blocking=True)
+        await self._send("climate", "set_fan_mode", {"entity_id": climate_id, "fan_mode": mode}, blocking=True)

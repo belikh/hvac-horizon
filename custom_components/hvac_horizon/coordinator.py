@@ -225,6 +225,9 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._watchdog_stale_checks = 0
         self._tick_running = False  # True while a tick runs, so the watchdog does not start a second one
         self._watchdog_trips = 0  # times the watchdog turned the outputs off since the entry loaded
+        self._command_failures: list[str] = []  # the last commands a device or Home Assistant refused, newest last
+        self._command_failures_new: dict[str, str] = {}  # entity id to the failure since the last tick
+        self._command_failures_warned: set[str] = set()  # devices whose failure is already in the log
         self._unconfirmed_seen: set[str] = set()  # devices whose state differed from the last command on the previous tick
         self._unconfirmed_warned: set[str] = set()
         self._free_cooling = FreeCooling()  # idle, running or gave_up; see features.free_cooling_step

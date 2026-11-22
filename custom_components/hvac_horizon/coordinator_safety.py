@@ -7,7 +7,8 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, State
+from homeassistant.core import Context, HomeAssistant, State
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
@@ -28,6 +29,9 @@ WATCHDOG_CHECK_S = 60.0  # how often the watchdog looks at the time of the last 
 WATCHDOG_MAX_S = 3 * SAMPLE_INTERVAL_S + 60.0  # no finished tick for this long turns every output off
 
 
+COMMAND_FAILURES_KEPT = 50  # failed commands kept for the diagnostics
+
+
 class SafetyMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _coil_dry_sent: bool
@@ -38,6 +42,9 @@ class SafetyMixin:
     _tick_running: bool
     _pwm_output_pct: float
     _unconfirmed_seen: set[str]
+    _command_failures: list[str]
+    _command_failures_new: dict[str, str]
+    _command_failures_warned: set[str]
     _unconfirmed_warned: set[str]
     _watchdog_stale_checks: int
     _watchdog_trips: int
@@ -102,6 +109,8 @@ class SafetyMixin:
     def _unconfirmed_commands(self) -> list[str]:
         """Devices whose state differs from the last command on two ticks in a row, as "entity: expected X, is Y".
 
+        A command that raised since the last tick is listed too, as "entity: domain.service failed: reason".
+
         A command is sent and the device answers later, so one tick of difference is normal. A device someone
         changed by hand is listed too, because its state is not what this entry last wrote.
         """
@@ -131,7 +140,31 @@ class SafetyMixin:
                 _LOGGER.warning("Command not confirmed by the device: %s", found[entity_id])
                 self._unconfirmed_warned.add(entity_id)
         self._unconfirmed_warned &= self._unconfirmed_seen
-        return repeated
+        failed = self._command_failures_new  # commands a device refused since the last tick: the failure says more than the mismatch
+        self._command_failures_new = {}
+        return sorted([text for entity_id, text in found.items() if text in repeated and entity_id not in failed] + list(failed.values()))
+
+    async def _send(self, domain: str, service: str, data: dict[str, Any], blocking: bool = True, context: Context | None = None) -> bool:
+        """Send one command to a device. Returns False when the device or Home Assistant refuses it.
+
+        A device that does not answer raises in its own integration. One failed command must not end the tick or the
+        safety stop, because the commands after it go to other devices. The failure is logged once per device, listed
+        by the Unconfirmed commands sensor on the next tick, and the next tick sends the command again.
+        """
+        entity_id = str(data.get("entity_id"))
+        try:
+            await self.hass.services.async_call(domain, service, data, blocking=True, context=context)
+        except HomeAssistantError as err:
+            text = f"{entity_id}: {domain}.{service} failed: {err}"
+            self._command_failures.append(text)
+            del self._command_failures[:-COMMAND_FAILURES_KEPT]
+            self._command_failures_new[entity_id] = text
+            if entity_id not in self._command_failures_warned:
+                self._command_failures_warned.add(entity_id)
+                _LOGGER.warning("Command failed: %s", text)
+            return False
+        self._command_failures_warned.discard(entity_id)
+        return True
 
     async def _outputs_off(self) -> None:
         """Turn off everything this instance last commanded on, whatever the lock and the restart delay say."""
@@ -143,7 +176,7 @@ class SafetyMixin:
         if self._last_written_mode in ("cool", "heat", "dry") or self._coil_dry_sent:
             climate = self.hass.states.get(climate_id)
             if climate is not None and climate.state in ("cool", "heat", "dry"):
-                await self.hass.services.async_call(
+                await self._send(
                     "climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True
                 )
             self._last_written_mode = "off"
@@ -152,7 +185,7 @@ class SafetyMixin:
         if climate_2_id and self._second_ac_commanded_on:
             second = self.hass.states.get(climate_2_id)
             if second is not None and second.state in ("cool", "heat", "dry"):
-                await self.hass.services.async_call(
+                await self._send(
                     "climate", "set_hvac_mode", {"entity_id": climate_2_id, "hvac_mode": "off"}, blocking=True
                 )
             self._second_ac_commanded_on = False
@@ -162,7 +195,7 @@ class SafetyMixin:
         if valve is not None and self._valve_commanded_pct > 0.0:
             state = self.hass.states.get(valve)
             if state is not None and state.state not in ("unavailable", "unknown") and _float(state) != 0.0:
-                await self.hass.services.async_call("number", "set_value", {"entity_id": valve, "value": 0.0}, blocking=True)
+                await self._send("number", "set_value", {"entity_id": valve, "value": 0.0}, blocking=True)
             self._valve_commanded_pct = 0.0
 
     async def _drive_switch(self, entity_id: str | None, on: bool, *, track: bool = False) -> None:
@@ -183,7 +216,7 @@ class SafetyMixin:
                 self._switches_on.add(entity_id)
             else:
                 self._switches_on.discard(entity_id)
-        await self.hass.services.async_call("switch", service, {"entity_id": entity_id}, blocking=True)
+        await self._send("switch", service, {"entity_id": entity_id}, blocking=True)
 
     async def _locked_safety_stop(self, now: float, result: dict[str, Any], climate_id: str, climate: State | None) -> None:
         """Turn the AC off while locked when a stall, an open window or an away house calls for it."""
@@ -207,7 +240,7 @@ class SafetyMixin:
         await self._fleet_all_off(now)
         if climate is None or climate.state in ("off", "unavailable", "unknown"):
             return
-        await self.hass.services.async_call("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+        await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
         self._last_sent_min = now / 60.0
         self._last_written_mode = "off"
         self._coil_dry_sent = False

@@ -61,7 +61,7 @@ Both packages sit inside the integration folder, because HACS installs that fold
 | `coordinator_heater.py` | `HeaterMixin` | Heater gates, PWM windows, the heater switch and output limits. |
 | `coordinator_fleet.py` | `FleetMixin` | Fleet choice and driving. |
 | `coordinator_aux.py` | `AuxMixin` | Valve, load shedding, window actuator, free cooling, cover and fan mode. |
-| `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop, the switch driver, the watchdog and the unconfirmed-command check. |
+| `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop, the switch driver, `_send()` for every device command, the watchdog and the unconfirmed-command check. |
 | `coordinator_peers.py` | `PeersMixin` | Requests between entries of one house. |
 | `coordinator_investigator.py` | `InvestigatorMixin` | The mode-change explanation and the on-demand report. |
 | `coordinator_common.py` | none | Helpers, constants, the logger and `_HorizonStore`. |
