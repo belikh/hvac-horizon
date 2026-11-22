@@ -337,7 +337,8 @@
       "schedule_same_time": "The start and the end of a block must differ.",
       "schedule_overlap": "The new block overlaps the block {block}. Remove that block first, or change the times.",
       "output_order": "The minimum heater output must not be above the maximum.",
-      "tpi_threshold_pair": "Set both TPI thresholds, or leave both empty. One alone has no effect."
+      "tpi_threshold_pair": "Set both TPI thresholds, or leave both empty. One alone has no effect.",
+      "own_thermostat": "This is a room thermostat of HVAC Horizon. Pick the climate entity of the AC itself."
     }
   },
   "selector": {

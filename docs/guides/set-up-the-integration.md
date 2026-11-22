@@ -105,6 +105,7 @@ For devices that HVAC Horizon should choose between, open **Room devices**. Give
 | `This device is already set up.` | Another entry uses the same AC or heater switch. | Reconfigure that entry. |
 | `Pick an air conditioner or a heater switch. A room needs one of them.` | The Room step has neither. | Select one of them. |
 | `Pick the AC's power sensor, or enter its rated power in watts.` | The AC has neither. | Select the sensor or enter the watts. |
+| `This is a room thermostat of HVAC Horizon. Pick the climate entity of the AC itself.` | The AC field holds the thermostat of an HVAC Horizon room. | Select the AC's own climate entity. |
 | `The cheap price threshold must be below the expensive price threshold.` | The two prices are equal or swapped. | Lower the cheap price or raise the expensive one. |
 | `The new block overlaps the block 22:00 to 06:30: eco.` | A new schedule block shares a time of day with the block named. The schedule uses one block at a time. | Remove that block first, or change the times. |
 | `The minimum heater output must not be above the maximum.` | `output_min` is above `output_max` in Expert tuning. | Swap or correct the two values. |

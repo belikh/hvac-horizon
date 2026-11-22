@@ -22,6 +22,7 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
 - The forms refuse three more mistakes: a schedule block that overlaps another one, a minimum heater output above the
   maximum, and one TPI threshold without the other. Before, an overlapping block was stored and the first block
   silently won.
+- The forms refuse a room thermostat of HVAC Horizon as the AC or the second AC of a room.
 - A forecast with no price for part of its time gives no cost and says so in the Status sensor's `reason`. Before,
   the cost was empty with no explanation.
 - Tests: the fake AC and switch are real Home Assistant entities (`tests/fakes.py`), so Home Assistant refuses a mode

@@ -10,6 +10,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlow, ConfigFlowResult
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .engine.fleet import Device
@@ -567,6 +568,13 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is None:
             return self.async_show_form(step_id=section, data_schema=_section_schema(section, self._data))
         errors, placeholders = _section_problems(section, user_input)
+        # A room thermostat of this integration is no device: as the AC of a room it would be a loop of two rooms.
+        registry = er.async_get(self.hass)
+        for field in (CONF_CLIMATE, CONF_CLIMATE_2):
+            picked = user_input.get(field) if field in SECTIONS[section] else None
+            own = registry.async_get(picked) if picked else None
+            if own is not None and own.platform == DOMAIN:
+                errors[field] = "own_thermostat"
         if errors:
             return self.async_show_form(
                 step_id=section,

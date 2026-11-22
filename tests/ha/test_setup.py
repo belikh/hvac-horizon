@@ -260,6 +260,18 @@ async def test_the_schedule_step_refuses_a_block_that_overlaps_another(hass, ena
     assert [b["start_h"] for b in result["data"][CONF_SCHEDULE_BLOCKS]] == [22.0, 17.0, 6.5]
 
 
+async def test_the_room_step_refuses_a_room_thermostat_of_this_integration_as_the_ac(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    own = _room_climate_id(hass, entry)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**{k: config_data[k] for k in ROOM_KEYS}, "climate": own})
+    assert result["type"] == "form" and result["errors"] == {"climate": "own_thermostat"}
+
+
 async def test_the_expert_step_refuses_values_that_cannot_work(hass, enable_custom_integrations, config_data):
     set_inputs(hass)
     result = await _start_flow(hass, config_data)
