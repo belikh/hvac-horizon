@@ -1,6 +1,6 @@
 import unittest
 
-from custom_components.hvac_horizon.pid import Pid
+from custom_components.hvac_horizon.room_model.pid import Pid
 
 
 def run(pid, setpoint, start, steps, dt_h=5 / 60, gain=2.0, loss=0.2, ambient=18.0):

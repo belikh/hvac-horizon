@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .devices import RoomSample, fit_room
-from .model import NotEnoughData
+from ..room_model.devices import RoomSample, fit_room
+from ..room_model.model import NotEnoughData
 
 COOL = "cool"
 HEAT = "heat"

@@ -19,7 +19,7 @@ These 11 sensors have no entity category. Home Assistant shows them on the devic
 
 | Key | Name | Unit | Meaning |
 | :-- | :-- | :-- | :-- |
-| `minutes_to_setpoint` | Minutes to setpoint | min | Forecast minutes for the room to reach the cool threshold at the current running power. |
+| `minutes_to_setpoint` | Minutes to setpoint | min | Forecast minutes for the room to reach the cool threshold at the current running power. In a heating or drying forecast, the minutes to that target. |
 | `energy_kwh` | Energy to setpoint | kWh | AC energy for that time. An upper bound for a unit that cycles. |
 | `cost` | Cost to setpoint | none | That energy priced slot by slot from the price forecast. Empty with no price sensor. |
 | `status` | Status | none | State of the forecast: `learning`, `no input`, `no running power yet`, `at setpoint`, `reachable` or `unreachable`. Carries the attributes below. |
@@ -30,6 +30,7 @@ These 11 sensors have no entity category. Home Assistant shows them on the devic
 | `heat_on_below_c` | Heat below | °C | The heater heats when the room is below this value: the heat target minus 0.5 K. |
 | `minutes_low` | Minutes to setpoint, low | min | Low end of the forecast range, from the standard error of the cooling rate. |
 | `minutes_high` | Minutes to setpoint, high | min | High end of the forecast range. |
+| `forecast_mode` | Forecast mode | none | What the forecast sensors show: `cool`, `heat` or `dry`. |
 
 ## Diagnostic sensors
 
@@ -108,6 +109,14 @@ These 36 sensors hold internal detail. To use one, open it in **Settings > Devic
 | `solar_factor` | Solar cloud factor | none | Share of clear-sky solar gain from the forecast condition: sunny 1.0, partlycloudy 0.7, cloudy 0.4, rainy 0.2. |
 | `outdoor_bias_now_k` | Outdoor forecast bias | K | Learned outdoor sensor minus forecast for this hour of day. 0 until 6 pairs exist. |
 | `outdoor_bias_pairs` | Outdoor bias pairs | none | Pairs the bias has learned from. `reset_learning` clears them. |
+| `forecast_target` | Forecast target | none | Target of a heating forecast in °C, or of a drying forecast in percent. Unknown for a cooling forecast. |
+| `fit_corrections` | Fit corrections | none | The kept corrections for sun, outdoor temperature and humidity, with `improvement_pct`. Unknown with none. |
+| `fit_window_days` | Fit window | d | Days of readings the fit used: 14 or 30. |
+| `heat_model` | Heat model | none | The heating model: `source` (`heater` or `ac`), `k_per_h` and `power_kw`. |
+| `dry_model` | Dry model | none | The drying model: `pct_per_h` and `samples`. |
+| `free_cooling` | Free cooling | none | `idle`, `running` or `gave_up`. |
+| `commands_unconfirmed` | Unconfirmed commands | none | Devices whose state differs from the last command on two ticks in a row. Enabled by default. |
+| `watchdog_trips` | Watchdog trips | none | Times the watchdog turned the outputs off since the entry loaded. Enabled by default. |
 
 A list or dict value shows as JSON text cut to 255 characters in the state. The full value is in the `value` attribute. A key the coordinator did not publish this tick reads `unknown`.
 

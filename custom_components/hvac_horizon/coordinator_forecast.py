@@ -34,28 +34,28 @@ from .const import (
     DEFAULT_WINDOW_AZIMUTH,
     FORECAST_FRESH_S,
 )
-from custom_components.hvac_horizon.collector import Entry, price_slots, running_power_kw
-from custom_components.hvac_horizon.model import Fit, fit_confidence
-from custom_components.hvac_horizon.decide import Preset
-from custom_components.hvac_horizon.devices import RoomFit, forecast_fit
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.room_model.collector import Entry, price_slots, running_power_kw
+from custom_components.hvac_horizon.room_model.model import Fit, fit_confidence
+from custom_components.hvac_horizon.engine.decide import Preset
+from custom_components.hvac_horizon.room_model.devices import RoomFit, forecast_fit
+from custom_components.hvac_horizon.engine.features import (
     ScheduleBlock,
     forecast_highs,
     hot_streak,
     minutes_until_preset,
     sun_heat_gain,
 )
-from custom_components.hvac_horizon.tpi import TpiFit, heat_up_minutes
-from custom_components.hvac_horizon.backfill import accuracy_pairs, range_coverage
-from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, condition_factor, solar_elevation_azimuth, window_irradiance
-from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
-from custom_components.hvac_horizon.forecast import Forecast, forecast, forecast_range
-from custom_components.hvac_horizon.corrections import Corrections, apply
-from custom_components.hvac_horizon.mode_models import RateFit, dry_forecast, heat_forecast
-from custom_components.hvac_horizon.control import precool_start_in_min
+from custom_components.hvac_horizon.room_model.tpi import TpiFit, heat_up_minutes
+from custom_components.hvac_horizon.room_model.backfill import accuracy_pairs, range_coverage
+from custom_components.hvac_horizon.room_model.solar_model import clear_sky_irradiance, condition_factor, solar_elevation_azimuth, window_irradiance
+from custom_components.hvac_horizon.room_model.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries, build_series, condition_now, night_low, parse_hourly, temperature_now
+from custom_components.hvac_horizon.room_model.forecast import Forecast, forecast, forecast_range
+from custom_components.hvac_horizon.room_model.corrections import Corrections, apply
+from custom_components.hvac_horizon.room_model.mode_models import RateFit, dry_forecast, heat_forecast
+from custom_components.hvac_horizon.engine.control import precool_start_in_min
 from custom_components.hvac_horizon.coordinator_common import PRECOOL_LATE_MAX_MIN, _LOGGER, _parse_deadline, _round_or_none, _float, _stored_number as _float_or_none
-from custom_components.hvac_horizon.features import HUMIDITY_BAND_HIGH_PCT, HUMIDITY_DEADBAND_PCT
-from custom_components.hvac_horizon.mode_models import MIN_MODE_SAMPLES
+from custom_components.hvac_horizon.engine.features import HUMIDITY_BAND_HIGH_PCT, HUMIDITY_DEADBAND_PCT
+from custom_components.hvac_horizon.room_model.mode_models import MIN_MODE_SAMPLES
 
 SOLAR_SHARE_MIN_KW = 0.05  # below this clear-sky gain the share of sun the room gets is not measured
 DRY_TARGET_PCT = HUMIDITY_BAND_HIGH_PCT - HUMIDITY_DEADBAND_PCT  # dry mode ends here

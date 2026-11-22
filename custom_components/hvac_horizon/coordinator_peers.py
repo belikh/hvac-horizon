@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State
 
 from .const import CONF_PEER_ENTRY, CONF_PEER_SETPOINT_MODE, DOMAIN
-from custom_components.hvac_horizon.features import peer_warmer
+from custom_components.hvac_horizon.engine.features import peer_warmer
 
 if TYPE_CHECKING:
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator

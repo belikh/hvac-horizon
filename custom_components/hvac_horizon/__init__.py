@@ -10,8 +10,8 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
 from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
-from .forecast import Forecast, PriceSlot, forecast
-from .model import Fit, NotEnoughData, Sample, fit
+from .room_model.forecast import Forecast, PriceSlot, forecast
+from .room_model.model import Fit, NotEnoughData, Sample, fit
 
 __all__ = ["Fit", "Forecast", "NotEnoughData", "PriceSlot", "Sample", "fit", "forecast"]
 
@@ -53,7 +53,7 @@ def _register_services(hass: HomeAssistant) -> None:
         )
 
     async def export_csv(call):
-        from .collector import entries_to_csv
+        from .room_model.collector import entries_to_csv
 
         return {"csv": entries_to_csv(_coordinator(call)._entries)}
 

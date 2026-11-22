@@ -12,7 +12,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.components import persistent_notification
 
 from .const import CONF_CONTROL, CONF_COVER, CONF_OUTDOOR, CONF_WHOLE_HOUSE_FAN, CONF_WINDOW_ACTUATOR, DOMAIN
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.engine.features import (
     TEMP_ADVICE_DEADBAND_K,
     FreeCooling,
     free_cooling_step,

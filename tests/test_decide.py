@@ -1,6 +1,6 @@
 import unittest
 
-from custom_components.hvac_horizon.decide import Mode, RoomState, Settings, decide
+from custom_components.hvac_horizon.engine.decide import Mode, RoomState, Settings, decide
 
 S = Settings(comfort_c=24.0, away_c=27.0, window_delay_min=10.0)
 
@@ -94,20 +94,20 @@ class OccupancyEcoTests(unittest.TestCase):
 
 class PresetTests(unittest.TestCase):
     def test_eco_targets_eco_setpoint(self):
-        from custom_components.hvac_horizon.decide import Preset, Settings, _preset_setpoint
+        from custom_components.hvac_horizon.engine.decide import Preset, Settings, _preset_setpoint
 
         s = Settings(comfort_c=24.0, away_c=27.0, eco_c=25.5, preset=Preset.ECO)
         self.assertEqual(_preset_setpoint(s), 25.5)
         self.assertEqual(decide(state(room_c=26.2), s).setpoint_c, 25.5)
 
     def test_boost_targets_boost_setpoint(self):
-        from custom_components.hvac_horizon.decide import Preset, Settings, _preset_setpoint
+        from custom_components.hvac_horizon.engine.decide import Preset, Settings, _preset_setpoint
 
         s = Settings(comfort_c=24.0, away_c=27.0, boost_c=22.0, preset=Preset.BOOST)
         self.assertEqual(_preset_setpoint(s), 22.0)
 
     def test_eco_falls_back_to_comfort_when_unset(self):
-        from custom_components.hvac_horizon.decide import Preset, Settings, _preset_setpoint
+        from custom_components.hvac_horizon.engine.decide import Preset, Settings, _preset_setpoint
 
         s = Settings(comfort_c=24.0, away_c=27.0, preset=Preset.ECO)
         self.assertEqual(_preset_setpoint(s), 24.0)

@@ -3,9 +3,9 @@ import unittest
 
 import pytest
 
-from custom_components.hvac_horizon.forecast import forecast
-from custom_components.hvac_horizon.model import NotEnoughData, Sample, fit_confidence
-from custom_components.hvac_horizon.tpi import (
+from custom_components.hvac_horizon.room_model.forecast import forecast
+from custom_components.hvac_horizon.room_model.model import NotEnoughData, Sample, fit_confidence
+from custom_components.hvac_horizon.room_model.tpi import (
     GAIN_MAX,
     GAIN_MIN,
     GAIN_STEP_MAX,

@@ -19,8 +19,8 @@ from .const import (
     DEFAULT_HEATER_KP,
     KEEP_DAYS,
 )
-from custom_components.hvac_horizon.fleet import COOL, HEAT, calibrate_rates
-from custom_components.hvac_horizon.collector import (
+from custom_components.hvac_horizon.engine.fleet import COOL, HEAT, calibrate_rates
+from custom_components.hvac_horizon.room_model.collector import (
     Entry,
     fleet_samples_from_entries,
     has_enough_cycles,
@@ -31,19 +31,19 @@ from custom_components.hvac_horizon.collector import (
     room_samples_from_entries,
     samples_from_entries,
 )
-from custom_components.hvac_horizon.model import Fit, NotEnoughData, Sample, fit
-from custom_components.hvac_horizon.corrections import Corrections, learn_corrections
-from custom_components.hvac_horizon.mode_models import RateFit, learn_ac_heat, learn_dry
-from custom_components.hvac_horizon.devices import HEATER, RoomFit, fit_room
-from custom_components.hvac_horizon.tpi import (
+from custom_components.hvac_horizon.room_model.model import Fit, NotEnoughData, Sample, fit
+from custom_components.hvac_horizon.room_model.corrections import Corrections, learn_corrections
+from custom_components.hvac_horizon.room_model.mode_models import RateFit, learn_ac_heat, learn_dry
+from custom_components.hvac_horizon.room_model.devices import HEATER, RoomFit, fit_room
+from custom_components.hvac_horizon.room_model.tpi import (
     TpiFit,
     adjust_cool_gain,
     adjust_heat_gain,
     learn_heat_rate,
     learn_room_rates,
 )
-from custom_components.hvac_horizon.backfill import backtest, median_abs_error
-from custom_components.hvac_horizon.features import compliance_score, learning_suggestion, pid_gain
+from custom_components.hvac_horizon.room_model.backfill import backtest, median_abs_error
+from custom_components.hvac_horizon.engine.features import compliance_score, learning_suggestion, pid_gain
 
 RECENT_FIT_DAYS = 14  # the fit uses the readings of this many days when they are enough
 

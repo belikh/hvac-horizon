@@ -33,8 +33,8 @@ from .const import (
     RESIDUAL_TAU_MIN,
     SAMPLE_INTERVAL_S,
 )
-from custom_components.hvac_horizon.autotune import RelayTuner
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.room_model.autotune import RelayTuner
+from custom_components.hvac_horizon.engine.features import (
     apply_polarity,
     clamp_output,
     heating_failed,

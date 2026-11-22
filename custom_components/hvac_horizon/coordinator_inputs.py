@@ -28,9 +28,9 @@ from .const import (
     DEFAULT_AWAY_DELAY_MIN,
     DOMAIN,
 )
-from custom_components.hvac_horizon.collector import Entry
-from custom_components.hvac_horizon.outdoor import night_low
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.room_model.collector import Entry
+from custom_components.hvac_horizon.room_model.outdoor import night_low
+from custom_components.hvac_horizon.engine.features import (
     dew_point_c,
     humid_air_blocks_opening,
     SENSOR_STALL_S,

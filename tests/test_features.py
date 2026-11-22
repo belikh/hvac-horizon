@@ -1,6 +1,6 @@
 import unittest
 
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.engine.features import (
     apply_polarity,
     boost_output,
     clamp_output,
@@ -89,27 +89,27 @@ if __name__ == "__main__":
 
 class PriceShiftTests(unittest.TestCase):
     def test_cheap_power_cools_further(self):
-        from custom_components.hvac_horizon.features import price_shifted_target
+        from custom_components.hvac_horizon.engine.features import price_shifted_target
 
         self.assertEqual(price_shifted_target(24.0, 0.10, 0.15, 0.40), 23.0)
 
     def test_expensive_power_relaxes(self):
-        from custom_components.hvac_horizon.features import price_shifted_target
+        from custom_components.hvac_horizon.engine.features import price_shifted_target
 
         self.assertEqual(price_shifted_target(24.0, 0.50, 0.15, 0.40), 25.0)
 
     def test_linear_between_limits(self):
-        from custom_components.hvac_horizon.features import price_shifted_target
+        from custom_components.hvac_horizon.engine.features import price_shifted_target
 
         self.assertAlmostEqual(price_shifted_target(24.0, 0.275, 0.15, 0.40), 24.0)
 
     def test_no_price_keeps_comfort(self):
-        from custom_components.hvac_horizon.features import price_shifted_target
+        from custom_components.hvac_horizon.engine.features import price_shifted_target
 
         self.assertEqual(price_shifted_target(24.0, None, 0.15, 0.40), 24.0)
 
     def test_rejects_inverted_limits(self):
-        from custom_components.hvac_horizon.features import price_shifted_target
+        from custom_components.hvac_horizon.engine.features import price_shifted_target
 
         with self.assertRaises(ValueError):
             price_shifted_target(24.0, 0.2, 0.40, 0.15)
@@ -117,14 +117,14 @@ class PriceShiftTests(unittest.TestCase):
 
 class ScheduleTests(unittest.TestCase):
     def test_block_inside_the_day(self):
-        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+        from custom_components.hvac_horizon.engine.features import ScheduleBlock, scheduled_preset
 
         blocks = [ScheduleBlock(7.0, 9.0, "boost")]
         self.assertEqual(scheduled_preset(8.0, blocks), "boost")
         self.assertEqual(scheduled_preset(9.0, blocks), "comfort")  # end is exclusive
 
     def test_block_crossing_midnight(self):
-        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+        from custom_components.hvac_horizon.engine.features import ScheduleBlock, scheduled_preset
 
         blocks = [ScheduleBlock(22.0, 6.0, "eco")]
         self.assertEqual(scheduled_preset(23.5, blocks), "eco")
@@ -132,18 +132,18 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(scheduled_preset(12.0, blocks), "comfort")
 
     def test_first_matching_block_wins(self):
-        from custom_components.hvac_horizon.features import ScheduleBlock, scheduled_preset
+        from custom_components.hvac_horizon.engine.features import ScheduleBlock, scheduled_preset
 
         blocks = [ScheduleBlock(6.0, 12.0, "boost"), ScheduleBlock(6.0, 8.0, "eco")]
         self.assertEqual(scheduled_preset(7.0, blocks), "boost")
 
     def test_default_when_nothing_matches(self):
-        from custom_components.hvac_horizon.features import scheduled_preset
+        from custom_components.hvac_horizon.engine.features import scheduled_preset
 
         self.assertEqual(scheduled_preset(3.0, [], default="away"), "away")
 
     def test_rejects_out_of_range_hour(self):
-        from custom_components.hvac_horizon.features import scheduled_preset
+        from custom_components.hvac_horizon.engine.features import scheduled_preset
 
         with self.assertRaises(ValueError):
             scheduled_preset(24.0, [])
@@ -151,7 +151,7 @@ class ScheduleTests(unittest.TestCase):
 
 class SafetyAndBriefingTests(unittest.TestCase):
     def test_heating_failure_after_window_without_rise(self):
-        from custom_components.hvac_horizon.features import heating_failed
+        from custom_components.hvac_horizon.engine.features import heating_failed
 
         self.assertTrue(heating_failed(60.0, 0.49))
         self.assertTrue(heating_failed(90.0, 0.0))
@@ -159,7 +159,7 @@ class SafetyAndBriefingTests(unittest.TestCase):
         self.assertFalse(heating_failed(59.9, 0.0))
 
     def test_heat_on_below_is_target_minus_deadband(self):
-        from custom_components.hvac_horizon.features import heat_on_below
+        from custom_components.hvac_horizon.engine.features import heat_on_below
 
         self.assertEqual(heat_on_below(24.0, 0.5), 23.5)
         self.assertEqual(heat_on_below(21.0, 0.0), 21.0)
@@ -167,14 +167,14 @@ class SafetyAndBriefingTests(unittest.TestCase):
             heat_on_below(24.0, -0.1)
 
     def test_sensor_stall(self):
-        from custom_components.hvac_horizon.features import sensor_stalled
+        from custom_components.hvac_horizon.engine.features import sensor_stalled
 
         self.assertTrue(sensor_stalled(None, 1000.0))
         self.assertTrue(sensor_stalled(0.0, 1000.0, stall_s=900.0))
         self.assertFalse(sensor_stalled(500.0, 1000.0, stall_s=900.0))
 
     def test_safety_output_on_stall_and_minimum(self):
-        from custom_components.hvac_horizon.features import safety_output
+        from custom_components.hvac_horizon.engine.features import safety_output
 
         self.assertEqual(safety_output(True, 80.0, fallback_pct=20.0), 20.0)
         self.assertEqual(safety_output(False, 5.0, minimum_pct=10.0), 10.0)
@@ -183,7 +183,7 @@ class SafetyAndBriefingTests(unittest.TestCase):
             safety_output(False, 50.0, fallback_pct=120.0)
 
     def test_daily_briefing_text(self):
-        from custom_components.hvac_horizon.features import daily_briefing
+        from custom_components.hvac_horizon.engine.features import daily_briefing
 
         text = daily_briefing("hot", 24.0, "pre-cool at 14:00", 17.5)
         self.assertEqual(text, "Day: hot. Comfort 24.0 C. Next: pre-cool at 14:00. Close windows by 17:30.")
@@ -192,103 +192,103 @@ class SafetyAndBriefingTests(unittest.TestCase):
 
 class NightPlanTests(unittest.TestCase):
     def test_precool_when_warm_and_cool_outside(self):
-        from custom_components.hvac_horizon.features import night_plan
+        from custom_components.hvac_horizon.engine.features import night_plan
 
         self.assertEqual(night_plan(outdoor_low_c=18.0, indoor_c=25.0, comfort_c=24.0), "pre-cool")
 
     def test_hold_when_at_comfort(self):
-        from custom_components.hvac_horizon.features import night_plan
+        from custom_components.hvac_horizon.engine.features import night_plan
 
         self.assertEqual(night_plan(outdoor_low_c=22.0, indoor_c=23.5, comfort_c=24.0), "hold")
 
     def test_none_when_warm_and_outside_still_warm(self):
-        from custom_components.hvac_horizon.features import night_plan
+        from custom_components.hvac_horizon.engine.features import night_plan
 
         self.assertEqual(night_plan(outdoor_low_c=23.0, indoor_c=25.0, comfort_c=24.0), "none")
 
 
 class LearningSuggestionTests(unittest.TestCase):
     def test_no_suggestion_within_tolerance(self):
-        from custom_components.hvac_horizon.features import learning_suggestion
+        from custom_components.hvac_horizon.engine.features import learning_suggestion
 
         self.assertIsNone(learning_suggestion(0.3, 0.32))
 
     def test_suggestion_when_gain_is_higher(self):
-        from custom_components.hvac_horizon.features import learning_suggestion
+        from custom_components.hvac_horizon.engine.features import learning_suggestion
 
         self.assertIn("50 % more", learning_suggestion(0.3, 0.45))
 
     def test_suggestion_when_gain_is_lower(self):
-        from custom_components.hvac_horizon.features import learning_suggestion
+        from custom_components.hvac_horizon.engine.features import learning_suggestion
 
         self.assertIn("50 % less", learning_suggestion(0.3, 0.15))
 
     def test_no_suggestion_for_zero_current_gain(self):
-        from custom_components.hvac_horizon.features import learning_suggestion
+        from custom_components.hvac_horizon.engine.features import learning_suggestion
 
         self.assertIsNone(learning_suggestion(0.0, 0.3))
 
 
 class SuggestionVisibleTests(unittest.TestCase):
     def test_visible_when_not_dismissed(self):
-        from custom_components.hvac_horizon.features import suggestion_visible
+        from custom_components.hvac_horizon.engine.features import suggestion_visible
 
         self.assertEqual(suggestion_visible("text", None, 0.3), "text")
 
     def test_hidden_when_dismissed_at_same_gain(self):
-        from custom_components.hvac_horizon.features import suggestion_visible
+        from custom_components.hvac_horizon.engine.features import suggestion_visible
 
         self.assertIsNone(suggestion_visible("text", 0.3, 0.3))
 
     def test_visible_again_when_gain_moved_over_one_percent(self):
-        from custom_components.hvac_horizon.features import suggestion_visible
+        from custom_components.hvac_horizon.engine.features import suggestion_visible
 
         self.assertEqual(suggestion_visible("text", 0.3, 0.31), "text")
 
     def test_none_in_gives_none_out(self):
-        from custom_components.hvac_horizon.features import suggestion_visible
+        from custom_components.hvac_horizon.engine.features import suggestion_visible
 
         self.assertIsNone(suggestion_visible(None, None, 0.3))
 
 
 class VacationTests(unittest.TestCase):
     def test_vacation_holds_vacation_temperature(self):
-        from custom_components.hvac_horizon.features import vacation_target
+        from custom_components.hvac_horizon.engine.features import vacation_target
 
         self.assertEqual(vacation_target(True, 16.0, 24.0), 16.0)
 
     def test_normal_target_when_vacation_off(self):
-        from custom_components.hvac_horizon.features import vacation_target
+        from custom_components.hvac_horizon.engine.features import vacation_target
 
         self.assertEqual(vacation_target(False, 16.0, 24.0), 24.0)
 
 
 class PresenceModeTests(unittest.TestCase):
     def test_home_when_any_source_is_home(self):
-        from custom_components.hvac_horizon.features import presence_mode
+        from custom_components.hvac_horizon.engine.features import presence_mode
 
         self.assertEqual(presence_mode([False, True], 30.0, 90.0), "home")
 
     def test_away_only_after_delay(self):
-        from custom_components.hvac_horizon.features import presence_mode
+        from custom_components.hvac_horizon.engine.features import presence_mode
 
         self.assertEqual(presence_mode([False, False], 30.0, 10.0), "home")
         self.assertEqual(presence_mode([False, False], 30.0, 45.0), "away")
 
     def test_no_sources_means_home(self):
-        from custom_components.hvac_horizon.features import presence_mode
+        from custom_components.hvac_horizon.engine.features import presence_mode
 
         self.assertEqual(presence_mode([], 30.0, 999.0), "home")
 
 
 class SolarAndCoverTests(unittest.TestCase):
     def test_sun_heat_gain_in_kw(self):
-        from custom_components.hvac_horizon.features import sun_heat_gain
+        from custom_components.hvac_horizon.engine.features import sun_heat_gain
 
         self.assertAlmostEqual(sun_heat_gain(800.0, 2.0, 0.6), 0.96)
 
     def test_sun_heat_gain_rejects_bad_inputs(self):
-        from custom_components.hvac_horizon.features import sun_heat_gain
+        from custom_components.hvac_horizon.engine.features import sun_heat_gain
 
         with self.assertRaises(ValueError):
             sun_heat_gain(-1.0, 2.0)
@@ -296,7 +296,7 @@ class SolarAndCoverTests(unittest.TestCase):
             sun_heat_gain(100.0, 2.0, shgc=1.5)
 
     def test_cover_actions(self):
-        from custom_components.hvac_horizon.features import cover_action
+        from custom_components.hvac_horizon.engine.features import cover_action
 
         self.assertEqual(cover_action(1.5, 1.0, cover_open=True), "close")
         self.assertEqual(cover_action(0.5, 1.0, cover_open=False), "open")
@@ -306,14 +306,14 @@ class SolarAndCoverTests(unittest.TestCase):
 
 class ComfortBandTests(unittest.TestCase):
     def test_band_edges(self):
-        from custom_components.hvac_horizon.features import comfort_band
+        from custom_components.hvac_horizon.engine.features import comfort_band
 
         self.assertEqual(comfort_band(24.0, 1.0), (23.0, 25.0))
         with self.assertRaises(ValueError):
             comfort_band(24.0, -1.0)
 
     def test_band_actions(self):
-        from custom_components.hvac_horizon.features import band_action
+        from custom_components.hvac_horizon.engine.features import band_action
 
         self.assertEqual(band_action(26.0, 23.0, 25.0), "cool")
         self.assertEqual(band_action(22.0, 23.0, 25.0), "heat")
@@ -324,20 +324,20 @@ class ComfortBandTests(unittest.TestCase):
 
 class MouldAndWindowTests(unittest.TestCase):
     def test_window_pause_after_delay(self):
-        from custom_components.hvac_horizon.features import window_open_pause
+        from custom_components.hvac_horizon.engine.features import window_open_pause
 
         self.assertFalse(window_open_pause(5.0))
         self.assertTrue(window_open_pause(10.0))
 
     def test_mould_risk_threshold(self):
-        from custom_components.hvac_horizon.features import mould_risk
+        from custom_components.hvac_horizon.engine.features import mould_risk
 
         self.assertTrue(mould_risk(85.0))
         self.assertFalse(mould_risk(70.0))
         self.assertFalse(mould_risk(None))
 
     def test_surface_humidity_rises_when_surface_is_colder(self):
-        from custom_components.hvac_horizon.features import surface_humidity
+        from custom_components.hvac_horizon.engine.features import surface_humidity
 
         warm = surface_humidity(60.0, 22.0, 21.0)
         cold = surface_humidity(60.0, 22.0, 14.0)
@@ -345,7 +345,7 @@ class MouldAndWindowTests(unittest.TestCase):
         self.assertLessEqual(cold, 100.0)
 
     def test_surface_humidity_rejects_bad_input(self):
-        from custom_components.hvac_horizon.features import surface_humidity
+        from custom_components.hvac_horizon.engine.features import surface_humidity
 
         with self.assertRaises(ValueError):
             surface_humidity(120.0, 22.0, 14.0)
@@ -353,17 +353,17 @@ class MouldAndWindowTests(unittest.TestCase):
 
 class ComplianceTests(unittest.TestCase):
     def test_compliance_percentage(self):
-        from custom_components.hvac_horizon.features import compliance_score
+        from custom_components.hvac_horizon.engine.features import compliance_score
 
         self.assertEqual(compliance_score(90.0, 120.0), 75.0)
 
     def test_no_time_is_none(self):
-        from custom_components.hvac_horizon.features import compliance_score
+        from custom_components.hvac_horizon.engine.features import compliance_score
 
         self.assertIsNone(compliance_score(0.0, 0.0))
 
     def test_rejects_impossible_minutes(self):
-        from custom_components.hvac_horizon.features import compliance_score
+        from custom_components.hvac_horizon.engine.features import compliance_score
 
         with self.assertRaises(ValueError):
             compliance_score(130.0, 120.0)
@@ -372,7 +372,7 @@ class ComplianceTests(unittest.TestCase):
 class WeatherSummaryTests(unittest.TestCase):
 
     def test_hot_streak_needs_consecutive_days(self):
-        from custom_components.hvac_horizon.features import hot_streak
+        from custom_components.hvac_horizon.engine.features import hot_streak
 
         self.assertTrue(hot_streak([31.0, 32.0, 30.5, 20.0]))
         self.assertFalse(hot_streak([31.0, 20.0, 31.0, 32.0]))
@@ -380,19 +380,19 @@ class WeatherSummaryTests(unittest.TestCase):
 
 class FanSpeedTests(unittest.TestCase):
     def test_no_gap_no_fan(self):
-        from custom_components.hvac_horizon.features import fan_speed_from_gap
+        from custom_components.hvac_horizon.engine.features import fan_speed_from_gap
 
         self.assertEqual(fan_speed_from_gap(23.0, 24.0), 0)
 
     def test_speed_rises_with_gap(self):
-        from custom_components.hvac_horizon.features import fan_speed_from_gap
+        from custom_components.hvac_horizon.engine.features import fan_speed_from_gap
 
         self.assertEqual(fan_speed_from_gap(24.5, 24.0), 1)
         self.assertEqual(fan_speed_from_gap(25.5, 24.0), 2)
         self.assertEqual(fan_speed_from_gap(30.0, 24.0), 3)
 
     def test_rejects_bad_span(self):
-        from custom_components.hvac_horizon.features import fan_speed_from_gap
+        from custom_components.hvac_horizon.engine.features import fan_speed_from_gap
 
         with self.assertRaises(ValueError):
             fan_speed_from_gap(25.0, 24.0, max_gap_c=0.0)
@@ -400,17 +400,17 @@ class FanSpeedTests(unittest.TestCase):
 
 class DryingTests(unittest.TestCase):
     def test_drying_when_humid_and_no_cooling_needed(self):
-        from custom_components.hvac_horizon.features import drying_needed
+        from custom_components.hvac_horizon.engine.features import drying_needed
 
         self.assertTrue(drying_needed(70.0, cool_gap_c=0.0))
 
     def test_no_drying_when_cooling_needed(self):
-        from custom_components.hvac_horizon.features import drying_needed
+        from custom_components.hvac_horizon.engine.features import drying_needed
 
         self.assertFalse(drying_needed(70.0, cool_gap_c=1.0))
 
     def test_no_drying_without_reading_or_when_dry(self):
-        from custom_components.hvac_horizon.features import drying_needed
+        from custom_components.hvac_horizon.engine.features import drying_needed
 
         self.assertFalse(drying_needed(None))
         self.assertFalse(drying_needed(50.0))
@@ -418,36 +418,36 @@ class DryingTests(unittest.TestCase):
 
 class PriceFallbackTests(unittest.TestCase):
     def test_current_price_is_used(self):
-        from custom_components.hvac_horizon.features import stale_price_fallback
+        from custom_components.hvac_horizon.engine.features import stale_price_fallback
 
         self.assertEqual(stale_price_fallback(0.3, 0.2, 5.0), 0.3)
 
     def test_last_good_price_within_age(self):
-        from custom_components.hvac_horizon.features import stale_price_fallback
+        from custom_components.hvac_horizon.engine.features import stale_price_fallback
 
         self.assertEqual(stale_price_fallback(None, 0.2, 30.0), 0.2)
 
     def test_no_price_after_max_age(self):
-        from custom_components.hvac_horizon.features import stale_price_fallback
+        from custom_components.hvac_horizon.engine.features import stale_price_fallback
 
         self.assertIsNone(stale_price_fallback(None, 0.2, 120.0))
 
 
 class VentilationRateTests(unittest.TestCase):
     def test_rate_bounds_and_linear_middle(self):
-        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+        from custom_components.hvac_horizon.engine.features import ventilation_rate_from_co2
 
         self.assertEqual(ventilation_rate_from_co2(700.0), 0.0)
         self.assertEqual(ventilation_rate_from_co2(1400.0), 1.0)
         self.assertAlmostEqual(ventilation_rate_from_co2(1000.0), 0.5)
 
     def test_missing_co2_is_zero(self):
-        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+        from custom_components.hvac_horizon.engine.features import ventilation_rate_from_co2
 
         self.assertEqual(ventilation_rate_from_co2(None), 0.0)
 
     def test_rejects_bad_range(self):
-        from custom_components.hvac_horizon.features import ventilation_rate_from_co2
+        from custom_components.hvac_horizon.engine.features import ventilation_rate_from_co2
 
         with self.assertRaises(ValueError):
             ventilation_rate_from_co2(900.0, low_ppm=1200.0, high_ppm=800.0)
@@ -455,7 +455,7 @@ class VentilationRateTests(unittest.TestCase):
 
 class NaturalVentilationTests(unittest.TestCase):
     def test_cold_room_does_not_open_windows(self):
-        from custom_components.hvac_horizon.features import natural_ventilation_window
+        from custom_components.hvac_horizon.engine.features import natural_ventilation_window
 
         self.assertEqual(natural_ventilation_window(5.0, 19.0, cool_above_c=24.0), "close")
         self.assertEqual(economizer_phase(5.0, 19.0, 22.0, 0.0, cool_above_c=24.0), "off")
@@ -463,25 +463,25 @@ class NaturalVentilationTests(unittest.TestCase):
         self.assertEqual(economizer_phase(18.0, 27.0, 24.0, 0.0, cool_above_c=24.0), "open_windows")
 
     def test_open_when_outside_is_cooler(self):
-        from custom_components.hvac_horizon.features import natural_ventilation_window
+        from custom_components.hvac_horizon.engine.features import natural_ventilation_window
 
         self.assertEqual(natural_ventilation_window(outdoor_c=18.0, indoor_c=25.0), "open")
 
     def test_close_when_outside_is_warmer_or_too_hot(self):
-        from custom_components.hvac_horizon.features import natural_ventilation_window
+        from custom_components.hvac_horizon.engine.features import natural_ventilation_window
 
         self.assertEqual(natural_ventilation_window(outdoor_c=27.0, indoor_c=25.0), "close")
         self.assertEqual(natural_ventilation_window(outdoor_c=25.0, indoor_c=30.0, max_outdoor_c=24.0), "close")
 
     def test_hold_when_difference_is_small(self):
-        from custom_components.hvac_horizon.features import natural_ventilation_window
+        from custom_components.hvac_horizon.engine.features import natural_ventilation_window
 
         self.assertEqual(natural_ventilation_window(outdoor_c=23.5, indoor_c=24.5), "hold")
 
 
 class InhibitionTests(unittest.TestCase):
     def test_inhibited_until_period_ends(self):
-        from custom_components.hvac_horizon.features import inhibited
+        from custom_components.hvac_horizon.engine.features import inhibited
 
         self.assertTrue(inhibited(10.0, 30.0))
         self.assertFalse(inhibited(30.0, 30.0))
@@ -490,13 +490,13 @@ class InhibitionTests(unittest.TestCase):
 
 class LockTests(unittest.TestCase):
     def test_lock_blocks_control(self):
-        from custom_components.hvac_horizon.features import lock_allows_control
+        from custom_components.hvac_horizon.engine.features import lock_allows_control
 
         self.assertFalse(lock_allows_control(True))
         self.assertTrue(lock_allows_control(False))
 
     def test_pin_check(self):
-        from custom_components.hvac_horizon.features import check_pin
+        from custom_components.hvac_horizon.engine.features import check_pin
 
         self.assertTrue(check_pin("1234", "1234"))
         self.assertFalse(check_pin("0000", "1234"))
@@ -506,14 +506,14 @@ class LockTests(unittest.TestCase):
 
 class MorePortedFeatureTests(unittest.TestCase):
     def test_keep_alive(self):
-        from custom_components.hvac_horizon.features import keep_alive_due
+        from custom_components.hvac_horizon.engine.features import keep_alive_due
 
         self.assertTrue(keep_alive_due(None, 10.0))
         self.assertFalse(keep_alive_due(8.0, 10.0))
         self.assertTrue(keep_alive_due(5.0, 10.0))
 
     def test_whole_house_fan(self):
-        from custom_components.hvac_horizon.features import whole_house_fan_allowed
+        from custom_components.hvac_horizon.engine.features import whole_house_fan_allowed
 
         self.assertTrue(whole_house_fan_allowed(False, False, 18.0, 25.0))
         self.assertFalse(whole_house_fan_allowed(True, False, 18.0, 25.0))
@@ -949,14 +949,14 @@ class RoomDevicesTests(unittest.TestCase):
 
 class ComfortEnergyBlendTests(unittest.TestCase):
     def test_blend_endpoints_and_midpoint(self):
-        from custom_components.hvac_horizon.features import comfort_energy_setpoint
+        from custom_components.hvac_horizon.engine.features import comfort_energy_setpoint
 
         self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.0), 24.0)
         self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 1.0), 26.0)
         self.assertEqual(comfort_energy_setpoint(24.0, 26.0, 0.5), 25.0)
 
     def test_weight_outside_zero_to_one_raises(self):
-        from custom_components.hvac_horizon.features import comfort_energy_setpoint
+        from custom_components.hvac_horizon.engine.features import comfort_energy_setpoint
 
         with self.assertRaises(ValueError):
             comfort_energy_setpoint(24.0, 26.0, 1.5)
@@ -964,7 +964,7 @@ class ComfortEnergyBlendTests(unittest.TestCase):
 
 class ValveExerciseTests(unittest.TestCase):
     def test_due_after_seven_days_still(self):
-        from custom_components.hvac_horizon.features import valve_exercise_due
+        from custom_components.hvac_horizon.engine.features import valve_exercise_due
 
         self.assertFalse(valve_exercise_due(3.0))
         self.assertTrue(valve_exercise_due(7.0))
@@ -972,28 +972,28 @@ class ValveExerciseTests(unittest.TestCase):
 
 class TrvOffsetTests(unittest.TestCase):
     def test_median_of_paired_differences(self):
-        from custom_components.hvac_horizon.features import trv_offset
+        from custom_components.hvac_horizon.engine.features import trv_offset
 
         self.assertEqual(trv_offset([21.0, 22.0, 23.0], [20.0, 21.0, 22.0]), 1.0)
 
     def test_outlier_difference_is_dropped(self):
-        from custom_components.hvac_horizon.features import trv_offset
+        from custom_components.hvac_horizon.engine.features import trv_offset
 
         self.assertEqual(trv_offset([21.0, 21.0, 40.0], [20.0, 20.0, 20.0]), 1.0)
 
     def test_no_pairs_gives_none(self):
-        from custom_components.hvac_horizon.features import trv_offset
+        from custom_components.hvac_horizon.engine.features import trv_offset
 
         self.assertIsNone(trv_offset([], []))
 
     def test_unequal_lengths_raise(self):
-        from custom_components.hvac_horizon.features import trv_offset
+        from custom_components.hvac_horizon.engine.features import trv_offset
 
         with self.assertRaises(ValueError):
             trv_offset([21.0], [20.0, 20.0])
 
     def test_corrected_setpoint_adds_offset_or_keeps_setpoint(self):
-        from custom_components.hvac_horizon.features import corrected_setpoint
+        from custom_components.hvac_horizon.engine.features import corrected_setpoint
 
         # A TRV reading 1.5 K warmer raises the valve target, so the valve opens more.
         self.assertEqual(corrected_setpoint(21.0, 1.5), 22.5)
@@ -1002,25 +1002,25 @@ class TrvOffsetTests(unittest.TestCase):
 
 class ResidualHeatTests(unittest.TestCase):
     def test_rise_at_zero_minutes_equals_peak(self):
-        from custom_components.hvac_horizon.features import _residual_rise
+        from custom_components.hvac_horizon.engine.features import _residual_rise
 
         self.assertEqual(_residual_rise(3.0, 0.0), 3.0)
 
     def test_rise_after_one_tau_is_peak_times_exp_minus_one(self):
         import math
 
-        from custom_components.hvac_horizon.features import _residual_rise
+        from custom_components.hvac_horizon.engine.features import _residual_rise
 
         self.assertAlmostEqual(_residual_rise(3.0, 20.0, 20.0), 3.0 * math.exp(-1))
 
     def test_correction_adds_rise(self):
         # The gate sees the room warmer by the rise still to come, so the heater cuts off earlier.
-        from custom_components.hvac_horizon.features import residual_correction
+        from custom_components.hvac_horizon.engine.features import residual_correction
 
         self.assertAlmostEqual(residual_correction(21.0, 2.0, 0.0), 23.0)
 
     def test_bad_inputs_raise(self):
-        from custom_components.hvac_horizon.features import _residual_rise
+        from custom_components.hvac_horizon.engine.features import _residual_rise
 
         with self.assertRaises(ValueError):
             _residual_rise(2.0, -1.0)
@@ -1032,7 +1032,7 @@ class ResidualHeatTests(unittest.TestCase):
 
 class ForecastDayCountTests(unittest.TestCase):
     def test_day_counts(self):
-        from custom_components.hvac_horizon.features import weather_day_summary
+        from custom_components.hvac_horizon.engine.features import weather_day_summary
 
         counts = weather_day_summary([31.0, 26.0, 20.0, 14.0, 8.0, 31.5])
         self.assertEqual(counts, {"hot": 2, "warm": 1, "mild": 1, "cool": 1, "cold": 1})
@@ -1040,7 +1040,7 @@ class ForecastDayCountTests(unittest.TestCase):
 
 class PresenceSourcesTests(unittest.TestCase):
     def test_list_string_and_empty_values(self):
-        from custom_components.hvac_horizon.features import presence_sources
+        from custom_components.hvac_horizon.engine.features import presence_sources
 
         self.assertEqual(presence_sources(["binary_sensor.a", "person.b"]), ["binary_sensor.a", "person.b"])
         self.assertEqual(presence_sources("binary_sensor.a"), ["binary_sensor.a"])
@@ -1065,7 +1065,7 @@ class MinutesUntilPresetTests(unittest.TestCase):
 
 class RaiseCoolThresholdsTests(unittest.TestCase):
     def setUp(self):
-        from custom_components.hvac_horizon.decide import Preset, Settings
+        from custom_components.hvac_horizon.engine.decide import Preset, Settings
 
         self.Preset = Preset
         self.settings = Settings(comfort_c=24.0, preset=Preset.COMFORT, away_c=27.0, window_delay_min=5.0, eco_c=26.0, boost_c=22.0)
@@ -1073,7 +1073,7 @@ class RaiseCoolThresholdsTests(unittest.TestCase):
     def test_every_preset_cool_threshold_rises_by_one(self):
         from dataclasses import replace
 
-        from custom_components.hvac_horizon.decide import cool_above_c, raise_cool_thresholds
+        from custom_components.hvac_horizon.engine.decide import cool_above_c, raise_cool_thresholds
 
         for preset in self.Preset:
             for home in (True, False):
@@ -1082,14 +1082,14 @@ class RaiseCoolThresholdsTests(unittest.TestCase):
                 self.assertAlmostEqual(cool_above_c(raised, home), cool_above_c(s, home) + 1.0, msg=f"{preset} home={home}")
 
     def test_no_mould_returns_settings_unchanged(self):
-        from custom_components.hvac_horizon.decide import raise_cool_thresholds
+        from custom_components.hvac_horizon.engine.decide import raise_cool_thresholds
 
         self.assertEqual(raise_cool_thresholds(self.settings, False), self.settings)
 
     def test_unset_eco_and_boost_stay_unset(self):
         from dataclasses import replace
 
-        from custom_components.hvac_horizon.decide import raise_cool_thresholds
+        from custom_components.hvac_horizon.engine.decide import raise_cool_thresholds
 
         raised = raise_cool_thresholds(replace(self.settings, eco_c=None, boost_c=None), True)
         self.assertIsNone(raised.eco_c)
@@ -1162,7 +1162,7 @@ class DeadbandTests(unittest.TestCase):
 
 
 def test_dew_point_and_humid_air_rule():
-    from custom_components.hvac_horizon.features import dew_point_c, humid_air_blocks_opening
+    from custom_components.hvac_horizon.engine.features import dew_point_c, humid_air_blocks_opening
 
     assert abs(dew_point_c(25.0, 50.0) - 13.9) < 0.2
     assert abs(dew_point_c(21.0, 98.0) - 20.7) < 0.2
@@ -1175,7 +1175,7 @@ def test_dew_point_and_humid_air_rule():
 
 
 def test_whole_house_fan_needs_a_room_above_the_cool_threshold():
-    from custom_components.hvac_horizon.features import whole_house_fan_allowed
+    from custom_components.hvac_horizon.engine.features import whole_house_fan_allowed
 
     assert whole_house_fan_allowed(False, False, 6.0, 19.0, cool_above_c=24.0) is False
     assert whole_house_fan_allowed(False, False, 20.0, 25.0, cool_above_c=24.0) is True
@@ -1187,19 +1187,19 @@ class FreeCoolingStateTests(unittest.TestCase):
     """Every legal change of phase, and a random walk that finds no other."""
 
     def step(self, state, minute, room_c, air_moving, cool_above_c=24.0):
-        from custom_components.hvac_horizon.features import free_cooling_step
+        from custom_components.hvac_horizon.engine.features import free_cooling_step
 
         return free_cooling_step(state, now_s=minute * 60.0, room_c=room_c, cool_above_c=cool_above_c, air_moving=air_moving)
 
     def test_idle_runs_when_air_moves_and_returns_to_idle_when_it_ends(self):
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         running = self.step(FreeCooling(), 0, 25.0, True)
         self.assertEqual(running.phase, "running")
         self.assertEqual(self.step(running, 5, 25.0, False).phase, "idle")
 
     def test_running_gives_up_when_the_room_is_2k_above_after_30_minutes(self):
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         state = self.step(FreeCooling(), 0, 27.5, True)
         state = self.step(state, 25, 26.9, True)
@@ -1207,13 +1207,13 @@ class FreeCoolingStateTests(unittest.TestCase):
         self.assertEqual(self.step(state, 30, 26.5, True).phase, "gave_up")
 
     def test_running_gives_up_when_the_room_falls_too_little(self):
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         state = self.step(FreeCooling(), 0, 25.0, True)
         self.assertEqual(self.step(state, 30, 24.8, True).phase, "gave_up")
 
     def test_running_continues_while_the_room_falls(self):
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         state = self.step(FreeCooling(), 0, 25.5, True)
         for minute, room in ((30, 25.1), (60, 24.7), (90, 24.3)):
@@ -1221,7 +1221,7 @@ class FreeCoolingStateTests(unittest.TestCase):
             self.assertEqual(state.phase, "running")
 
     def test_gave_up_holds_until_the_room_is_at_the_threshold(self):
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         gave_up = FreeCooling("gave_up")
         self.assertEqual(self.step(gave_up, 0, 24.1, True).phase, "gave_up")
@@ -1232,7 +1232,7 @@ class FreeCoolingStateTests(unittest.TestCase):
     def test_a_random_walk_makes_only_the_listed_changes(self):
         import random
 
-        from custom_components.hvac_horizon.features import FreeCooling
+        from custom_components.hvac_horizon.engine.features import FreeCooling
 
         legal = {("idle", "running"), ("running", "idle"), ("running", "gave_up"), ("gave_up", "idle"), ("gave_up", "running")}
         rng = random.Random(3)

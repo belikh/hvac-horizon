@@ -21,7 +21,7 @@ from .const import (
     DOMAIN,
     SAMPLE_INTERVAL_S,
 )
-from custom_components.hvac_horizon.features import effective_home, house_mode_from_store, window_open_pause
+from custom_components.hvac_horizon.engine.features import effective_home, house_mode_from_store, window_open_pause
 from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float
 
 WATCHDOG_CHECK_S = 60.0  # how often the watchdog looks at the time of the last finished tick
@@ -35,6 +35,7 @@ class SafetyMixin:
     _heater_gated: bool
     _heater_switch_driven: str | None
     _last_tick_done_s: float | None
+    _tick_running: bool
     _pwm_output_pct: float
     _unconfirmed_seen: set[str]
     _unconfirmed_warned: set[str]
@@ -70,18 +71,23 @@ class SafetyMixin:
         return async_track_time_interval(self.hass, self._watchdog_check, timedelta(seconds=WATCHDOG_CHECK_S))
 
     async def _watchdog_check(self, _when: Any = None) -> None:
-        """Turn every output off when no tick has finished for WATCHDOG_MAX_S, seen on two checks in a row.
+        """Turn every output off when no tick has finished for WATCHDOG_MAX_S and a tick run from here does not finish either.
 
-        Two checks are needed so a clock jump, after which the check and the tick fire together, trips nothing.
+        The first stale check runs one tick itself, unless one is running. After a clock jump or a suspend that tick
+        finishes and nothing trips. When it fails, or a tick hangs, the second stale check turns the outputs off.
         The next finished tick resumes control.
         """
-        now = dt_util.utcnow().timestamp()
-        if self._last_tick_done_s is None or now - self._last_tick_done_s <= WATCHDOG_MAX_S:
+        if not self._watchdog_stale():
             self._watchdog_stale_checks = 0
             return
+        if self._watchdog_stale_checks == 0 and not self._tick_running:
+            await self.async_refresh()
+            if not self._watchdog_stale():
+                return
         self._watchdog_stale_checks += 1
         if self._watchdog_stale_checks != 2:
             return
+        now = dt_util.utcnow().timestamp()
         self._watchdog_trips += 1
         _LOGGER.error("No control tick has finished for %d s. Turning every output of %s off.", int(now - self._last_tick_done_s), self.entry.title)
         self._cancel_recheck()
@@ -89,6 +95,9 @@ class SafetyMixin:
         self._heater_gated = True
         self._pwm_output_pct = 0.0
         await self._outputs_off()
+
+    def _watchdog_stale(self) -> bool:
+        return self._last_tick_done_s is not None and dt_util.utcnow().timestamp() - self._last_tick_done_s > WATCHDOG_MAX_S
 
     def _unconfirmed_commands(self) -> list[str]:
         """Devices whose state differs from the last command on two ticks in a row, as "entity: expected X, is Y".

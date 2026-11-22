@@ -55,6 +55,7 @@ Read the warnings as well as the failures. Fix a deprecation warning in the same
 | `tests/ha/test_settings_effect.py` | Every setting changes a device command or a published value. |
 | `tests/sim/` | The integration in a closed loop with a simulated room, 24 simulated hours for each of 9 profiles. Marker `sim`. |
 | `tests/test_no_dead_code.py` | Every public function has a caller. |
+| `tests/test_layers.py` | A module in `room_model/` or `engine/` imports only its layer. |
 | `tests/test_published_keys.py` | Every key the coordinator publishes is on a sensor or read back. |
 
 `pytest.ini` sets `asyncio_mode = auto` and `addopts = -p no:respx`. Home Assistant installs its own httpx alias before `respx` may load.

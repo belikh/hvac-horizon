@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget
+from custom_components.hvac_horizon.engine.investigator import ActionRecord, CallBudget
 from .const import (
     CONF_IRRADIANCE,
     WEATHER_REFRESH_MIN,
@@ -70,15 +70,15 @@ from .const import (
     STORE_VERSION,
     TRV_HISTORY,
 )
-from custom_components.hvac_horizon.collector import Entry, running_power_kw
-from custom_components.hvac_horizon.model import Fit
-from custom_components.hvac_horizon.corrections import Corrections
-from custom_components.hvac_horizon.mode_models import RateFit
-from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.decide import Preset, Settings, cool_above_c, raise_cool_thresholds
-from custom_components.hvac_horizon.autotune import RelayTuner
-from custom_components.hvac_horizon.devices import RoomFit
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.room_model.collector import Entry, running_power_kw
+from custom_components.hvac_horizon.room_model.model import Fit
+from custom_components.hvac_horizon.room_model.corrections import Corrections
+from custom_components.hvac_horizon.room_model.mode_models import RateFit
+from custom_components.hvac_horizon.room_model.pid import Pid
+from custom_components.hvac_horizon.engine.decide import Preset, Settings, cool_above_c, raise_cool_thresholds
+from custom_components.hvac_horizon.room_model.autotune import RelayTuner
+from custom_components.hvac_horizon.room_model.devices import RoomFit
+from custom_components.hvac_horizon.engine.features import (
     FreeCooling,
     ScheduleBlock,
     band_action,
@@ -117,9 +117,9 @@ from custom_components.hvac_horizon.features import (
     ventilation_rate_from_co2,
     weather_day_summary,
 )
-from custom_components.hvac_horizon.tpi import TpiFit, tpi_on_percent, tpi_threshold_forced_off
-from custom_components.hvac_horizon.forecast import price_at
-from custom_components.hvac_horizon.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries
+from custom_components.hvac_horizon.room_model.tpi import TpiFit, tpi_on_percent, tpi_threshold_forced_off
+from custom_components.hvac_horizon.room_model.forecast import price_at
+from custom_components.hvac_horizon.room_model.outdoor import HourlyPoint, OutdoorBias, OutdoorSeries
 from custom_components.hvac_horizon.coordinator_store import StoreMixin
 from custom_components.hvac_horizon.coordinator_user import UserMixin
 from custom_components.hvac_horizon.coordinator_learning import LearningMixin
@@ -217,6 +217,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         self._auto_heat_gain = 1.0  # online gain on the learned heat rate, learned on heating intervals; stored
         self._last_tick_done_s: float | None = None  # when the last tick finished without raising; the watchdog reads it
         self._watchdog_stale_checks = 0
+        self._tick_running = False  # True while a tick runs, so the watchdog does not start a second one
         self._watchdog_trips = 0  # times the watchdog turned the outputs off since the entry loaded
         self._unconfirmed_seen: set[str] = set()  # devices whose state differed from the last command on the previous tick
         self._unconfirmed_warned: set[str] = set()
@@ -302,6 +303,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         now = dt_util.utcnow().timestamp()
         result: dict[str, Any] = {}
         self._heater_step_done = False
+        self._tick_running = True
         try:
             done = await self._async_update_steps(now, result)
             self._last_tick_done_s = dt_util.utcnow().timestamp()
@@ -317,6 +319,8 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                 except Exception:  # the original error is the one to raise
                     _LOGGER.exception("Heater safety step failed after an earlier step raised")
             raise
+        finally:
+            self._tick_running = False
 
     async def _async_update_steps(self, now: float, result: dict[str, Any]) -> dict[str, Any]:
         now_min = now / 60.0

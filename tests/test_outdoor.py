@@ -2,11 +2,11 @@ import unittest
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from zoneinfo import ZoneInfo
 
-from custom_components.hvac_horizon.control import precool_start_in_min
-from custom_components.hvac_horizon.features import mpc_heat_plan, mpc_plan
-from custom_components.hvac_horizon.forecast import forecast, forecast_range
-from custom_components.hvac_horizon.model import Fit
-from custom_components.hvac_horizon.outdoor import (
+from custom_components.hvac_horizon.engine.control import precool_start_in_min
+from custom_components.hvac_horizon.engine.features import mpc_heat_plan, mpc_plan
+from custom_components.hvac_horizon.room_model.forecast import forecast, forecast_range
+from custom_components.hvac_horizon.room_model.model import Fit
+from custom_components.hvac_horizon.room_model.outdoor import (
     ANCHOR_DECAY_H,
     BIAS_LIMIT_K,
     BIAS_STEP_MAX_K,
@@ -19,8 +19,8 @@ from custom_components.hvac_horizon.outdoor import (
     parse_hourly,
     temperature_now,
 )
-from custom_components.hvac_horizon.solar_model import CLOUD_FACTOR_CLOUDY, condition_factor
-from custom_components.hvac_horizon.tpi import heat_up_minutes
+from custom_components.hvac_horizon.room_model.solar_model import CLOUD_FACTOR_CLOUDY, condition_factor
+from custom_components.hvac_horizon.room_model.tpi import heat_up_minutes
 
 BRISBANE = ZoneInfo("Australia/Brisbane")  # UTC+10, no daylight saving
 START = datetime(2026, 11, 21, 18, 0, tzinfo=BRISBANE).timestamp()

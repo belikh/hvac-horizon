@@ -59,6 +59,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `trv_temperature` | TRV own temperature sensor | unset | The TRV's own reading, compared with the room. Each 1 K of offset moves the opening by 100 points, clamped to 0 to 100. |
 | `heater_switch` | Heater switch | unset | Switch for the heater plug. The heater output runs in 10 minute windows. |
 | `radiators` | Heater is radiators or underfloor heat (residual heat after it stops) | `False` | Counts the residual heat after the heater stops: a 1 K peak that decays over 20 minutes. |
+| `heater_power_w` | Heater power, W | unset | Rated power of the heater on the heater switch. Gives the heating forecast its energy and cost. |
 | `heater_kp` | Heater PID proportional gain | `20.0` | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |
 | `heater_ki` | Heater PID integral gain (per hour) | `60.0` | Same rule as `heater_kp`. |
 | `heater_kd` | Heater PID derivative time (hours) | `0.5` | Same rule as `heater_kp`. |

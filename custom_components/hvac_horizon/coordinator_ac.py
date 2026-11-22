@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
-from custom_components.hvac_horizon.decide import Action, MPC_DEADBAND_C, Mode, RoomState, Settings, decide
+from custom_components.hvac_horizon.engine.decide import Action, MPC_DEADBAND_C, Mode, RoomState, Settings, decide
 from .const import (
     CONF_AC_HEAT,
     CONF_AUTO_FAN,
@@ -51,8 +51,8 @@ from .const import (
     REGULATION_MIN_HOLD_MIN,
     SAMPLE_INTERVAL_S,
 )
-from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
-from custom_components.hvac_horizon.features import (
+from custom_components.hvac_horizon.room_model.collector import RUNNING_MIN_KW
+from custom_components.hvac_horizon.engine.features import (
     air_quality_ventilation,
     coil_dry_due,
     daily_briefing,

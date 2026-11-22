@@ -2,6 +2,26 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.6.0 (unreleased)
+
+- The forecast sensors cover heating and drying. While the mode heats and the room is below the heat target, Minutes,
+  Energy and Cost to setpoint count to the heat target. In `dry` mode they count to 57 % room humidity. The new
+  Forecast mode sensor reads `cool`, `heat` or `dry`. Before, the forecast covered cooling only and read
+  `at setpoint` in a cold room.
+- New setting `heater_power_w`: the rated power of the heater on the heater switch. It gives the heating forecast its
+  energy and cost.
+- The cooling forecast is corrected for solar gain, outdoor temperature and room humidity. A correction is kept when
+  it lowers the error on the newest 30 % of the readings by 3 %. The Fit corrections sensor lists the kept ones.
+- The fit uses the readings of the last 14 days when they alone give a fit. The Fit window sensor shows 14 or 30.
+- A watchdog turns every output off when no control tick has finished for 16 minutes. It runs on its own timer. The
+  Watchdog trips sensor counts these. Before, a tick that kept failing left a cooling AC on.
+- The Unconfirmed commands sensor lists each device whose state differs from the last command on two ticks in a row.
+- Free cooling has one state: `idle`, `running` or `gave_up`, shown by the Free cooling sensor. One function holds
+  every change between them.
+- The pure code moved into two packages: `room_model/` for readings, fits and forecasts, and `engine/` for control
+  decisions. A test keeps Home Assistant imports out of both.
+- The limits page lists which devices have run on real hardware.
+
 ## 0.5.6 (2026-11-22)
 
 - A damaged field in the stored data takes its default. Before, a text or a list where a number belongs in one of

@@ -16,14 +16,17 @@ dT/dt = k (T_out - T) - c P + g
 ```
 
 - One thermal node per room. The air, walls, furniture and floor share one temperature. A room that cools fast at first and slowly later fits this model less well.
-- Power is a proxy for cooling delivered. `P` is the electrical input in kW, and `c` is the effective room cooling per electrical kW, in K/h. The fit folds the unit's efficiency, the outdoor temperature effect on that efficiency and the airflow into one constant `c`.
+- Power is a proxy for cooling delivered. `P` is the electrical input in kW, and `c` is the effective room cooling per electrical kW, in K/h. The fit folds the unit's efficiency and the airflow into `c`. A correction moves `c` with the outdoor temperature and the room humidity when the readings support it.
 - `k` and `g` are constants. `k` is the heat gain toward outdoors, and `g` is the steady internal gain from people and appliances.
 - Rooms with several room sensors use their median. A sensor that stalls drops out of the median.
 
 ## What the model does not include
 
-- No humidity node. The fit ignores latent load. Dry mode and humid days change the room differently from the fit. AC dry intervals and AC heat intervals are kept out of the cooling fit.
-- No solar node. Sun on the windows changes the room, but the fit sees it only as part of `g` and `k`. The solar gain sensor and the cover action use a separate clear-sky model and do not feed the fit.
+- No humidity node. Room humidity enters only as a correction to `c`, and only with a room humidity sensor. AC dry intervals and AC heat intervals are kept out of the cooling fit and have their own models.
+- No solar node. Solar gain enters as a correction to `g`, and only with a window area set. It has no lag: sun that heats a wall for hours is not modelled.
+- A correction is kept only when it lowers the error on the newest 30 % of the readings by 3 %. A room with under 12 hours of readings that carry a term has no correction for it.
+- The heating model has one rate per device, constant at every outdoor temperature. A heat pump whose output falls on a cold day heats slower than the forecast.
+- The drying model is one rate in percent per hour. It does not depend on the humidity or the temperature.
 - No door or window opening, no occupancy change and no other heat source inside the fit. These show as noise, and the outlier filter drops the worst of them.
 - No second room. Each entry models one room. Two rooms that exchange heat are two separate fits.
 
@@ -51,7 +54,24 @@ dT/dt = k (T_out - T) - c P + g
 - Dry mode has fixed humidity limits: on above 60 %, off at 57 %.
 - The Heatwave sensor is information only. It changes no device command.
 - Two profiles of the simulation suite fail by design and are marked as expected failures: an 8 kW AC overshoots a small room, and the small unit's fitted rate collapses in `economy` mode with two ACs.
-- The relay test, the valve and the radiator residual heat have unit and simulation tests only. They have not run on real hardware.
+- The watchdog and the tick run in the same Home Assistant process. A process that hangs or loses power runs neither. A device that must fail off needs its own thermostat or timer.
+- `commands_unconfirmed` reports a device that did not follow a command. It does not act on it, apart from the command that each tick sends again.
+
+## What has run on real devices
+
+| Device or function | Unit tests | Simulated room | Real device |
+| :-- | :-- | :-- | :-- |
+| AC cooling through a climate entity, with a power sensor | yes | yes | one installation |
+| Heater switch, PID and TPI | yes | yes | no |
+| AC heat mode and dry mode | yes | yes | no |
+| Second AC and fleet devices | yes | yes | no |
+| Valve and TRV offset | yes | yes | no |
+| Boiler, fan, humidifier, dehumidifier, cover | yes | no | no |
+| Window actuator and whole-house fan | yes | yes | no |
+| Relay test | yes | yes | no |
+| Load shedding | yes | no | no |
+
+A row with `no` under Real device is untested on hardware. Start it in observe-only and watch the first runs.
 
 :::see-also
 - [[concepts/design]]: the model, the forecast and the control decision.

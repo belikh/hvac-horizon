@@ -12,7 +12,7 @@ import voluptuous as vol
 from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlow, ConfigFlowResult
 from homeassistant.helpers import selector
 
-from .fleet import Device
+from .engine.fleet import Device
 from .const import (
     DEFAULT_PRICE_CHEAP,
     DEFAULT_PRICE_EXPENSIVE,

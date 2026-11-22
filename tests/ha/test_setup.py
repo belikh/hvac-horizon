@@ -25,16 +25,16 @@ from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.backfill import BacktestRun
-from custom_components.hvac_horizon.model import Fit
-from custom_components.hvac_horizon.devices import forecast_fit
-from custom_components.hvac_horizon.features import room_devices
+from custom_components.hvac_horizon.room_model.backfill import BacktestRun
+from custom_components.hvac_horizon.room_model.model import Fit
+from custom_components.hvac_horizon.room_model.devices import forecast_fit
+from custom_components.hvac_horizon.engine.features import room_devices
 from custom_components.hvac_horizon import coordinator as coordinator_module
 from custom_components.hvac_horizon import coordinator_learning as coordinator_learning_module
-from custom_components.hvac_horizon.collector import Entry, running_power_kw
-from custom_components.hvac_horizon.forecast import forecast
-from custom_components.hvac_horizon.pid import Pid
-from custom_components.hvac_horizon.tpi import GAIN_MAX, TpiFit
+from custom_components.hvac_horizon.room_model.collector import Entry, running_power_kw
+from custom_components.hvac_horizon.room_model.forecast import forecast
+from custom_components.hvac_horizon.room_model.pid import Pid
+from custom_components.hvac_horizon.room_model.tpi import GAIN_MAX, TpiFit
 from custom_components.hvac_horizon.const import (
     DEFAULT_PRICE_CHEAP,
     DEFAULT_PRICE_EXPENSIVE,
@@ -3212,7 +3212,7 @@ async def test_trv_offset_corrects_the_valve_target(hass, enable_custom_integrat
     await hass.async_block_till_done()
     coordinator = entry.runtime_data
     assert coordinator.data["trv_offset_k"] == pytest.approx(1.0, abs=0.01)
-    from custom_components.hvac_horizon.features import valve_opening_pct
+    from custom_components.hvac_horizon.engine.features import valve_opening_pct
 
     assert coordinator.data["valve_opening_pct"] == pytest.approx(valve_opening_pct(26.1, 25.0))
 
@@ -3284,7 +3284,7 @@ async def test_radiator_residual_heat_closes_the_heater_gate_early(hass, enable_
 async def test_second_ac_power_gives_a_two_device_room_fit(hass, enable_custom_integrations, config_data, freezer):
     import math
 
-    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.room_model.collector import Entry
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
@@ -3440,7 +3440,7 @@ async def test_recorder_history_becomes_samples_at_startup(hass, enable_custom_i
 async def test_learned_room_rate_coefficients_are_published_and_used(hass, enable_custom_integrations, config_data, freezer):
     import math
 
-    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.room_model.collector import Entry
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
@@ -3473,7 +3473,7 @@ async def test_learned_room_rate_coefficients_are_published_and_used(hass, enabl
 async def test_fit_quality_and_forecast_range_are_published(hass, enable_custom_integrations, config_data):
     import math
 
-    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.room_model.collector import Entry
 
     _register_climate_fakes(hass)
     entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
@@ -3507,7 +3507,7 @@ async def test_fit_quality_and_forecast_range_are_published(hass, enable_custom_
 async def test_heat_and_dry_intervals_stay_out_of_the_cooling_fit_and_are_counted(hass, enable_custom_integrations, config_data, freezer):
     import math
 
-    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.room_model.collector import Entry
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
@@ -3552,8 +3552,8 @@ async def test_online_cool_gain_follows_a_weaker_ac_and_survives_reload(hass, en
     # The cool gain must fall, stay inside its clamp, publish on the status entity, and come back after a reload.
     import math
 
-    from custom_components.hvac_horizon.collector import Entry
-    from custom_components.hvac_horizon.tpi import GAIN_MIN, GAIN_STEP_MAX
+    from custom_components.hvac_horizon.room_model.collector import Entry
+    from custom_components.hvac_horizon.room_model.tpi import GAIN_MIN, GAIN_STEP_MAX
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
     set_inputs(hass)
@@ -3722,7 +3722,7 @@ async def test_a_blocked_model_call_clears_the_answer_for_the_old_mode(hass, ena
 
 
 def _report_readings(now):
-    from custom_components.hvac_horizon.collector import Entry
+    from custom_components.hvac_horizon.room_model.collector import Entry
 
     day = [Entry(t=now - (3 - i) * 3600, room_c=25.0 + i, outdoor_c=30.0, power_w=1000.0, mode="cool") for i in range(3)]
     old = Entry(t=now - 25 * 3600, room_c=40.0, outdoor_c=30.0, power_w=0.0, mode="off")  # outside the 24 hour window
@@ -4189,7 +4189,7 @@ async def _mpc_run(hass, config_data, monkeypatch, freezer, *, room="23.0", plan
     from custom_components.hvac_horizon import coordinator as coordinator_module
     from custom_components.hvac_horizon import coordinator_forecast as coordinator_forecast_module
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
-    from custom_components.hvac_horizon.model import Fit
+    from custom_components.hvac_horizon.room_model.model import Fit
 
     # The price fixture starts at 08:10 UTC. Slots that have ended are dropped, so the clock sits before them.
     freezer.move_to("2026-11-20T08:00:00+00:00")
@@ -4313,7 +4313,7 @@ async def _heat_plan_run(
     Returns the entry and the AC mode writes. The heater switch is set only with heater=True.
     """
     from custom_components.hvac_horizon.coordinator import HorizonCoordinator
-    from custom_components.hvac_horizon.model import Fit
+    from custom_components.hvac_horizon.room_model.model import Fit
 
     freezer.move_to("2026-11-20T08:00:00+00:00")
     monkeypatch.setattr(HorizonCoordinator, "_refit", lambda self: setattr(self, "_fit", Fit(k=0.05, c=0.5, g=0.0)))
@@ -5669,7 +5669,7 @@ async def test_target_sensor_shows_the_cool_threshold_of_the_preset(hass, enable
 
 async def test_target_sensor_matches_what_decide_cools_to(hass, enable_custom_integrations, config_data):
     # Eco with a 26 C room threshold: a 26.4 C room is inside the cooling deadband, so decide() holds off.
-    from custom_components.hvac_horizon.decide import Preset, RoomState, Settings, cool_above_c
+    from custom_components.hvac_horizon.engine.decide import Preset, RoomState, Settings, cool_above_c
 
     entry, _ = await setup_heater(hass, config_data, room="23.0", extra={CONF_ECO_C: 26.0})
     await _mid_price(hass)
@@ -7879,7 +7879,7 @@ async def test_a_pre_cool_that_cannot_meet_the_event_starts_at_once(hass, enable
     from datetime import datetime, timezone
 
     from custom_components.hvac_horizon import coordinator_forecast
-    from custom_components.hvac_horizon.model import Fit
+    from custom_components.hvac_horizon.room_model.model import Fit
 
     freezer.move_to("2026-11-20T10:00:00+00:00")
     entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="26.0", extra={"schedule": "schedule.test"})
@@ -8036,13 +8036,31 @@ async def test_watchdog_turns_the_outputs_off_when_no_tick_finishes(hass, enable
 
 
 async def test_watchdog_does_not_trip_on_a_clock_jump(hass, enable_custom_integrations, config_data, freezer):
+    """After a jump of 3 hours the timers catch up. The first stale check runs a tick, so nothing trips."""
     entry, calls = await setup_heater(hass, config_data)
     await refresh(hass, entry)
-    freezer.tick(timedelta(hours=3))
-    async_fire_time_changed(hass)
-    await hass.async_block_till_done()
+    for _ in range(3):
+        freezer.tick(timedelta(hours=3))
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done()
     await refresh(hass, entry)
     assert entry.runtime_data.data["watchdog_trips"] == 0
+
+
+async def test_watchdog_trips_while_a_tick_hangs(hass, enable_custom_integrations, config_data, freezer):
+    """A tick that never returns: the watchdog starts no second tick and turns the heater off on the second stale check."""
+    entry, calls = await setup_heater(hass, config_data)
+    await refresh(hass, entry)
+    hass.states.async_set(HEATER, "on")
+    coordinator = entry.runtime_data
+    coordinator._tick_running = True
+    calls.clear()
+    for _ in range(20):
+        freezer.tick(timedelta(minutes=1))
+        await coordinator._watchdog_check()
+    assert coordinator._watchdog_trips == 1
+    assert "turn_off" in calls
+    coordinator._tick_running = False
 
 
 async def test_a_heater_that_ignores_its_command_is_listed_after_two_ticks(hass, enable_custom_integrations, config_data, freezer):
@@ -8108,7 +8126,7 @@ async def test_a_warm_room_in_auto_keeps_the_cooling_forecast(hass, enable_custo
 
 async def test_the_forecast_is_a_drying_forecast_in_dry_mode(hass, enable_custom_integrations, config_data, freezer, monkeypatch):
     """Dry mode at 75 percent with a learned fall of 6 percent per hour: 180 minutes to 57 percent."""
-    from custom_components.hvac_horizon.mode_models import RateFit
+    from custom_components.hvac_horizon.room_model.mode_models import RateFit
 
     monkeypatch.setattr(coordinator_learning_module, "learn_dry", lambda rates: RateFit(6.0, 0.5, 24))
     freezer.move_to("2026-11-20T10:00:00+00:00")

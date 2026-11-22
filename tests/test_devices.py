@@ -2,8 +2,8 @@ import math
 import random
 import unittest
 
-from custom_components.hvac_horizon.devices import COOL, HEAT, RoomSample, fit_room
-from custom_components.hvac_horizon.model import NotEnoughData
+from custom_components.hvac_horizon.room_model.devices import COOL, HEAT, RoomSample, fit_room
+from custom_components.hvac_horizon.room_model.model import NotEnoughData
 
 K, G = 0.3, 0.2
 C_AC, H_HEAT = 1.4, 0.9

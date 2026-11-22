@@ -33,6 +33,42 @@ dT/dt = k (T_out - T) - c P + g
 
 Readings where the AC heats, dries or runs its fan only are left out. A reading is not stored while the outdoor sensor is stalled.
 
+The fit uses the readings of the last 14 days when they alone give a fit, and all 30 days otherwise. The `fit_window_days` sensor shows which.
+
+## Corrections
+
+`corrections.py` fits three terms on what the room model leaves unexplained.
+
+```text
+g_eff = g + s S
+c_eff = c + c_out (T_out - 30) + c_rh (RH - 50)
+```
+
+| Term | Needs | Meaning |
+| :--- | :--- | :--- |
+| `s` | `window_area_m2` | Extra gain per kW of solar gain `S` on the window |
+| `c_out` | nothing extra | Change of `c` per K of outdoor temperature above 30 °C |
+| `c_rh` | `room_humidity` | Change of `c` per percent of room humidity above 50 % |
+
+A term is kept when it has the sign physics gives it (`s` above zero, `c_out` and `c_rh` below zero) and lowers the error on the newest 30 % of the readings by 3 %. A term needs 144 readings that carry it. The cooling forecast applies the kept terms at each minute: the solar gain follows the clear-sky model scaled to the current reading. The `fit_corrections` sensor lists the kept terms.
+
+## Heating and drying
+
+`mode_models.py` holds one model for each.
+
+```text
+heating:  dT/dt = k (T_out - T) + g + h
+drying:   dRH/dt = -r
+```
+
+| Value | Source |
+| :--- | :--- |
+| `h` for a heater switch | The learned rise per hour at full output, from intervals with the heater on and the AC off |
+| `h` for the AC in heat mode | `c_heat P`: the rise per kW from heat-mode intervals, times the mean power of those intervals |
+| `r` | The mean fall of room humidity per hour over dry-mode intervals |
+
+Each needs 12 intervals. The forecast sensors show the heating forecast while the mode heats and the room is below the heat target, and the drying forecast in dry mode. See [Heating and drying](../guides/read-the-forecast.md#heating-and-drying).
+
 ## Forecast
 
 `forecast()` in `forecast.py` steps the model forward one minute at a time with the exact exponential solution of the equation. It returns minutes, energy and cost, or `unreachable` when the room does not reach the target in 12 hours.

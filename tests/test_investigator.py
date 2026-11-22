@@ -1,7 +1,7 @@
 import unittest
 from datetime import date
 
-from custom_components.hvac_horizon.investigator import ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
+from custom_components.hvac_horizon.engine.investigator import ActionRecord, CallBudget, DayReading, day_context, day_summary, investigate
 
 
 class InvestigateTests(unittest.TestCase):

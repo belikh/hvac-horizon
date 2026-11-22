@@ -12,11 +12,11 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.outdoor import OutdoorBias
+from custom_components.hvac_horizon.room_model.outdoor import OutdoorBias
 from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTRIES, SAMPLE_INTERVAL_S
-from custom_components.hvac_horizon.collector import Entry, entries_from_history
-from custom_components.hvac_horizon.model import Fit
-from custom_components.hvac_horizon.features import house_mode_from_store
+from custom_components.hvac_horizon.room_model.collector import Entry, entries_from_history
+from custom_components.hvac_horizon.room_model.model import Fit
+from custom_components.hvac_horizon.engine.features import house_mode_from_store
 from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _entries_from_store, _float, _stored_dict, _stored_number
 
 

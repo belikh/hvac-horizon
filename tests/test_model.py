@@ -3,7 +3,7 @@ import random
 import unittest
 
 from custom_components.hvac_horizon import Sample, fit
-from custom_components.hvac_horizon.model import MAX_CONDITION, NotEnoughData, fit_confidence
+from custom_components.hvac_horizon.room_model.model import MAX_CONDITION, NotEnoughData, fit_confidence
 
 K_TRUE = 0.4  # 1/h
 C_TRUE = 1.5  # K/h per kW
@@ -136,7 +136,7 @@ class FitTests(unittest.TestCase):
         self.assertAlmostEqual(large.residual_k_per_h, 0.02 * 12, delta=0.03)  # noise 0.02 K per 5 minutes is 0.24 K/h
 
     def test_confidence_label_follows_relative_error_of_c(self):
-        from custom_components.hvac_horizon.model import Fit
+        from custom_components.hvac_horizon.room_model.model import Fit
 
         self.assertEqual(fit_confidence(Fit(k=0.4, c=1.0, c_stderr=0.05)), "high")
         self.assertEqual(fit_confidence(Fit(k=0.4, c=1.0, c_stderr=0.2)), "medium")
@@ -153,7 +153,7 @@ if __name__ == "__main__":
 
 class SolverTests(unittest.TestCase):
     def test_solve_satisfies_random_systems(self):
-        from custom_components.hvac_horizon.model import _solve
+        from custom_components.hvac_horizon.room_model.model import _solve
 
         rng = random.Random(7)
         for _ in range(500):
@@ -168,7 +168,7 @@ class SolverTests(unittest.TestCase):
 
     def test_clamped_fit_is_the_best_fit_with_k_and_c_at_or_above_zero(self):
         """The clamped solver matches a search over every set of columns it may drop."""
-        from custom_components.hvac_horizon.model import _least_squares, _residuals, _solve_clamped
+        from custom_components.hvac_horizon.room_model.model import _least_squares, _residuals, _solve_clamped
 
         def sse(rows, y, active, coef):
             return sum(r * r for r in _residuals(rows, y, active, coef))

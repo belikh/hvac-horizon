@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from custom_components.hvac_horizon.autotune import _period_from_peaks, _ultimate_gain, _ziegler_nichols
+from custom_components.hvac_horizon.room_model.autotune import _period_from_peaks, _ultimate_gain, _ziegler_nichols
 
 
 class AutotuneTests(unittest.TestCase):
@@ -27,7 +27,7 @@ class AutotuneTests(unittest.TestCase):
 
 class RelayTunerTests(unittest.TestCase):
     def test_relay_switches_around_setpoint(self):
-        from custom_components.hvac_horizon.autotune import RelayTuner
+        from custom_components.hvac_horizon.room_model.autotune import RelayTuner
 
         t = RelayTuner(setpoint_c=22.0, hysteresis_c=0.3)
         self.assertTrue(t.step(21.5, 0.0))
@@ -38,7 +38,7 @@ class RelayTunerTests(unittest.TestCase):
     def test_result_after_enough_oscillation(self):
         import math as m
 
-        from custom_components.hvac_horizon.autotune import RelayTuner
+        from custom_components.hvac_horizon.room_model.autotune import RelayTuner
 
         t = RelayTuner(setpoint_c=22.0, hysteresis_c=0.2, min_peaks=4)
         now = 0.0
@@ -59,7 +59,7 @@ class RelayTunerTests(unittest.TestCase):
         self.assertEqual(const.AUTOTUNE_MIN_RISE_K, 2.0)
 
     def test_no_result_before_enough_peaks(self):
-        from custom_components.hvac_horizon.autotune import RelayTuner
+        from custom_components.hvac_horizon.room_model.autotune import RelayTuner
 
         t = RelayTuner(setpoint_c=22.0, min_peaks=4)
         t.step(21.0, 0.0)

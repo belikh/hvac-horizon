@@ -8,8 +8,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from .forecast import Forecast, PriceSlot, forecast
-from .model import Fit
+from ..room_model.forecast import Forecast, PriceSlot, forecast
+from ..room_model.model import Fit
 
 START_STEP_MIN = 5.0  # candidate start times are spaced this far apart
 

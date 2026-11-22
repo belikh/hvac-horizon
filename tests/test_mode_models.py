@@ -2,10 +2,10 @@ import math
 import random
 import unittest
 
-from custom_components.hvac_horizon.corrections import Corrections, apply, learn_corrections
-from custom_components.hvac_horizon.forecast import PriceSlot, forecast
-from custom_components.hvac_horizon.mode_models import dry_forecast, _fit_through_zero, heat_forecast, learn_ac_heat, learn_dry
-from custom_components.hvac_horizon.model import Fit, NotEnoughData, Sample
+from custom_components.hvac_horizon.room_model.corrections import Corrections, apply, learn_corrections
+from custom_components.hvac_horizon.room_model.forecast import PriceSlot, forecast
+from custom_components.hvac_horizon.room_model.mode_models import dry_forecast, _fit_through_zero, heat_forecast, learn_ac_heat, learn_dry
+from custom_components.hvac_horizon.room_model.model import Fit, NotEnoughData, Sample
 
 K, G = 0.12, 0.3
 

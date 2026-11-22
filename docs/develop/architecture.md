@@ -4,13 +4,17 @@
 
 ## Layout
 
-Every module is in `custom_components/hvac_horizon/`. The code has three layers.
+The code is in `custom_components/hvac_horizon/` and has three layers.
 
-| Layer | Modules | Rule |
-| :--- | :--- | :--- |
-| Pure logic | `model.py`, `forecast.py`, `decide.py`, `features.py`, `fleet.py`, `tpi.py`, `pid.py`, `outdoor.py`, `control.py`, `devices.py`, `collector.py`, `backfill.py`, `autotune.py`, `solar_model.py`, `investigator.py` | No Home Assistant state. Functions take values and return values. |
-| Coordinator | `coordinator.py` and the `coordinator_*.py` mixins | Reads states, calls the pure functions and writes to devices. |
-| Home Assistant surface | `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `diagnostics.py`, `accuracy_api.py` | Entities, forms, services and views. |
+| Layer | Where | Modules | May import |
+| :--- | :--- | :--- | :--- |
+| Room model | `room_model/` | `model.py`, `forecast.py`, `corrections.py`, `mode_models.py`, `outdoor.py`, `solar_model.py`, `collector.py`, `backfill.py`, `devices.py`, `tpi.py`, `pid.py`, `autotune.py` | The standard library and `room_model` |
+| Control engine | `engine/` | `decide.py`, `features.py`, `fleet.py`, `control.py`, `investigator.py` | `room_model`, `engine` and `const.py` |
+| Home Assistant adapter | the package root | `coordinator.py` and the `coordinator_*.py` mixins, `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `diagnostics.py`, `accuracy_api.py` | Anything |
+
+The first two layers hold no Home Assistant state: functions take values and return values. `tests/test_layers.py` reads the imports of every module in `room_model/` and `engine/` and fails on one outside its column.
+
+Both packages sit inside the integration folder, because HACS installs that folder only. Python runs the integration's `__init__.py` before a module below it, so importing `room_model` on its own needs the package copied out of the folder.
 
 ## Pure modules
 
@@ -19,6 +23,8 @@ Every module is in `custom_components/hvac_horizon/`. The code has three layers.
 | `collector.py` | `Entry`, one reading. Sample history, running power, the cycle check and CSV export. |
 | `model.py` | `fit()` learns `k`, `c` and `g` with standard errors. `fit_confidence()` labels the fit. |
 | `forecast.py` | `forecast()` gives minutes, energy and cost to a target. `price_at()` reads the price slots. |
+| `corrections.py` | `learn_corrections()` fits the sun, outdoor temperature and humidity terms. `apply()` gives the fit at given conditions. |
+| `mode_models.py` | The heating and drying models and their forecasts. |
 | `outdoor.py` | The outdoor temperature series from the hourly forecast, the night low and the sensor-to-forecast bias. |
 | `decide.py` | `decide()` returns one AC action. `cool_above_c()` gives the cool threshold. |
 | `features.py` | Decision functions: presets, stall rule, inhibit, lock, restart delay, PWM, price shift, valve, shed, humidity, free cooling. |
@@ -47,7 +53,7 @@ Every module is in `custom_components/hvac_horizon/`. The code has three layers.
 | `coordinator_heater.py` | `HeaterMixin` | Heater gates, PWM windows, the heater switch and output limits. |
 | `coordinator_fleet.py` | `FleetMixin` | Fleet choice and driving. |
 | `coordinator_aux.py` | `AuxMixin` | Valve, load shedding, window actuator, free cooling, cover and fan mode. |
-| `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop and the switch driver. |
+| `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop, the switch driver, the watchdog and the unconfirmed-command check. |
 | `coordinator_peers.py` | `PeersMixin` | Requests between entries of one house. |
 | `coordinator_investigator.py` | `InvestigatorMixin` | The mode-change explanation and the on-demand report. |
 | `coordinator_common.py` | none | Helpers, constants, the logger and `_HorizonStore`. |
@@ -86,6 +92,23 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 14. **Publish.** The result dict becomes `coordinator.data`. The sensors and the thermostat read it.
 
 The room thermostat calls `async_refresh()` after each change, so a new mode or target takes effect at once.
+
+## Watchdog
+
+`start_watchdog()` in `coordinator_safety.py` starts a 60-second timer at setup. It reads `_last_tick_done_s`, which the tick sets when it returns without an error. When no tick has finished for 16 minutes, the first check runs one tick itself, unless a tick is running. After a clock jump or a suspend that tick finishes and nothing trips. When it fails or a tick hangs, the next check turns every output off.
+
+## Free cooling states
+
+`free_cooling_step()` in `features.py` is the only code that changes the free cooling phase.
+
+| From | To | When |
+| :--- | :--- | :--- |
+| `idle` | `running` | The window this entry opened is open, or the whole-house fan runs. |
+| `running` | `idle` | Neither is the case. |
+| `running` | `gave_up` | The room is 2 K above the cool threshold after 30 minutes, or above it and fell by less than 0.3 K in 30 minutes. |
+| `gave_up` | `idle` or `running` | The room is at or below the cool threshold. |
+
+While the phase is `gave_up` the window closes, the fan stops and the AC cools.
 
 ## Add a setting
 

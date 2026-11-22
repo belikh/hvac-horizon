@@ -1,6 +1,6 @@
 import unittest
 
-from custom_components.hvac_horizon.collector import (
+from custom_components.hvac_horizon.room_model.collector import (
     Entry,
     mode_interval_counts,
     price_slots,
@@ -11,7 +11,7 @@ from custom_components.hvac_horizon.collector import (
 
 class HistoryEntriesTests(unittest.TestCase):
     def test_entries_built_from_histories(self):
-        from custom_components.hvac_horizon.collector import entries_from_history
+        from custom_components.hvac_horizon.room_model.collector import entries_from_history
 
         rooms = [[(0.0, 26.0)], [(0.0, 25.0)]]
         outdoor = [(0.0, 30.0)]
@@ -22,40 +22,40 @@ class HistoryEntriesTests(unittest.TestCase):
         self.assertEqual(entries[1].power_w, 0.0)
 
     def test_grid_time_skipped_when_an_input_is_missing(self):
-        from custom_components.hvac_horizon.collector import entries_from_history
+        from custom_components.hvac_horizon.room_model.collector import entries_from_history
 
         entries = entries_from_history([[(400.0, 26.0)]], [(0.0, 30.0)], [(0.0, 900.0)], start=0.0, end=600.0, step=300.0)
         self.assertEqual([e.t for e in entries], [600.0])
 
     def test_no_rooms_gives_nothing(self):
-        from custom_components.hvac_horizon.collector import entries_from_history
+        from custom_components.hvac_horizon.room_model.collector import entries_from_history
 
         self.assertEqual(entries_from_history([], [(0.0, 30.0)], [(0.0, 900.0)], 0.0, 300.0), [])
 
 
 class ResampleTests(unittest.TestCase):
     def test_last_known_value_on_grid(self):
-        from custom_components.hvac_horizon.collector import _resample_states
+        from custom_components.hvac_horizon.room_model.collector import _resample_states
 
         points = [(0.0, 1000.0), (420.0, 0.0)]
         grid = _resample_states(points, start=0.0, end=600.0, step=300.0)
         self.assertEqual(grid, [(0.0, 1000.0), (300.0, 1000.0), (600.0, 0.0)])
 
     def test_none_before_first_state(self):
-        from custom_components.hvac_horizon.collector import _resample_states
+        from custom_components.hvac_horizon.room_model.collector import _resample_states
 
         grid = _resample_states([(400.0, 5.0)], start=0.0, end=600.0, step=300.0)
         self.assertEqual(grid[0], (0.0, None))
         self.assertEqual(grid[2], (600.0, 5.0))
 
     def test_unordered_points_are_sorted(self):
-        from custom_components.hvac_horizon.collector import _resample_states
+        from custom_components.hvac_horizon.room_model.collector import _resample_states
 
         grid = _resample_states([(300.0, 2.0), (0.0, 1.0)], start=0.0, end=300.0, step=300.0)
         self.assertEqual(grid, [(0.0, 1.0), (300.0, 2.0)])
 
     def test_rejects_bad_grid(self):
-        from custom_components.hvac_horizon.collector import _resample_states
+        from custom_components.hvac_horizon.room_model.collector import _resample_states
 
         with self.assertRaises(ValueError):
             _resample_states([], start=10.0, end=0.0, step=300.0)
@@ -63,7 +63,7 @@ class ResampleTests(unittest.TestCase):
 
 class CsvExportTests(unittest.TestCase):
     def test_csv_has_header_and_sorted_rows(self):
-        from custom_components.hvac_horizon.collector import entries_to_csv
+        from custom_components.hvac_horizon.room_model.collector import entries_to_csv
 
         entries = [Entry(600, 25.8, 30.0, 0), Entry(0, 26.0, 30.0, 1000)]
         text = entries_to_csv(entries)
@@ -97,7 +97,7 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(s[1].power_kw, 1.1)
 
     def test_energy_counter_gives_interval_mean(self):
-        from custom_components.hvac_horizon.collector import _interval_power_kw
+        from custom_components.hvac_horizon.room_model.collector import _interval_power_kw
 
         # 0.1 kWh over 5 minutes is 1.2 kW, even though the instantaneous reading was 0.
         a = Entry(0, 26, 30, 0, energy_kwh=10.0)
@@ -105,7 +105,7 @@ class CollectorTests(unittest.TestCase):
         self.assertAlmostEqual(_interval_power_kw(a, b), 1.2)
 
     def test_energy_counter_reset_falls_back_to_power(self):
-        from custom_components.hvac_horizon.collector import _interval_power_kw
+        from custom_components.hvac_horizon.room_model.collector import _interval_power_kw
 
         a = Entry(0, 26, 30, 1100, energy_kwh=50.0)
         b = Entry(300, 26, 30, 1100, energy_kwh=0.2)  # counter reset
@@ -144,7 +144,7 @@ if __name__ == "__main__":
 
 class CycleGuardTests(unittest.TestCase):
     def _samples(self, on_steps, off_steps, runs):
-        from custom_components.hvac_horizon.model import Sample
+        from custom_components.hvac_horizon.room_model.model import Sample
 
         out = []
         for _ in range(runs):
@@ -153,31 +153,31 @@ class CycleGuardTests(unittest.TestCase):
         return out
 
     def test_guard_rejects_too_little_off_time(self):
-        from custom_components.hvac_horizon.collector import has_enough_cycles
+        from custom_components.hvac_horizon.room_model.collector import has_enough_cycles
 
         self.assertFalse(has_enough_cycles(self._samples(40, 5, 5)))  # 25 off-samples, under 36
 
     def test_guard_rejects_too_few_runs(self):
-        from custom_components.hvac_horizon.collector import has_enough_cycles
+        from custom_components.hvac_horizon.room_model.collector import has_enough_cycles
 
         self.assertFalse(has_enough_cycles(self._samples(20, 20, 2)))
 
     def test_guard_accepts_enough_on_off_and_runs(self):
-        from custom_components.hvac_horizon.collector import has_enough_cycles
+        from custom_components.hvac_horizon.room_model.collector import has_enough_cycles
 
         self.assertTrue(has_enough_cycles(self._samples(20, 20, 4)))
 
 
 class PowerMeanTests(unittest.TestCase):
     def test_interval_mean_is_preferred_over_counter_and_instant(self):
-        from custom_components.hvac_horizon.collector import _interval_power_kw
+        from custom_components.hvac_horizon.room_model.collector import _interval_power_kw
 
         a = Entry(0, 26, 30, 0, energy_kwh=10.0)
         b = Entry(300, 26, 30, 0, energy_kwh=10.1, power_mean_w=850.0)
         self.assertAlmostEqual(_interval_power_kw(a, b), 0.85)
 
     def test_interval_mean_below_threshold_counts_as_off(self):
-        from custom_components.hvac_horizon.collector import _interval_power_kw
+        from custom_components.hvac_horizon.room_model.collector import _interval_power_kw
 
         a = Entry(0, 26, 30, 1100)
         b = Entry(300, 26, 30, 1100, power_mean_w=50.0)
@@ -186,7 +186,7 @@ class PowerMeanTests(unittest.TestCase):
 
 class RoomSamplesTests(unittest.TestCase):
     def test_second_power_becomes_the_ac_2_device(self):
-        from custom_components.hvac_horizon.collector import Entry, room_samples_from_entries
+        from custom_components.hvac_horizon.room_model.collector import Entry, room_samples_from_entries
 
         a = Entry(t=0.0, room_c=24.0, outdoor_c=30.0, power_w=1200.0, power_2_w=800.0)
         b = Entry(t=300.0, room_c=23.8, outdoor_c=30.0, power_w=1200.0, power_2_w=800.0)
@@ -196,7 +196,7 @@ class RoomSamplesTests(unittest.TestCase):
         self.assertAlmostEqual(sample.device_kw["ac_2"], 0.8)
 
     def test_gap_breaks_the_pair(self):
-        from custom_components.hvac_horizon.collector import Entry, room_samples_from_entries
+        from custom_components.hvac_horizon.room_model.collector import Entry, room_samples_from_entries
 
         a = Entry(t=0.0, room_c=24.0, outdoor_c=30.0, power_w=1200.0)
         b = Entry(t=1800.0, room_c=23.8, outdoor_c=30.0, power_w=1200.0)
@@ -205,7 +205,7 @@ class RoomSamplesTests(unittest.TestCase):
 
 import math
 
-from custom_components.hvac_horizon.tpi import learn_room_rates
+from custom_components.hvac_horizon.room_model.tpi import learn_room_rates
 
 
 def _series(t0, n, ac_mode, k=0.3, g=0.2, c=1.4, warm_kw=None):

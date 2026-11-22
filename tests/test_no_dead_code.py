@@ -40,7 +40,7 @@ def _public_functions(path: Path) -> list[str]:
 
 
 def _module_files() -> list[Path]:
-    return sorted(PACKAGE.glob("*.py"))
+    return sorted(PACKAGE.rglob("*.py"))
 
 
 def _identifiers(path: Path) -> set[str]:

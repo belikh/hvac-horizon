@@ -1,7 +1,7 @@
 import unittest
 
 from custom_components.hvac_horizon import Fit, PriceSlot
-from custom_components.hvac_horizon.control import _plan_precool
+from custom_components.hvac_horizon.engine.control import _plan_precool
 
 FIT = Fit(k=0.4, c=1.5, g=0.0, samples=200)
 
@@ -27,7 +27,7 @@ class PrecoolTests(unittest.TestCase):
 
     def test_latest_start_when_no_prices(self):
         # Without prices every start costs the same, so the plan takes the latest start that still arrives in time.
-        from custom_components.hvac_horizon.forecast import forecast
+        from custom_components.hvac_horizon.room_model.forecast import forecast
 
         base = forecast(FIT, 28.0, 26.5, 30.0, 1.1, [])
         expected_start = int((300.0 - base.minutes) // 5) * 5
@@ -41,18 +41,18 @@ if __name__ == "__main__":
 
 class PrecoolStartTests(unittest.TestCase):
     def test_no_deadline_means_no_start(self):
-        from custom_components.hvac_horizon.control import precool_start_in_min
+        from custom_components.hvac_horizon.engine.control import precool_start_in_min
 
         self.assertIsNone(precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, None, []))
 
     def test_start_is_returned_for_a_reachable_deadline(self):
-        from custom_components.hvac_horizon.control import precool_start_in_min
+        from custom_components.hvac_horizon.engine.control import precool_start_in_min
 
         start = precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, 300.0, [])
         self.assertIsNotNone(start)
         self.assertGreaterEqual(start, 0.0)
 
     def test_unreachable_deadline_returns_none(self):
-        from custom_components.hvac_horizon.control import precool_start_in_min
+        from custom_components.hvac_horizon.engine.control import precool_start_in_min
 
         self.assertIsNone(precool_start_in_min(FIT, 28.0, 26.5, 30.0, 1.1, 60.0, []))

@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.investigator import (
+from custom_components.hvac_horizon.engine.investigator import (
     ActionRecord,
     CallBudget,
     DayReading,
@@ -20,7 +20,7 @@ from custom_components.hvac_horizon.investigator import (
     investigate,
 )
 from .const import CONF_AI_BUDGET, CONF_AI_CONVERSATION
-from custom_components.hvac_horizon.collector import Entry
+from custom_components.hvac_horizon.room_model.collector import Entry
 from custom_components.hvac_horizon.coordinator_common import _LOGGER
 
 

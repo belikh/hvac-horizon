@@ -2,7 +2,7 @@ import math
 import unittest
 
 from custom_components.hvac_horizon import Fit, PriceSlot, forecast
-from custom_components.hvac_horizon.forecast import _equilibrium_c, forecast_range, _step_temperature
+from custom_components.hvac_horizon.room_model.forecast import _equilibrium_c, forecast_range, _step_temperature
 
 FIT = Fit(k=0.4, c=1.5, samples=200)
 

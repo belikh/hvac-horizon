@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 
-from custom_components.hvac_horizon.features import mould_target
+from custom_components.hvac_horizon.engine.features import mould_target
 
 
 COOL_MIN_OUTDOOR_C = 16.0  # below this outdoors, cooling is blocked

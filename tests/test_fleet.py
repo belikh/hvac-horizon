@@ -1,5 +1,5 @@
-from custom_components.hvac_horizon.devices import RoomSample
-from custom_components.hvac_horizon.fleet import COOL, ECONOMY, FAST, HEAT, Device, calibrate_rates, choose_devices, device_kw
+from custom_components.hvac_horizon.room_model.devices import RoomSample
+from custom_components.hvac_horizon.engine.fleet import COOL, ECONOMY, FAST, HEAT, Device, calibrate_rates, choose_devices, device_kw
 
 
 def test_running_device_without_sensor_draws_its_rated_watts():

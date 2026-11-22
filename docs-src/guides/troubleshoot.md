@@ -102,6 +102,22 @@ Each issue clears when its cause ends. None has a fix flow.
 
 Open the entry, select the three-dot menu and **Download diagnostics**. The file holds the settings, the room model and the last result, with entity IDs redacted. Attach it to an issue at [github.com/belikh/hvac-horizon](https://github.com/belikh/hvac-horizon/issues).
 
+## A device does not follow a command
+
+The Unconfirmed commands sensor lists each device whose state differs from the last command on two ticks in a row, as `switch.heater: expected on, is off`. The log has one warning for each.
+
+| Cause | Fix |
+| :-- | :-- |
+| The device is offline or its integration lost the connection. | Restore the device. Each tick sends the command again. |
+| Someone changed the device by hand. | Nothing. The entry is listed until the states agree. |
+| A relay is stuck. | Replace it. HVAC Horizon reports it and cannot open it. |
+
+## The watchdog turned the outputs off
+
+A timer separate from the control tick checks every minute when the last tick finished. After 16 minutes with no finished tick it runs one tick itself. When that tick fails too, the next check turns off the heater, the AC, the second AC, the fleet devices and every switch the entry turned on. The log has `No control tick has finished for N s`. The Watchdog trips sensor counts these. Control resumes at the next tick that finishes.
+
+A trip means every tick raised an error for 16 minutes, or one tick never returned. Download the diagnostics and the log and open an issue.
+
 :::see-also
 - [[guides/read-the-forecast]]: the forecast status and the room model.
 - [[guides/use-the-room-thermostat]]: modes and the restart delay.

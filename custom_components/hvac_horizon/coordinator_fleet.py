@@ -10,10 +10,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, State
 
 from .const import CONF_DISPATCH_MODE, CONF_FLEET, CONF_MIN_OFF_MIN, CONF_PRICE, DEFAULT_PRICE_CHEAP
-from custom_components.hvac_horizon.fleet import COOL, Device, FAST, HEAT, choose_devices, device_kw
-from custom_components.hvac_horizon.decide import Mode
-from custom_components.hvac_horizon.collector import RUNNING_MIN_KW
-from custom_components.hvac_horizon.features import restart_wait_min
+from custom_components.hvac_horizon.engine.fleet import COOL, Device, FAST, HEAT, choose_devices, device_kw
+from custom_components.hvac_horizon.engine.decide import Mode
+from custom_components.hvac_horizon.room_model.collector import RUNNING_MIN_KW
+from custom_components.hvac_horizon.engine.features import restart_wait_min
 from custom_components.hvac_horizon.coordinator_common import _LOGGER, _float
 
 

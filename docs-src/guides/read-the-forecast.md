@@ -63,6 +63,24 @@ A new room reads `low` because it has few readings with the AC on. The confidenc
 
 The Forecast error sensor comes from a backtest. For each past cool-down, the backtest fits a model on the readings before it and compares the predicted minutes with the measured minutes. The `accuracy_pairs` attribute lists the last 20 runs. The `range_coverage_pct` attribute is the percentage of `range_runs` runs whose measured minutes fell inside the forecast range of that run. A range of one standard error holds about 68 % of runs when the model fits the room. A lower value means the range is too narrow for this room. A run needs 60 readings, 5 hours, before its cool-down.
 
+## Heating and drying
+
+The Forecast mode sensor names what the forecast sensors show.
+
+| `forecast_mode` | When | Minutes to setpoint counts down to |
+| :-- | :-- | :-- |
+| `cool` | Every other time | The cool threshold |
+| `heat` | The mode is `heat`, or `auto` with the room below the heat target | The heat target |
+| `dry` | The mode is `dry` | 57 % room humidity |
+
+In observe-only the mode is the AC's own mode. The `forecast_target` sensor holds the target of the forecast shown.
+
+- **Heater switch.** The minutes come from the learned heat rate. Set `heater_power_w` in **Heating** to get the energy and the cost. Without it both are empty.
+- **AC heat mode.** The minutes, the energy and the cost come from heat-mode intervals of the AC. The low and high minutes come from the standard error of that rate.
+- **Dry mode.** It needs a room humidity sensor. The energy uses the mean AC power of the dry intervals.
+
+The status reads `learning` until 12 intervals of that kind exist. The reason attribute names what is missing.
+
 ## What the weather entity adds
 
 Set `weather` in the **Occupancy and windows** section to give the forecast an outdoor temperature that changes over time.

@@ -1,6 +1,6 @@
 import unittest
 
-from custom_components.hvac_horizon.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
+from custom_components.hvac_horizon.room_model.solar_model import clear_sky_irradiance, solar_elevation_azimuth, window_irradiance
 
 
 class SolarModelTest(unittest.TestCase):

@@ -13,7 +13,7 @@ from homeassistant.core import State
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from custom_components.hvac_horizon.collector import Entry
+from custom_components.hvac_horizon.room_model.collector import Entry
 
 
 _LOGGER = logging.getLogger("custom_components.hvac_horizon.coordinator")
