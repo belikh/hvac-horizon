@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## Unreleased
+## 0.6.3 (2026-11-22)
 
 - The room thermostat has a `fan_only` mode when the first AC has one. The AC runs its fan, and nothing cools or
   heats. `hvac_action` reads `fan`.
