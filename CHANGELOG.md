@@ -2,7 +2,7 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
-## 0.5.6 (unreleased)
+## 0.5.6 (2026-11-22)
 
 - A damaged field in the stored data takes its default. Before, a text or a list where a number belongs in one of
   7 stored fields kept the entry from loading. A test now loads every stored field, and every key inside it, with 9
