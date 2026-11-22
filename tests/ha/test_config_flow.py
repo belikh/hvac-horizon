@@ -121,6 +121,43 @@ def test_every_section_field_has_a_label_in_its_step():
         assert set(labels) == set(names), name
 
 
+def test_every_form_field_has_a_short_label_and_a_help_text():
+    """The label names the field in a few words. The help text below it says what it needs, what it does and its default."""
+    steps = _translations()["config"]["step"]
+    for name, step in steps.items():
+        labels = step.get("data")
+        if not labels:
+            continue
+        helps = step.get("data_description", {})
+        assert set(helps) == set(labels), (name, set(helps) ^ set(labels))
+        for key, label in labels.items():
+            assert 3 <= len(label) <= 50, (name, key, label)
+            assert len(helps[key]) >= 20 and helps[key].endswith("."), (name, key)
+            assert "_" not in label, (name, key)  # the label is words, not a setting key
+
+
+def test_a_setting_that_needs_another_one_says_so_in_its_help_text():
+    steps = _translations()["config"]["step"]
+    needs = {
+        ("heater", "heater_inverted"): "heater switch", ("heater", "trv_temperature"): "radiator valve", ("heater", "ac_heat"): "heat mode",
+        ("comfort", "vacation_c"): "vacation switch", ("comfort", "comfort_energy_weight"): "eco temperature", ("comfort", "away_delay_min"): "presence",
+        ("occupancy", "motion_away_min"): "motion sensor", ("occupancy", "window_delay_min"): "window sensor", ("occupancy", "cover"): "window area",
+        ("air_quality", "co2"): "room fan", ("air_quality", "dehumidifier"): "room humidity sensor", ("air_quality", "dry_for_humidity"): "dry mode",
+        ("devices", "power_2"): "second AC", ("devices", "shed_max_w"): "whole-house power", ("advanced", "ai_budget_per_day"): "conversation agent",
+        ("advanced", "peer_setpoint_mode"): "peer room", ("expert", "tpi_coef_int"): "TPI", ("price", "price_cheap"): "below the expensive price",
+    }
+    for (step, key), words in needs.items():
+        assert words.lower() in steps[step]["data_description"][key].lower(), (step, key)
+
+
+def test_every_form_error_has_a_message():
+    import re
+
+    source = Path(config_flow.__file__).read_text(encoding="utf-8")
+    used = set(re.findall(r'errors\[[^\]]+\] = "(\w+)"', source)) | set(re.findall(r'errors=\{"base": "(\w+)"\}', source))
+    assert used and used <= set(_translations()["config"]["error"]), used - set(_translations()["config"]["error"])
+
+
 def test_every_step_has_a_title_and_description_and_each_menu_option_a_label():
     steps = _translations()["config"]["step"]
     for name in [*config_flow.SECTIONS, *config_flow.LIST_STEPS, "menu", "reconfigure"]:

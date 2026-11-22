@@ -11,7 +11,7 @@ The forecast answers one question: with the AC running at its usual power, when 
 | Minutes to setpoint | min | Time for the room to reach the threshold |
 | Minutes to setpoint, low and high | min | The range around that time, from the uncertainty of the cooling rate |
 | Energy to setpoint | kWh | AC energy for that time. An estimate when the AC has `ac_rated_w` and no power sensor. |
-| Cost to setpoint | price unit | That energy priced slot by slot. Needs a price sensor with a `forecast` attribute. |
+| Cost to setpoint | price unit | That energy priced slot by slot. Needs a price sensor with a `forecast` attribute. Empty when the price forecast does not cover the whole time: a cost over part of the time is not shown. The `reason` attribute of the Status sensor then reads `reachable; cost unknown: the price sensor has no price for part of this time`. |
 | Status | text | The state of the forecast. See the next table. |
 | Forecast error | min | Median error of the forecasts replayed against past cool-downs |
 

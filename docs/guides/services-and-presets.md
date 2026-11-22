@@ -34,12 +34,13 @@ Open **Reconfigure** and select **Schedule blocks**. A block applies a preset be
 
 To remove blocks, tick them under **Remove these blocks** and select **Submit**.
 
-A block whose end is before its start runs past midnight. Times outside every block use `comfort`. The entry stores the blocks as `schedule_blocks`, a list of `start_h`, `end_h` and `preset`, which the diagnostics download shows.
+A block whose end is before its start runs past midnight. Times outside every block use `comfort`. Two blocks cannot share a time of day: the form refuses a new block that overlaps one you have. The entry stores the blocks as `schedule_blocks`, a list of `start_h`, `end_h` and `preset`, which the diagnostics download shows.
 
 | Message | Cause |
 | :--- | :--- |
 | `Set both the start and the end of the new block.` | One of the two times is empty. |
 | `The start and the end of a block must differ.` | Both times are the same. |
+| `The new block overlaps the block 22:00 to 06:30: eco.` | The new block shares a time of day with the block named. |
 
 Before a comfort block, the heater starts early when the learned heat-up time needs it. The Heat-up time sensor shows the estimate in minutes.
 

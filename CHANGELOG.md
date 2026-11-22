@@ -16,6 +16,14 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
   reached the other outputs.
 - An AC that lists no `heat` mode is never sent `heat`, and one with no `dry` mode is never sent `dry`. Before,
   `ac_heat` or `mpc_heat_plan` on a cool-only AC sent `heat` and the tick failed.
+- Every form field has a help text under it: what the field needs, what it changes, its range and default, and when
+  to leave it alone. Labels are a few words in plain language. Before, the forms had labels only, and some labels
+  were whole sentences.
+- The forms refuse three more mistakes: a schedule block that overlaps another one, a minimum heater output above the
+  maximum, and one TPI threshold without the other. Before, an overlapping block was stored and the first block
+  silently won.
+- A forecast with no price for part of its time gives no cost and says so in the Status sensor's `reason`. Before,
+  the cost was empty with no explanation.
 - Tests: the fake AC and switch are real Home Assistant entities (`tests/fakes.py`), so Home Assistant refuses a mode
   or a setpoint the device does not have. The simulated AC has heat, dry and fan modes, its own sensor and a humidity
   node. New closed-loop runs cover a heat pump, dry mode, fan mode, an AC with rated power, an AC whose sensor reads

@@ -20,6 +20,8 @@ Nothing is saved until you select **Save and close**. A section you do not open 
 
 The same sections appear when you add a new entry, after the **Room** step. Submit a section empty to keep its defaults.
 
+Each field has a help text under it. It says what the field needs, what it changes, its range and its default, and when to leave it alone. A field that depends on another one says so, for example `Needs a heater switch.`
+
 ## Sections
 
 | Section | What you set there |
@@ -58,7 +60,7 @@ The PID gains come from a relay test when you run one. See `start_autotune` in [
 ## Add an electricity price
 
 1. Open **Price** and select the price sensor. Its unit is per kWh.
-2. Set **Cheap price threshold** and **Expensive price threshold** in the same unit. The defaults are 0.15 and 0.40.
+2. Set **Cheap price** and **Expensive price** in the same unit. The defaults are 0.15 and 0.40.
 
 The price only raises the cool threshold. Up to the midpoint of the cheap and the expensive price the threshold is your target. From there it rises in a line, and at or above the expensive price it is 1 K higher.
 
@@ -70,7 +72,7 @@ The Cost to setpoint sensor needs a `forecast` attribute on the price sensor: a 
 
 1. Open **Occupancy and windows**.
 2. Select one or more entities in **Presence sources**. A source in state `home` or `on` means home.
-3. Select a motion sensor in **Motion sensor** if the room has one.
+3. Select a motion sensor in **Motion sensor in the room** if the room has one.
 
 | Situation | Cools above | Heats to |
 | :-- | :-- | :-- |
@@ -106,8 +108,12 @@ For devices that HVAC Horizon should choose between, open **Room devices**. Give
 | Message | Cause | Fix |
 | :-- | :-- | :-- |
 | `This device is already set up.` | Another entry uses the same AC or heater switch. | Reconfigure that entry. |
-| `Pick an AC or a heater switch.` | The Room step has neither. | Select one of them. |
-| `Pick the AC's power sensor, or enter its rated power.` | The AC has neither. | Select the sensor or enter the watts. |
+| `Pick an air conditioner or a heater switch. A room needs one of them.` | The Room step has neither. | Select one of them. |
+| `Pick the AC's power sensor, or enter its rated power in watts.` | The AC has neither. | Select the sensor or enter the watts. |
+| `The cheap price threshold must be below the expensive price threshold.` | The two prices are equal or swapped. | Lower the cheap price or raise the expensive one. |
+| `The new block overlaps the block 22:00 to 06:30: eco.` | A new schedule block shares a time of day with the block named. The schedule uses one block at a time. | Remove that block first, or change the times. |
+| `The minimum heater output must not be above the maximum.` | `output_min` is above `output_max` in Expert tuning. | Swap or correct the two values. |
+| `Set both TPI thresholds, or leave both empty.` | One TPI threshold is set alone, which has no effect. | Set the other one, or clear both. |
 | `Set both the start and the end of the new block.` | A schedule block has one time only. | Set both times, or clear both to add no block. |
 | `The start and the end of a block must differ.` | Both times of a schedule block are the same. | Change one of them. |
 | `Room devices are invalid` followed by a reason | The new device breaks a rule, such as a repeated name or a cooler on a switch. | Correct the field named in the reason. |

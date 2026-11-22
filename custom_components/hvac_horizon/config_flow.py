@@ -449,7 +449,32 @@ def _section_problems(section: str, data: dict[str, Any]) -> tuple[dict[str, str
             errors[CONF_POWER] = "need_power"
     if section == "price":
         errors.update(_price_errors(data))
+    if section == "expert":
+        low, high = data.get(CONF_OUTPUT_MIN), data.get(CONF_OUTPUT_MAX)
+        if low is not None and (high if high is not None else 100.0) < low:
+            errors[CONF_OUTPUT_MIN] = "output_order"
+        if (data.get(CONF_TPI_THRESHOLD_HIGH) or 0) > 0 and not (data.get(CONF_TPI_THRESHOLD_LOW) or 0) > 0:
+            errors[CONF_TPI_THRESHOLD_LOW] = "tpi_threshold_pair"
+        elif (data.get(CONF_TPI_THRESHOLD_LOW) or 0) > 0 and not (data.get(CONF_TPI_THRESHOLD_HIGH) or 0) > 0:
+            errors[CONF_TPI_THRESHOLD_HIGH] = "tpi_threshold_pair"
     return errors, placeholders
+
+
+def _covers(block: dict[str, Any], hour: float) -> bool:
+    start, end = block["start_h"], block["end_h"]
+    return start <= hour < end if start <= end else hour >= start or hour < end
+
+
+def _overlapping_block(blocks: list[dict[str, Any]], new: dict[str, Any]) -> dict[str, Any] | None:
+    """The first existing block that shares a time of day with `new`, or None.
+
+    The schedule uses the first block that covers the hour, so an overlap would hide part of one block. Two blocks
+    overlap when either one covers the other's start.
+    """
+    for block in blocks:
+        if _covers(block, new["start_h"]) or _covers(new, block["start_h"]):
+            return block
+    return None
 
 
 # Field names in the form. A reconfigure submit that omits one of these clears it, except the lock PIN.
@@ -600,10 +625,15 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
             errors["base"] = "schedule_needs_both"
         elif start is not None and start == end:
             errors["base"] = "schedule_same_time"
+        placeholders: dict[str, str] = {}
+        new_block = None if start is None or errors else {"start_h": start, "end_h": end, "preset": user_input.get("preset", "eco")}
+        if new_block is not None and (clash := _overlapping_block(blocks, new_block)) is not None:
+            errors["base"] = "schedule_overlap"
+            placeholders["block"] = _block_label(clash)
         if errors:
-            return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks), errors=errors)
-        if start is not None:
-            blocks.append({"start_h": start, "end_h": end, "preset": user_input.get("preset", "eco")})
+            return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks), errors=errors, description_placeholders=placeholders)
+        if new_block is not None:
+            blocks.append(new_block)
         self._data[CONF_SCHEDULE_BLOCKS] = blocks
         if user_input.get("add_another"):
             return self.async_show_form(step_id="schedule", data_schema=_schedule_schema(blocks))

@@ -28,9 +28,9 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
 
    | Field | Entity |
    | :-- | :-- |
-   | AC climate entity | The `climate` entity of the AC. Leave it empty for a room with heating only |
+   | Air conditioner | The `climate` entity of the AC. Leave it empty for a room with heating only |
    | AC power sensor (W) | A power sensor in watts that reads the whole AC unit |
-   | AC rated power, W | The watts the AC draws while it runs, for an AC with no power sensor |
+   | AC rated power (W) | The watts the AC draws while it runs, for an AC with no power sensor |
    | Heater switch | The switch of the heater. A room needs an AC or a heater switch |
    | Room temperature sensors | One or more temperature sensors in the room |
    | Outdoor temperature sensor | A temperature sensor outside |
@@ -51,7 +51,7 @@ With control on, HVAC Horizon sets the AC mode and setpoint and drives the other
 
 1. Open **Settings > Devices & services** and select **HVAC Horizon**.
 2. On the entry, select the three-dot menu, then **Reconfigure**.
-3. Select **Advanced** and turn on **Let HVAC Horizon control the AC (off = observe only)**. Select **Submit**.
+3. Select **Advanced** and turn on **Let HVAC Horizon control the room**. Select **Submit**.
 4. Select **Save and close**. The form reports `Settings updated. Stored samples are kept.`
 
 The room thermostat then shows the mode `auto`. See [[guides/use-the-room-thermostat]].

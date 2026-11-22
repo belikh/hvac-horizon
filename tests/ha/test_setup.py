@@ -239,6 +239,57 @@ async def test_the_schedule_step_checks_a_new_block(hass, enable_custom_integrat
     assert result["type"] == "menu"
 
 
+async def test_the_schedule_step_refuses_a_block_that_overlaps_another(hass, enable_custom_integrations, config_data):
+    """The schedule uses the first block that covers the hour, so an overlap would hide part of a block. The error names the block."""
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    flow_id = result["flow_id"]
+    await _open_section(hass, flow_id, "schedule")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "22:00:00", "end": "06:30:00", "preset": "eco", "add_another": True})
+    assert result["type"] == "form" and not result.get("errors")
+    for start, end in (("23:00:00", "23:30:00"), ("05:00:00", "08:00:00"), ("20:00:00", "22:30:00"), ("12:00:00", "02:00:00")):
+        result = await hass.config_entries.flow.async_configure(flow_id, {"start": start, "end": end, "preset": "boost"})
+        assert result["type"] == "form" and result["errors"] == {"base": "schedule_overlap"}, (start, end)
+        assert result["description_placeholders"]["block"] == "22:00 to 06:30: eco"
+    # A block that ends where the other starts, and one that starts where it ends, do not overlap.
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "17:00:00", "end": "22:00:00", "preset": "boost", "add_another": True})
+    assert result["type"] == "form" and not result.get("errors")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"start": "06:30:00", "end": "09:00:00", "preset": "comfort"})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
+    assert [b["start_h"] for b in result["data"][CONF_SCHEDULE_BLOCKS]] == [22.0, 17.0, 6.5]
+
+
+async def test_the_expert_step_refuses_values_that_cannot_work(hass, enable_custom_integrations, config_data):
+    set_inputs(hass)
+    result = await _start_flow(hass, config_data)
+    flow_id = result["flow_id"]
+    await _open_section(hass, flow_id, "expert")
+    result = await hass.config_entries.flow.async_configure(flow_id, {"output_min": 60, "output_max": 40})
+    assert result["type"] == "form" and result["errors"] == {"output_min": "output_order"}
+    result = await hass.config_entries.flow.async_configure(flow_id, {"tpi_threshold_high": 0.5})
+    assert result["type"] == "form" and result["errors"] == {"tpi_threshold_low": "tpi_threshold_pair"}
+    result = await hass.config_entries.flow.async_configure(flow_id, {"tpi_threshold_low": 0.2})
+    assert result["type"] == "form" and result["errors"] == {"tpi_threshold_high": "tpi_threshold_pair"}
+    result = await hass.config_entries.flow.async_configure(flow_id, {"output_min": 10, "output_max": 80, "tpi_threshold_high": 0.5, "tpi_threshold_low": 0.2})
+    assert result["type"] == "menu"
+
+
+async def test_a_reachable_forecast_with_no_price_for_its_time_says_why_the_cost_is_empty(hass, enable_custom_integrations, config_data, freezer):
+    """The price sensor has a price now and no forecast attribute. The forecast gives minutes and energy, no cost, and the reason."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    hass.states.async_set(PRICE, "0.30", {"unit_of_measurement": "AUD/kWh"})
+    entry, _ = await setup_heater(hass, config_data, room="27.0", outdoor="24.0", extra={CONF_PRICE: PRICE})
+    coordinator = entry.runtime_data
+    coordinator._entries = _cycling_entries(dt_util.utcnow().timestamp())
+    coordinator._refit()
+    await refresh(hass, entry)
+    data = coordinator.data
+    assert data["status"] == "reachable" and data["minutes"] > 0 and data["energy_kwh"] > 0
+    assert data["cost"] is None
+    assert data["reason"] == "reachable; cost unknown: the price sensor has no price for part of this time"
+
+
 async def test_config_flow_menu_shows_every_optional_section(hass, enable_custom_integrations, config_data):
     from custom_components.hvac_horizon import config_flow
 

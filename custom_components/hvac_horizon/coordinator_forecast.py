@@ -60,6 +60,9 @@ from custom_components.hvac_horizon.room_model.mode_models import MIN_MODE_SAMPL
 SOLAR_SHARE_MIN_KW = 0.05  # below this clear-sky gain the share of sun the room gets is not measured
 
 
+COST_UNKNOWN_REASON = "reachable; cost unknown: the price sensor has no price for part of this time"
+
+
 class ForecastMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
     _auto_heat_gain: float
@@ -418,6 +421,9 @@ class ForecastMixin:
         other = self._dry_forecast(now) if self._mode_now() == "dry" else self._heat_forecast(now)
         if other is not None:
             result.update(other)
+        if result.get("status") == "reachable" and result.get("cost") is None and self.entry.data.get(CONF_PRICE):
+            # A cost over part of the time would read as the whole cost, so none is given. The reason says why.
+            result["reason"] = COST_UNKNOWN_REASON
         return result
 
     def _mode_now(self) -> str | None:
