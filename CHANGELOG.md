@@ -2,6 +2,14 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## Unreleased
+
+- Setup starts with an Area step. Pick the Home Assistant area of the room, and the next forms suggest the AC, its
+  power sensor, the temperature sensors and the humidity, motion and window sensors found in it. The entry is named
+  after the area and its thermostat and sensors are placed in it. The step is optional, and existing entries can be
+  given an area in the Room step of Reconfigure. The new setting is `area`.
+- The device lookup uses `async_get_device_by_identifier`, which replaces a deprecated Home Assistant call.
+
 ## 0.6.3 (2026-11-22)
 
 - The room thermostat has a `fan_only` mode when the first AC has one. The AC runs its fan, and nothing cools or

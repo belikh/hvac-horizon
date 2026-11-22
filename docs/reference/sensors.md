@@ -4,7 +4,7 @@
 
 ## Entities per entry
 
-Each entry creates one device named `HVAC Horizon <AC name>`, or after the heater switch in a room with no AC. The device holds one `climate` entity for the room and 85 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
+Each entry creates one device named `HVAC Horizon` and the entry's title: the area's name, or the AC's when no area is set. The device holds one `climate` entity for the room and 85 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
 
 A sensor's entity ID is `sensor.hvac_horizon_<ac name>_<name>`. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
 

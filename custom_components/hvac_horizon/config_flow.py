@@ -10,6 +10,9 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigFlow, ConfigFlowResult
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
@@ -113,6 +116,7 @@ from .const import (
     CONF_OUTDOOR,
     CONF_POWER,
     CONF_PRICE,
+    CONF_AREA,
     CONF_ROOM_SENSORS,
     CONF_WEATHER,
     DOMAIN,
@@ -211,6 +215,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
 
     return vol.Schema(
         {
+            key(CONF_AREA): selector.AreaSelector(),
             key(CONF_CLIMATE): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
             key(CONF_POWER): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
@@ -392,7 +397,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
 # The form is split into sections. Each section is one step. SECTIONS lists the fields of each one, and every
 # field of the full schema is in exactly one section (a test checks this). "room" holds the required fields.
 SECTIONS: dict[str, tuple[str, ...]] = {
-    "room": (CONF_CLIMATE, CONF_POWER, CONF_AC_RATED_W, CONF_HEATER_SWITCH, CONF_ROOM_SENSORS, CONF_OUTDOOR),
+    "room": (CONF_AREA, CONF_CLIMATE, CONF_POWER, CONF_AC_RATED_W, CONF_HEATER_SWITCH, CONF_ROOM_SENSORS, CONF_OUTDOOR),
     "comfort": (
         CONF_COMFORT_C, CONF_ECO_C, CONF_BOOST_C, CONF_AWAY_C, CONF_HEAT_ECO_C, CONF_HEAT_BOOST_C,
         CONF_COMFORT_ENERGY_WEIGHT, CONF_SCHEDULE, CONF_VACATION, CONF_VACATION_C,
@@ -478,6 +483,54 @@ def _overlapping_block(blocks: list[dict[str, Any]], new: dict[str, Any]) -> dic
     return None
 
 
+def _entities_of_area(hass: HomeAssistant, area_id: str) -> list[er.RegistryEntry]:
+    """The enabled entities of an area: those placed in it, and those of its devices that have no area of their own.
+
+    This integration's own entities are left out.
+    """
+    registry = er.async_get(hass)
+    found = {e.entity_id: e for e in er.async_entries_for_area(registry, area_id)}
+    for device in dr.async_entries_for_area(dr.async_get(hass), area_id):
+        for entity in er.async_entries_for_device(registry, device.id):
+            if entity.area_id is None:
+                found[entity.entity_id] = entity
+    return [e for _, e in sorted(found.items()) if e.disabled_by is None and e.platform != DOMAIN]
+
+
+def area_suggestions(hass: HomeAssistant, area_id: str) -> dict[str, Any]:
+    """Entities of the area that fit the fields of a room. The forms show them as suggested values, and nothing is stored until a form is submitted.
+
+    The AC and its power sensor are suggested only when the area has exactly one, because they are driven or billed.
+    Every temperature sensor of the area becomes a room sensor. The heater switch and the outdoor sensor are never
+    guessed: a switch can be anything, and the outdoor sensor is not in the room.
+    """
+
+    def of(domain: str, *classes: str) -> list[str]:
+        out = []
+        for entity in _entities_of_area(hass, area_id):
+            state = hass.states.get(entity.entity_id)
+            device_class = entity.device_class or entity.original_device_class or (state.attributes.get("device_class") if state else None)
+            if entity.domain == domain and (not classes or device_class in classes):
+                out.append(entity.entity_id)
+        return out
+
+    found: dict[str, Any] = {}
+    if len(acs := of("climate")) == 1:
+        found[CONF_CLIMATE] = acs[0]
+    if len(power := of("sensor", "power")) == 1:
+        found[CONF_POWER] = power[0]
+    if temperatures := of("sensor", "temperature"):
+        found[CONF_ROOM_SENSORS] = temperatures
+    for field, domain, classes in (
+        (CONF_ROOM_HUMIDITY, "sensor", ("humidity",)),
+        (CONF_MOTION, "binary_sensor", ("motion", "occupancy", "presence")),
+        (CONF_WINDOW, "binary_sensor", ("window", "door", "opening")),
+    ):
+        if entities := of(domain, *classes):
+            found[field] = entities[0]
+    return found
+
+
 # Field names in the form. A reconfigure submit that omits one of these clears it, except the lock PIN.
 FORM_FIELDS = frozenset(str(k) for k in _schema({}).schema)
 
@@ -545,8 +598,18 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
         self._stored_pin: str | None = None  # the PIN in the entry being reconfigured
+        self._suggested: dict[str, Any] = {}  # entities of the chosen area, shown as suggested values and stored only when a form is submitted
 
     async def async_step_user(self, user_input: dict | None = None) -> ConfigFlowResult:
+        return await self.async_step_area()
+
+    async def async_step_area(self, user_input: dict | None = None) -> ConfigFlowResult:
+        """Pick the area of the room. The next forms suggest the entities found in it. An empty submit skips the area."""
+        if user_input is None:
+            return self.async_show_form(step_id="area", data_schema=vol.Schema({vol.Optional(CONF_AREA): selector.AreaSelector()}))
+        if area_id := user_input.get(CONF_AREA):
+            self._data[CONF_AREA] = area_id
+            self._suggested = area_suggestions(self.hass, area_id)
         return await self.async_step_room()
 
     async def async_step_reconfigure(self, user_input: dict | None = None) -> ConfigFlowResult:
@@ -566,7 +629,7 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_section(self, section: str, user_input: dict | None) -> ConfigFlowResult:
         if user_input is None:
-            return self.async_show_form(step_id=section, data_schema=_section_schema(section, self._data))
+            return self.async_show_form(step_id=section, data_schema=_section_schema(section, {**self._suggested, **self._data}))
         errors, placeholders = _section_problems(section, user_input)
         # A room thermostat of this integration is no device: as the AC of a room it would be a loop of two rooms.
         registry = er.async_get(self.hass)
@@ -668,9 +731,16 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_finish(self, user_input: dict | None = None) -> ConfigFlowResult:
         if self.source == SOURCE_RECONFIGURE:
-            return self.async_update_reload_and_abort(self._get_reconfigure_entry(), data=dict(self._data))
+            entry = self._get_reconfigure_entry()
+            if (area_id := self._data.get(CONF_AREA)) and area_id != entry.data.get(CONF_AREA):
+                # A new area moves the room's device. An unchanged one leaves a device the user moved by hand where it is.
+                devices = dr.async_get(self.hass)
+                if device := devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id):
+                    devices.async_update_device(device.id, area_id=area_id)
+            return self.async_update_reload_and_abort(entry, data=dict(self._data))
         data = {CONF_CONTROL: False, **self._data}  # finishing early leaves the room in observe-only mode
         device_id = data.get(CONF_CLIMATE) or data[CONF_HEATER_SWITCH]
         device = self.hass.states.get(device_id)
         title = device.attributes.get("friendly_name", device_id) if device else device_id
-        return self.async_create_entry(title=title, data=data)
+        area = ar.async_get(self.hass).async_get_area(data[CONF_AREA]) if data.get(CONF_AREA) else None
+        return self.async_create_entry(title=area.name if area else title, data=data)

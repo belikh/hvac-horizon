@@ -160,6 +160,7 @@ SETTINGS: dict[str, dict[str, Any]] = {
     "heater_switch": {"level": "control", "alt": {"drop": ["heater_switch"]}},
     "radiators": {"level": "control", "alt": {"add": {"radiators": True}}},
     "heater_kp": {"level": "control", "alt": {"add": {"heater_kp": 2.0}}},
+    "area": {"level": "exempt", "why": "places the room's device in a Home Assistant area and names the entry; tests/ha/test_setup.py covers it"},
     "ac_rated_w": {"level": "published", "base": {"drop": ["power"], "add": {"ac_rated_w": 800}}, "alt": {"add": {"ac_rated_w": 1600}}, "why": "the AC's power in each reading, and the forecast's energy"},
     "heater_power_w": {"level": "published", "alt": {"add": {"heater_power_w": 2000}}, "why": "energy and cost of the heating forecast"},
     "heater_ki": {"level": "control", "alt": {"add": {"heater_ki": 1.0}}},

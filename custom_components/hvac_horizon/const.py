@@ -55,6 +55,7 @@ CONF_PRICE_CHEAP = "price_cheap"
 CONF_PRICE_EXPENSIVE = "price_expensive"
 DEFAULT_PRICE_CHEAP = 0.15
 DEFAULT_PRICE_EXPENSIVE = 0.40
+CONF_AREA = "area"  # optional Home Assistant area of the room: names the entry and holds its device
 CONF_AC_RATED_W = "ac_rated_w"  # watts the AC draws while it runs; stands in for a power sensor
 CONF_AI_CONVERSATION = "ai_conversation"  # optional conversation agent; the investigator asks it when the AC mode changes
 CONF_AI_BUDGET = "ai_budget_per_day"  # model calls per day for the investigator; absent or 0 means no calls

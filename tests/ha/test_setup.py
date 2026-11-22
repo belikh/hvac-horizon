@@ -113,6 +113,7 @@ ROOM_KEYS = ("climate", "power", "room_sensors", "outdoor")
 async def _start_flow(hass, config_data):
     """Open the flow and submit the room step. Returns the menu result."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # the Area step, skipped
     assert result["type"] == "form" and result["step_id"] == "room"
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: config_data[k] for k in ROOM_KEYS})
     assert result["type"] == "menu" and result["step_id"] == "menu"
@@ -183,6 +184,7 @@ async def test_config_flow_rejects_a_duplicate_room(hass, enable_custom_integrat
     set_inputs(hass)
     MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE).add_to_hass(hass)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # the Area step, skipped
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {k: config_data[k] for k in ROOM_KEYS})
     assert result["type"] == "abort" and result["reason"] == "already_configured"
 
@@ -268,6 +270,7 @@ async def test_the_room_step_refuses_a_room_thermostat_of_this_integration_as_th
     await hass.async_block_till_done()
     own = _room_climate_id(hass, entry)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # the Area step, skipped
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {**{k: config_data[k] for k in ROOM_KEYS}, "climate": own})
     assert result["type"] == "form" and result["errors"] == {"climate": "own_thermostat"}
 
@@ -8457,6 +8460,7 @@ async def _heating_only(hass, room="19.0", outdoor="5.0", extra=None):
 async def test_the_flow_sets_up_a_room_with_a_heater_and_no_ac(hass, enable_custom_integrations):
     hass.states.async_set(HEATER, "off", {"friendly_name": "Panel heater"})
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # the Area step, skipped
     rooms = {CONF_ROOM_SENSORS: [ROOM_A], CONF_OUTDOOR: OUTDOOR}
     result = await hass.config_entries.flow.async_configure(result["flow_id"], rooms)
     assert result["type"] == "form" and result["errors"] == {"base": "need_device"}
@@ -8473,6 +8477,7 @@ async def test_the_flow_sets_up_a_room_with_a_heater_and_no_ac(hass, enable_cust
 async def test_the_flow_takes_an_ac_with_rated_power_and_no_power_sensor(hass, enable_custom_integrations):
     set_inputs(hass)
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})  # the Area step, skipped
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_CLIMATE: CLIMATE, "ac_rated_w": 900, CONF_ROOM_SENSORS: [ROOM_A], CONF_OUTDOOR: OUTDOOR}
     )
@@ -8619,3 +8624,83 @@ async def test_humidity_target_needs_a_room_humidity_sensor(hass, enable_custom_
     attributes = hass.states.get(entity_id).attributes
     assert "humidity" not in attributes
     assert not attributes["supported_features"] & ClimateEntityFeature.TARGET_HUMIDITY
+
+
+async def test_the_area_step_suggests_the_entities_of_the_area_names_the_room_and_places_its_device(hass, enable_custom_integrations, config_data):
+    """An area with one AC, its power sensor, two temperature sensors, a humidity sensor, a motion sensor and a window sensor."""
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import device_registry as dr
+
+    area = ar.async_get(hass).async_create("Guest room")
+    registry = er.async_get(hass)
+    in_area = {
+        CLIMATE: ("climate", None), POWER: ("sensor", "power"), ROOM_A: ("sensor", "temperature"), ROOM_B: ("sensor", "temperature"),
+        "sensor.guest_humidity": ("sensor", "humidity"), "binary_sensor.guest_motion": ("binary_sensor", "motion"),
+        "binary_sensor.guest_window": ("binary_sensor", "window"), "switch.guest_plug": ("switch", None),
+    }
+    for entity_id, (domain, device_class) in in_area.items():
+        entity = registry.async_get_or_create(domain, "test", entity_id, suggested_object_id=entity_id.split(".", 1)[1], original_device_class=device_class)
+        assert entity.entity_id == entity_id
+        registry.async_update_entity(entity_id, area_id=area.id)
+    set_inputs(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    assert result["type"] == "form" and result["step_id"] == "area"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"area": area.id})
+    assert result["type"] == "form" and result["step_id"] == "room"
+    suggested = {str(k): k.description["suggested_value"] for k in result["data_schema"].schema if k.description}
+    assert suggested == {"area": area.id, "climate": CLIMATE, "power": POWER, "room_sensors": [ROOM_A, ROOM_B]}  # no heater switch, no outdoor sensor
+    flow_id = result["flow_id"]
+    result = await hass.config_entries.flow.async_configure(flow_id, {**suggested, "outdoor": OUTDOOR})
+    assert result["type"] == "menu"
+    # The optional forms suggest the area's sensors. A form that is never opened stores nothing.
+    result = await _open_section(hass, flow_id, "air_quality")
+    assert next(k.description["suggested_value"] for k in result["data_schema"].schema if str(k) == "room_humidity") == "sensor.guest_humidity"
+    result = await hass.config_entries.flow.async_configure(flow_id, {"room_humidity": "sensor.guest_humidity"})
+    result = await hass.config_entries.flow.async_configure(flow_id, {"next_step_id": "finish"})
+    assert result["type"] == "create_entry" and result["title"] == "Guest room"
+    data = result["data"]
+    assert data["area"] == area.id and data["room_humidity"] == "sensor.guest_humidity"
+    assert "motion" not in data and "window" not in data and CONF_HEATER_SWITCH not in data
+    await hass.async_block_till_done()
+    device = dr.async_get(hass).async_get_device_by_identifier((DOMAIN, result["result"].entry_id), result["result"].entry_id)
+    assert device.area_id == area.id
+
+
+async def test_an_area_with_two_acs_suggests_neither(hass, enable_custom_integrations, config_data):
+    from homeassistant.helpers import area_registry as ar
+
+    from custom_components.hvac_horizon.config_flow import area_suggestions
+
+    area = ar.async_get(hass).async_create("Lounge")
+    registry = er.async_get(hass)
+    for name in ("lounge_ac_1", "lounge_ac_2"):
+        entity = registry.async_get_or_create("climate", "test", name, suggested_object_id=name)
+        registry.async_update_entity(entity.entity_id, area_id=area.id)
+    assert area_suggestions(hass, area.id) == {}
+
+
+async def test_reconfigure_moves_the_device_to_a_new_area_and_leaves_a_hand_move_alone(hass, enable_custom_integrations, config_data):
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import device_registry as dr
+
+    set_inputs(hass)
+    areas = ar.async_get(hass)
+    first, second, by_hand = areas.async_create("First"), areas.async_create("Second"), areas.async_create("By hand")
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data={**config_data, "area": first.id}, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    devices = dr.async_get(hass)
+    device = devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    assert device.area_id == first.id
+    devices.async_update_device(device.id, area_id=by_hand.id)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert devices.async_get(device.id).area_id == by_hand.id  # a reload does not undo a move by hand
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "room"})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**{k: config_data[k] for k in ROOM_KEYS}, "area": second.id})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert result["type"] == "abort"
+    await hass.async_block_till_done()
+    assert devices.async_get(device.id).area_id == second.id

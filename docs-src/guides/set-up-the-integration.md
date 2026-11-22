@@ -22,11 +22,21 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 
 Each field has a help text under it. It says what the field needs, what it changes, its range and its default, and when to leave it alone. A field that depends on another one says so, for example `Needs a heater switch.`
 
+## Areas
+
+A room can belong to a Home Assistant area. Pick it in the **Area** step of a new entry, or in **Room** when you reconfigure.
+
+- **Suggestions.** A new entry's forms suggest the entities of the area. The AC and its power sensor are suggested when the area has exactly one of each. Every temperature sensor is suggested as a room sensor, with the first humidity, motion and window sensor. A suggestion is stored only when you submit its form, so check each one.
+- **Never suggested.** The heater switch, because a switch can be anything, and the outdoor sensor, because it is not in the room.
+- **Name and place.** The entry is named after the area, and its thermostat and sensors are placed in it. Changing the area in **Room** moves them. A device you moved by hand stays where you put it.
+
+An entry reads the entities you stored. A sensor you add to the area later is used after you add it in **Reconfigure**.
+
 ## Sections
 
 | Section | What you set there |
 | :-- | :-- |
-| Room | The AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
+| Room | The area, the AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
 | Comfort and presets | Setpoints for each preset, the vacation switch |
 | Schedule blocks | Presets by time of day, one block per submit |
 | Price | The price sensor and the cheap and expensive thresholds |

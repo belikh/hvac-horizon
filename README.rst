@@ -32,7 +32,7 @@ Open HACS, search for *HVAC Horizon*, download it and restart Home Assistant. If
    :target: https://hacs.xyz/
    :alt: HACS custom repository
 
-Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon* and pick the AC climate entity with its power sensor or rated power, or a heater switch for a room with heating only, and the room and outdoor temperature sensors, then choose *Finish now* in the menu, or open any of the optional sections first. To turn control on later, open the integration card, select the entry menu, choose *Reconfigure* and open *Advanced*.
+Open *Settings > Devices & services*, select *Add integration*, search for *HVAC Horizon*, pick the area of the room, and check the AC climate entity with its power sensor or rated power, or a heater switch for a room with heating only, and the room and outdoor temperature sensors, then choose *Finish now* in the menu, or open any of the optional sections first. To turn control on later, open the integration card, select the entry menu, choose *Reconfigure* and open *Advanced*.
 
 The status sensor shows *learning* until the first fit. The fit needs at least three hours with the AC on and three hours with it off, in at least three separate runs.
 

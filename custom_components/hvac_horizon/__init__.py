@@ -7,7 +7,10 @@ from homeassistant.core import Event, HomeAssistant
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+
+from .const import CONF_AREA, CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
 from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
 from .room_model.forecast import Forecast, PriceSlot, forecast
@@ -144,7 +147,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.async_on_unload(coordinator.start_watchdog())
     sync_accuracy_panel(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _place_in_area(hass, entry)
     return True
+
+
+def _place_in_area(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Put the room's device in the entry's area when the device has no area yet. A device the user moved stays where it is."""
+    area_id = entry.data.get(CONF_AREA)
+    if not area_id or ar.async_get(hass).async_get_area(area_id) is None:
+        return
+    devices = dr.async_get(hass)
+    device = devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
+    if device is not None and device.area_id is None:
+        devices.async_update_device(device.id, area_id=area_id)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

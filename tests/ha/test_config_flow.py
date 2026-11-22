@@ -60,6 +60,8 @@ def _sample(validator):
         return VALID_BLOCKS
     if isinstance(v, selector.SelectSelector):
         return v.config["options"][-1]
+    if isinstance(v, selector.AreaSelector):
+        return "bedroom"
     if isinstance(v, (selector.EntitySelector, selector.TextSelector)):
         return ["sensor.a"] if v.config.get("multiple") else "sensor.a"
     raise AssertionError(f"no sample for {v!r}")

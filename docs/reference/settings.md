@@ -4,7 +4,7 @@
 
 ## How settings are stored
 
-Each entry has 88 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in eight form sections and two list steps. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
+Each entry has 89 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in eight form sections and two list steps. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
 
 The Key column is the name in the config entry and in the diagnostics download. The label is the text on the form.
 
@@ -14,6 +14,7 @@ The Key column is the name in the config entry and in the diagnostics download. 
 
 | Key | Form label | Default | Effect |
 | :--- | :--- | :--- | :--- |
+| `area` | Area | unset | The Home Assistant area of the room. Names a new entry and holds its device. Changes no device command. |
 | `climate` | Air conditioner | unset | The AC that HVAC Horizon reads and, with control on, drives. Leave it empty for a room with heating only. A room needs this or `heater_switch`. |
 | `power` | AC power sensor (W) | unset | Power of the whole AC unit in watts. Feeds the room model, the energy forecast and the running check: below 0.2 kW the AC counts as off. An AC needs this or `ac_rated_w`. |
 | `ac_rated_w` | AC rated power (W) | unset | For an AC with no power sensor. The AC counts as drawing this while its `hvac_action` is `cooling`, `heating` or `drying`. An AC that reports no action counts by its mode. |

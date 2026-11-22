@@ -1,10 +1,21 @@
 {
   "config": {
     "step": {
+      "area": {
+        "title": "Area",
+        "description": "Pick the Home Assistant area of the room. The next forms then suggest the AC and the sensors found in that area, the room is named after it, and its thermostat and sensors are placed in it. Check each suggestion before you submit. Leave this empty to pick every entity yourself.",
+        "data": {
+          "area": "Area of the room"
+        },
+        "data_description": {
+          "area": "An area from Settings > Areas. Add the room's AC and sensors to the area first to have them suggested."
+        }
+      },
       "room": {
         "title": "Room",
         "description": "Pick the devices and sensors of one room. A room needs an AC or a heater switch, at least one room temperature sensor and an outdoor temperature sensor. An AC also needs its power: a sensor, or its rated watts. Nothing is controlled yet: a new room only observes until you turn control on under Advanced.",
         "data": {
+          "area": "Area",
           "climate": "Air conditioner",
           "power": "AC power sensor (W)",
           "ac_rated_w": "AC rated power (W)",
@@ -13,6 +24,7 @@
           "outdoor": "Outdoor temperature sensor"
         },
         "data_description": {
+          "area": "The Home Assistant area of this room. The room's thermostat and sensors are placed in it. Changing it here moves them. It changes no device command.",
           "climate": "The climate entity of the room's AC. Leave it empty for a room with heating only. A room needs an AC or a heater switch.",
           "power": "A sensor that reads the power of the whole AC unit in watts, such as a metering wall plug. Energy and cost then come from measured power. An AC needs this or its rated power.",
           "ac_rated_w": "Only for an AC with no power sensor. Enter the watts the unit draws while it runs, from its label or manual. Energy and cost are then estimates.",

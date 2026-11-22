@@ -18,6 +18,7 @@ from .const import CONF_LOCK_PIN, DOMAIN
 # result, so a key that appears in any of them is redacted the same way.
 TO_REDACT = {
     CONF_LOCK_PIN,
+    "area",  # an area is named by the user, often after a person
     "climate", "climate_2", "power", "power_2", "room_sensors", "outdoor", "price", "humidity",
     "room_humidity", "energy", "window", "presence", "motion", "co2", "pm25", "fan", "dehumidifier",
     "humidifier", "boiler", "heater_switch", "schedule", "vacation", "irradiance", "weather", "valve",

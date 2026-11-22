@@ -11,7 +11,7 @@ A test fails when this page differs from that table, so the page matches the cod
 | :-- | :-- | --: |
 | `control` | A scripted day with the setting changed sends different device commands. | 74 |
 | `published` | A scripted day with the setting changed publishes different values. No device command changes. | 11 |
-| `exempt` | Not run on the scripted day. | 3 |
+| `exempt` | Not run on the scripted day. | 4 |
 
 For what has run on real devices, see [What has run on real devices](concepts/limits.md#what-has-run-on-real-devices).
 
@@ -20,6 +20,7 @@ For what has run on real devices, see [What has run on real devices](concepts/li
 | Setting | Level | Note |
 | :-- | :-- | :-- |
 | `ac_rated_w` | `published` | the AC's power in each reading, and the forecast's energy |
+| `area` | `exempt` | places the room's device in a Home Assistant area and names the entry; tests/ha/test_setup.py covers it |
 | `climate` | `control` |  |
 | `heater_switch` | `control` |  |
 | `outdoor` | `control` |  |

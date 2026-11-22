@@ -24,10 +24,12 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
 [![Add integration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=hvac_horizon)
 
 1. Select the button above. Or open **Settings > Devices & services**, select **Add integration** and search for **HVAC Horizon**.
-2. In the **Room** step, select the devices and sensors of the room, then select **Submit**.
+2. In the **Area** step, select the Home Assistant area of the room and select **Submit**. The next forms then suggest the AC and the sensors found in that area. Leave it empty to pick every entity yourself.
+3. In the **Room** step, check the suggested devices and sensors, add the outdoor sensor, then select **Submit**.
 
    | Field | Entity |
    | :-- | :-- |
+   | Area | The area of the room. The room's thermostat and sensors are placed in it |
    | Air conditioner | The `climate` entity of the AC. Leave it empty for a room with heating only |
    | AC power sensor (W) | A power sensor in watts that reads the whole AC unit |
    | AC rated power (W) | The watts the AC draws while it runs, for an AC with no power sensor |
@@ -35,9 +37,9 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
    | Room temperature sensors | One or more temperature sensors in the room |
    | Outdoor temperature sensor | A temperature sensor outside |
 
-3. In the **What next** menu, select **Finish now**.
+4. In the **What next** menu, select **Finish now**.
 
-Home Assistant creates one device named `HVAC Horizon <AC name>`, or after the heater switch in a room with no AC. The device holds the room thermostat and the sensors. One AC or heater switch can have one entry. A second entry for the same device stops with `This device is already set up.`
+Home Assistant creates one device named `HVAC Horizon` and the area's name. Without an area the name is the AC's, or the heater switch's in a room with no AC. The device holds the room thermostat and the sensors, and it is placed in the area. One AC or heater switch can have one entry. A second entry for the same device stops with `This device is already set up.`
 
 ## First run
 
