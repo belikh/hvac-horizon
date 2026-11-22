@@ -36,6 +36,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_CLIMATE, CONF_CONTROL, CONF_DEHUMIDIFIER, CONF_FLEET, CONF_HEATER_SWITCH, CONF_POWER, CONF_ROOM_HUMIDITY, DOMAIN
 from .coordinator import HorizonCoordinator
+from .coordinator_common import room_device_info
 from .engine.features import HUMIDITY_TARGET_MAX_PCT, HUMIDITY_TARGET_MIN_PCT
 
 PRESETS = ["comfort", "eco", "boost", "away"]
@@ -43,6 +44,9 @@ PRESETS = ["comfort", "eco", "boost", "away"]
 # Home Assistant 2026.11 deprecates `_attr_temperature_unit`, `current_temperature` and `target_temperature` in favour of the
 # native_* names. 2026.10.4 has no native_* names. The entity defines the pair its base class supports, so neither version warns.
 _NATIVE_TEMPERATURE_API = hasattr(ClimateEntity, "native_temperature_unit")
+
+# One change at a time: each one refreshes the coordinator.
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -69,7 +73,7 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         super().__init__(coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_room"
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        self._attr_device_info = room_device_info(coordinator.hass, entry)
         # Heat is offered when the entry can heat: a heater switch, the AC or a heating fleet device.
         self._has_heat = coordinator.has_heat
         # Cool only cools, heat only heats, the automatic mode does both. A room with nothing to heat with has no heat mode.

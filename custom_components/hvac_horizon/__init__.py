@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
 from homeassistant.util import dt as dt_util
 
-from homeassistant.helpers import area_registry as ar
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CONF_AREA, CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
+from .const import CONF_ECO_C, DEFAULT_COMFORT_C, DOMAIN
 from .binary_sensor import BINARY_KEYS
 from .accuracy_api import async_register_accuracy_page, sync_accuracy_panel
 from .coordinator import HorizonCoordinator
@@ -20,6 +21,7 @@ from .room_model.model import Fit, NotEnoughData, Sample, fit
 
 __all__ = ["Fit", "Forecast", "NotEnoughData", "PriceSlot", "Sample", "fit", "forecast"]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.CLIMATE]
 
 
@@ -36,14 +38,27 @@ SERVICE_HOUSE_MODE = "set_house_mode"
 SERVICE_INVESTIGATION_REPORT = "generate_investigation_report"
 
 
+def _checked(handler):
+    """Run an action and turn a refused value into ServiceValidationError, so Home Assistant shows the reason to the user."""
+
+    async def run(call):
+        try:
+            return await handler(call)
+        except ValueError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    return run
+
+
 def _register_services(hass: HomeAssistant) -> None:
-    if hass.services.has_service(DOMAIN, SERVICE_RESET):
-        return
+    """Register the actions. Called from async_setup, so they exist before an entry is loaded."""
 
     def _coordinator(call):
         entry = hass.config_entries.async_get_entry(call.data["entry_id"])
-        if entry is None or not hasattr(entry, "runtime_data"):
-            raise ValueError("unknown HVAC Horizon entry")
+        if entry is None or entry.domain != DOMAIN:
+            raise ServiceValidationError("unknown HVAC Horizon entry")
+        if entry.state is not ConfigEntryState.LOADED:
+            raise ServiceValidationError(f"the HVAC Horizon entry {entry.title} is not loaded")
         return entry.runtime_data
 
     async def reset(call):
@@ -71,7 +86,7 @@ def _register_services(hass: HomeAssistant) -> None:
     async def set_lock(call):
         changed = _coordinator(call).set_lock(bool(call.data["locked"]), call.data.get("pin"))
         if not changed:
-            raise ValueError("lock not changed: wrong PIN, or no PIN configured")
+            raise ServiceValidationError("lock not changed: wrong PIN, or no PIN configured")
 
     async def respond(call):
         _coordinator(call).respond_suggestion(bool(call.data["accept"]))
@@ -87,10 +102,10 @@ def _register_services(hass: HomeAssistant) -> None:
     async def set_house_mode(call):
         mode = call.data["mode"]
         if mode not in ("home", "away"):
-            raise ValueError("house mode must be home or away")
+            raise ServiceValidationError("house mode must be home or away")
         hass.data.setdefault(DOMAIN, {})["house_mode"] = mode
         for entry in hass.config_entries.async_entries(DOMAIN):
-            if hasattr(entry, "runtime_data"):
+            if entry.state is ConfigEntryState.LOADED:
                 entry.runtime_data.save_soon()
                 await entry.runtime_data.async_request_refresh()
 
@@ -103,18 +118,18 @@ def _register_services(hass: HomeAssistant) -> None:
     import voluptuous as vol
 
     fields = vol.Schema({}, extra=vol.ALLOW_EXTRA)  # each handler reads and checks its own fields
-    async_register_admin_service(hass, DOMAIN, SERVICE_RESET, reset, schema=fields)
-    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT, export, schema=fields, supports_response=SupportsResponse.ONLY)
-    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT_CSV, export_csv, schema=fields, supports_response=SupportsResponse.ONLY)
-    async_register_admin_service(hass, DOMAIN, SERVICE_AUTOTUNE, autotune, schema=fields)
-    async_register_admin_service(hass, DOMAIN, SERVICE_RESPOND, respond, schema=fields)
-    async_register_admin_service(hass, DOMAIN, SERVICE_INVESTIGATION_REPORT, investigation_report, schema=fields)
-    async_register_admin_service(hass, DOMAIN, SERVICE_LOCK, set_lock, schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_RESET, _checked(reset), schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT, _checked(export), schema=fields, supports_response=SupportsResponse.ONLY)
+    async_register_admin_service(hass, DOMAIN, SERVICE_EXPORT_CSV, _checked(export_csv), schema=fields, supports_response=SupportsResponse.ONLY)
+    async_register_admin_service(hass, DOMAIN, SERVICE_AUTOTUNE, _checked(autotune), schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_RESPOND, _checked(respond), schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_INVESTIGATION_REPORT, _checked(investigation_report), schema=fields)
+    async_register_admin_service(hass, DOMAIN, SERVICE_LOCK, _checked(set_lock), schema=fields)
     # Any user: what a wall thermostat offers. Cancelling a relay test only turns the heater off.
-    hass.services.async_register(DOMAIN, SERVICE_CANCEL_AUTOTUNE, cancel_autotune)
-    hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, what_if, supports_response=SupportsResponse.ONLY)
-    hass.services.async_register(DOMAIN, SERVICE_TIMED, start_timed)
-    hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, set_house_mode)
+    hass.services.async_register(DOMAIN, SERVICE_CANCEL_AUTOTUNE, _checked(cancel_autotune))
+    hass.services.async_register(DOMAIN, SERVICE_WHAT_IF, _checked(what_if), supports_response=SupportsResponse.ONLY)
+    hass.services.async_register(DOMAIN, SERVICE_TIMED, _checked(start_timed))
+    hass.services.async_register(DOMAIN, SERVICE_HOUSE_MODE, _checked(set_house_mode))
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -131,8 +146,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     _register_services(hass)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await async_register_accuracy_page(hass)
     coordinator = HorizonCoordinator(hass, entry)
     await coordinator.async_load()
@@ -150,7 +169,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     sync_accuracy_panel(hass)
     _remove_sensors_that_became_binary_sensors(hass, entry)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _place_in_area(hass, entry)
     return True
 
 
@@ -160,17 +178,6 @@ def _remove_sensors_that_became_binary_sensors(hass: HomeAssistant, entry: Confi
     for key in BINARY_KEYS:
         if entity_id := registry.async_get_entity_id(Platform.SENSOR, DOMAIN, f"{entry.entry_id}_{key}"):
             registry.async_remove(entity_id)
-
-
-def _place_in_area(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Put the room's device in the entry's area when the device has no area yet. A device the user moved stays where it is."""
-    area_id = entry.data.get(CONF_AREA)
-    if not area_id or ar.async_get(hass).async_get_area(area_id) is None:
-        return
-    devices = dr.async_get(hass)
-    device = devices.async_get_device_by_identifier((DOMAIN, entry.entry_id), entry.entry_id)
-    if device is not None and device.area_id is None:
-        devices.async_update_device(device.id, area_id=area_id)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

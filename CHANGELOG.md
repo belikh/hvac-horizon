@@ -19,6 +19,12 @@ This release changes entity IDs and one mode name. Read the first three items be
 - Sensors have device classes: temperature, temperature difference, duration, energy and power. Home Assistant shows
   them in your unit system.
 - Entity names are entity translations in `translations/en.json`. Entity IDs of the remaining sensors do not change.
+- Actions are registered when the integration loads, so they exist before an entry does. An action on an entry that
+  is not loaded, a wrong PIN and a value out of range raise `ServiceValidationError`, and Home Assistant shows the
+  reason. Before, they raised a plain error that the UI reported as unknown.
+- The room's device carries its area as the suggested area, which Home Assistant applies when it creates the device.
+  Before, setup wrote the area whenever the device had none, which undid a user removing it.
+- `icons.json` gives the actions and the main entities an icon. The entity platforms set `PARALLEL_UPDATES`.
 - The docs and the forms say action where they said service, as Home Assistant does since 2024.8.
 - Reconfigure suggests entities added to the room's area since setup, and drops an area that was deleted. The Area
   step also suggests the area's CO2 and PM2.5 sensors.

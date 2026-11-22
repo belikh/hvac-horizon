@@ -28,7 +28,7 @@ A room can belong to a Home Assistant area. Pick it in the **Area** step of a ne
 
 - **Suggestions.** A new entry's forms suggest the entities of the area. The AC and its power sensor are suggested when the area has exactly one of each. Every temperature sensor is suggested as a room sensor, with the first humidity, motion and window sensor. A suggestion is stored only when you submit its form, so check each one.
 - **Never suggested.** The heater switch, because a switch can be anything, and the outdoor sensor, because it is not in the room.
-- **Name and place.** The entry is named after the area, and its thermostat and sensors are placed in it. Changing the area in **Room** moves them. A device you moved by hand stays where you put it.
+- **Name and place.** The entry is named after the area, and its thermostat and sensors are placed in it. Home Assistant places the device when it creates it, from the device's suggested area. Changing the area in **Room** moves it. A device you moved or removed from its area by hand stays as you left it.
 
 An entry reads the entities you stored. A sensor you add to the area later is used after you add it in **Reconfigure**.
 

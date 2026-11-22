@@ -14,6 +14,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import HorizonCoordinator
+from .coordinator_common import room_device_info
+
+# Read-only entities of a coordinator: no limit on parallel updates.
+PARALLEL_UPDATES = 0
 
 
 # Published keys shown as plain sensors. Each key is read from coordinator.data. A list or dict key shows its
@@ -111,7 +115,7 @@ class HorizonSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         self._attr_device_class, self._attr_native_unit_of_measurement = MEASURES.get(key, (None, None))
         self._attr_state_class = state_class
         self._attr_unique_id = f"{entry.entry_id}_{key}"
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        self._attr_device_info = room_device_info(coordinator.hass, entry)
         _set_category(self, key)
 
     @property
@@ -177,7 +181,7 @@ class HorizonStatusSensor(CoordinatorEntity[HorizonCoordinator], SensorEntity):
         if self._attr_device_class is not None:
             self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_unique_id = f"{entry.entry_id}_{key}"
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        self._attr_device_info = room_device_info(coordinator.hass, entry)
         _set_category(self, key)
 
     @property

@@ -1,0 +1,103 @@
+{
+  "entity": {
+    "sensor": {
+      "minutes_to_setpoint": {
+        "default": "mdi:timer-outline"
+      },
+      "cost": {
+        "default": "mdi:cash"
+      },
+      "status": {
+        "default": "mdi:information-outline"
+      },
+      "forecast_error_min": {
+        "default": "mdi:chart-bell-curve"
+      },
+      "preset": {
+        "default": "mdi:tune-variant"
+      },
+      "forecast_mode": {
+        "default": "mdi:thermostat-auto"
+      },
+      "samples": {
+        "default": "mdi:database-outline"
+      },
+      "daily_briefing": {
+        "default": "mdi:text-box-outline"
+      },
+      "pending": {
+        "default": "mdi:timer-sand"
+      },
+      "commands_unconfirmed": {
+        "default": "mdi:alert-circle-outline"
+      },
+      "sensors_stalled": {
+        "default": "mdi:thermometer-off"
+      },
+      "window_advice": {
+        "default": "mdi:window-open-variant"
+      }
+    },
+    "binary_sensor": {
+      "heating_allowed": {
+        "default": "mdi:radiator",
+        "state": {
+          "off": "mdi:radiator-off"
+        }
+      },
+      "vacation": {
+        "default": "mdi:beach"
+      },
+      "drying_needed": {
+        "default": "mdi:water-percent"
+      },
+      "external_change": {
+        "default": "mdi:remote"
+      },
+      "boiler_demand": {
+        "default": "mdi:water-boiler"
+      },
+      "house_cooling": {
+        "default": "mdi:snowflake"
+      },
+      "outdoor_forecast_used": {
+        "default": "mdi:weather-partly-cloudy"
+      }
+    }
+  },
+  "services": {
+    "start_autotune": {
+      "service": "mdi:tune"
+    },
+    "cancel_autotune": {
+      "service": "mdi:cancel"
+    },
+    "what_if": {
+      "service": "mdi:help-circle-outline"
+    },
+    "export_csv": {
+      "service": "mdi:file-delimited-outline"
+    },
+    "export_samples": {
+      "service": "mdi:database-export-outline"
+    },
+    "reset_learning": {
+      "service": "mdi:restart"
+    },
+    "set_lock": {
+      "service": "mdi:lock-outline"
+    },
+    "start_timed_preset": {
+      "service": "mdi:timer-play-outline"
+    },
+    "respond_suggestion": {
+      "service": "mdi:check-decagram-outline"
+    },
+    "set_house_mode": {
+      "service": "mdi:home-export-outline"
+    },
+    "generate_investigation_report": {
+      "service": "mdi:file-search-outline"
+    }
+  }
+}

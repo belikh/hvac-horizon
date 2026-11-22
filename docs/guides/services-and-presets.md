@@ -60,6 +60,8 @@ data:
 
 ## Actions
 
+The actions exist as soon as the integration is installed. An action on an entry that is not loaded fails with `the HVAC Horizon entry <title> is not loaded`. A value an action refuses, such as a setpoint out of range, shows its reason in Home Assistant.
+
 Every action except `set_house_mode` takes `entry_id`. The actions marked response only return data and change nothing. The actions marked admin need an administrator: a call from another user fails with `Unauthorized`.
 
 | Action | Fields | What it does |

@@ -12,7 +12,7 @@ The code is in `custom_components/hvac_horizon/` and has three layers.
 | :--- | :--- | :--- | :--- |
 | Room model | `room_model/` | `model.py`, `forecast.py`, `corrections.py`, `mode_models.py`, `kept.py`, `outdoor.py`, `solar_model.py`, `collector.py`, `backfill.py`, `devices.py`, `tpi.py`, `pid.py`, `autotune.py` | The standard library and `room_model` |
 | Control engine | `engine/` | `decide.py`, `features.py`, `fleet.py`, `control.py`, `investigator.py` | `room_model`, `engine` and `const.py` |
-| Home Assistant adapter | the package root | `coordinator.py` and the `coordinator_*.py` mixins, `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `diagnostics.py`, `accuracy_api.py` | Anything |
+| Home Assistant adapter | the package root | `coordinator.py` and the `coordinator_*.py` mixins, `__init__.py`, `config_flow.py`, `climate.py`, `sensor.py`, `binary_sensor.py`, `diagnostics.py`, `accuracy_api.py` | Anything |
 
 The first two layers hold no Home Assistant state: functions take values and return values. `tests/test_layers.py` reads the imports of every module in `room_model/` and `engine/` and fails on one outside its column.
 
@@ -59,7 +59,7 @@ Both packages sit inside the integration folder, because HACS installs that fold
 | `coordinator_safety.py` | `SafetyMixin` | The safety stop, the locked stop, the switch driver, `_send()` for every device command, the watchdog and the unconfirmed-command check. |
 | `coordinator_peers.py` | `PeersMixin` | Requests between entries of one house. |
 | `coordinator_investigator.py` | `InvestigatorMixin` | The mode-change explanation and the on-demand report. |
-| `coordinator_common.py` | none | Helpers, constants, the logger and `_HorizonStore`. |
+| `coordinator_common.py` | none | Helpers, constants, the logger, `_HorizonStore` and `room_device_info()`, the device of the entry with its suggested area. |
 
 Each mixin lists the instance attributes it reads as class-level annotations. A test that patches a module-level function patches the module that calls it, for example `coordinator_learning` for `fit`.
 
@@ -67,11 +67,13 @@ Each mixin lists the instance attributes it reads as class-level annotations. A 
 
 | Module | Job |
 | :--- | :--- |
-| `__init__.py` | Registers the actions, sets up the coordinator and the platforms, runs the safety stop on unload. |
+| `__init__.py` | `async_setup` registers the actions, so they exist before an entry loads. `async_setup_entry` sets up the coordinator and the platforms and runs the safety stop on unload. A refused value in an action raises `ServiceValidationError`. |
 | `config_flow.py` | The setup and reconfigure flows. `_schema()` lists every key, selector and default. `SECTIONS` assigns each key to a form section. The two list settings, `schedule_blocks` and `fleet`, have their own steps with `_schedule_schema()` and `_fleet_schema()`. |
 | `const.py` | Setting keys, defaults and limits. |
 | `climate.py` | `HorizonClimate`, the room thermostat. It sets the mode, target and preset on the coordinator and never drives a device. |
-| `sensor.py` | `STATUS_KEYS` and the sensor entities. |
+| `sensor.py` | `STATUS_KEYS`, `MEASURES` (device class and unit) and the sensor entities. |
+| `binary_sensor.py` | `BINARY_KEYS` and the binary sensor entities, for the values that are on or off. |
+| `translations/en.json` | Form texts, entity names, action names and repair issues. `icons.json` holds the icons of entities and actions. |
 | `diagnostics.py` | The diagnostics download, with entity IDs redacted. |
 | `accuracy_api.py` | The JSON views and the sidebar panel. The panel is the web component in `frontend/accuracy-panel.js`, which calls the views through `hass.callApi`. |
 
@@ -125,7 +127,7 @@ While the phase is `gave_up` the window closes, the fan stops and the AC cools.
 
 ## Add a published value
 
-Write the key to the result dict in the mixin that computes it. Add it to `STATUS_KEYS` in `sensor.py`, or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither.
+Write the key to the result dict in the mixin that computes it. Add it to `STATUS_KEYS` in `sensor.py`, or to `BINARY_KEYS` in `binary_sensor.py` when it is on or off, with its name under `entity` in `translations/en.json`. Or return it from `extra_state_attributes`. `tests/test_published_keys.py` fails when a key has neither.
 
 **See also**
 

@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import HorizonCoordinator
+from .coordinator_common import room_device_info
 from .sensor import _set_category
 
 # Each key is a bool in coordinator.data. The device class sets the words and the icon Home Assistant shows
@@ -29,6 +30,9 @@ BINARY_KEYS: dict[str, BinarySensorDeviceClass | None] = {
     "outdoor_forecast_used": None,
 }
 
+# Read-only entities of a coordinator: no limit on parallel updates.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     async_add_entities([HorizonBinarySensor(entry.runtime_data, entry, key) for key in BINARY_KEYS])
@@ -43,7 +47,7 @@ class HorizonBinarySensor(CoordinatorEntity[HorizonCoordinator], BinarySensorEnt
         self._attr_translation_key = key
         self._attr_device_class = BINARY_KEYS[key]
         self._attr_unique_id = f"{entry.entry_id}_{key}"
-        self._attr_device_info = {"identifiers": {(DOMAIN, entry.entry_id)}, "name": f"HVAC Horizon {entry.title}"}
+        self._attr_device_info = room_device_info(coordinator.hass, entry)
         _set_category(self, key)
 
     @property

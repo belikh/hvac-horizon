@@ -9,10 +9,14 @@ from typing import Any
 from datetime import datetime
 from dataclasses import fields
 
-from homeassistant.core import State
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from custom_components.hvac_horizon.const import CONF_AREA, DOMAIN
 from custom_components.hvac_horizon.room_model.collector import Entry
 
 
@@ -124,3 +128,12 @@ class _HorizonStore(Store[dict[str, Any]]):
         if old_major_version < 4 and isinstance(old_data, dict):
             old_data = {key: value for key, value in old_data.items() if key != "user_mode"}
         return old_data
+
+
+def room_device_info(hass: HomeAssistant, entry: ConfigEntry) -> DeviceInfo:
+    """The device of a room entry. Its suggested area is the entry's area, which Home Assistant applies when it creates the device."""
+    area = ar.async_get(hass).async_get_area(entry.data[CONF_AREA]) if entry.data.get(CONF_AREA) else None
+    info = DeviceInfo(identifiers={(DOMAIN, entry.entry_id)}, name=f"HVAC Horizon {entry.title}", manufacturer="HVAC Horizon", model="Room")
+    if area is not None:
+        info["suggested_area"] = area.name
+    return info

@@ -19,6 +19,7 @@ from homeassistant.components import sensor
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, STATE_UNAVAILABLE
 from homeassistant.const import EntityCategory
 from homeassistant.components.climate import ClimateEntityFeature
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.core import SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -2987,7 +2988,7 @@ async def test_heating_failure_repair_fires_during_a_relay_test(hass, enable_cus
 async def test_start_autotune_rejects_a_setpoint_1_k_above_the_room(hass, enable_custom_integrations, config_data):
     entry, _ = await setup_heater(hass, config_data)
     await refresh(hass, entry)
-    with pytest.raises(ValueError, match="at least 2 K above the room"):
+    with pytest.raises(ServiceValidationError, match="at least 2 K above the room"):
         await start_autotune_service(hass, entry, 21.0)
     assert entry.runtime_data.data["autotune_status"] != "running"
 
@@ -2996,7 +2997,7 @@ async def test_start_autotune_rejects_a_setpoint_1_k_above_the_room(hass, enable
 async def test_start_autotune_rejects_a_setpoint_outside_the_range(hass, enable_custom_integrations, config_data, setpoint):
     entry, _ = await setup_heater(hass, config_data, room="10.0")
     await refresh(hass, entry)
-    with pytest.raises(ValueError, match="15 to 26"):
+    with pytest.raises(ServiceValidationError, match="15 to 26"):
         await start_autotune_service(hass, entry, setpoint)
     assert entry.runtime_data.data["autotune_status"] != "running"
 
@@ -5783,7 +5784,7 @@ async def test_start_autotune_service_rejects_a_setpoint_below_the_room_rise(has
     entry, calls = await setup_heater(hass, config_data)
     await refresh(hass, entry)
     calls.clear()
-    with pytest.raises(ValueError, match="at least 2 K above the room"):
+    with pytest.raises(ServiceValidationError, match="at least 2 K above the room"):
         await start_autotune_service(hass, entry, 21.0)
     await run_relay_ticks(hass, entry, freezer, 10)
     assert entry.runtime_data.data["autotune_status"] != "running"
@@ -5808,7 +5809,7 @@ async def test_set_house_mode_service_away_turns_the_heater_off_and_rejects_othe
     await refresh(hass, entry)
     assert "turn_off" in calls
     assert "turn_on" not in calls
-    with pytest.raises(ValueError, match="home or away"):
+    with pytest.raises(ServiceValidationError, match="home or away"):
         await hass.services.async_call(DOMAIN, "set_house_mode", {"mode": "party"}, blocking=True)
 
 
@@ -5823,7 +5824,7 @@ async def test_set_lock_service_needs_the_pin_and_stops_control(hass, enable_cus
     writes.clear()
     await refresh(hass, entry)
     assert entry.runtime_data.data["action"] == "locked"
-    with pytest.raises(ValueError, match="lock not changed"):
+    with pytest.raises(ServiceValidationError, match="lock not changed"):
         await hass.services.async_call(DOMAIN, "set_lock", {"entry_id": entry.entry_id, "locked": False, "pin": "0000"}, blocking=True)
     await refresh(hass, entry)
     assert entry.runtime_data.data["action"] == "locked"
@@ -8760,3 +8761,36 @@ async def test_on_off_values_are_binary_sensors_and_their_old_sensor_entities_ar
     assert allowed.state == "off"  # 30 C outdoors: above the 22 C heating limit
     problem = registry.async_get(registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_mould_risk"))
     assert problem.original_device_class == "problem"
+
+
+async def test_the_actions_exist_before_an_entry_is_loaded_and_refuse_an_entry_that_is_not_loaded(hass, enable_custom_integrations, config_data):
+    """Home Assistant registers integration actions in async_setup. An action on an unloaded entry raises a reason the UI can show."""
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, DOMAIN, {})
+    assert hass.services.has_service(DOMAIN, "set_lock") and hass.services.has_service(DOMAIN, "what_if")
+    with pytest.raises(ServiceValidationError, match="unknown HVAC Horizon entry"):
+        await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": "missing"}, blocking=True)
+    set_inputs(hass)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=config_data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    with pytest.raises(ServiceValidationError, match="is not loaded"):
+        await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": entry.entry_id}, blocking=True)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await hass.services.async_call(DOMAIN, "reset_learning", {"entry_id": entry.entry_id}, blocking=True)
+
+
+def test_every_action_and_icon_key_is_real():
+    import json
+    from pathlib import Path
+
+    from custom_components.hvac_horizon import binary_sensor as binary_module
+    from custom_components.hvac_horizon import sensor as sensor_module
+
+    root = Path(sensor_module.__file__).parent
+    icons = json.loads((root / "icons.json").read_text())
+    names = json.loads((root / "translations" / "en.json").read_text())
+    assert set(icons["services"]) == set(names["services"])
+    assert set(icons["entity"]["sensor"]) <= set(names["entity"]["sensor"])
+    assert set(icons["entity"]["binary_sensor"]) <= set(binary_module.BINARY_KEYS)
