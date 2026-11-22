@@ -10,7 +10,7 @@ import math
 import random
 import statistics
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -8356,3 +8356,128 @@ async def test_the_room_thermostat_shows_the_room_humidity(hass, enable_custom_i
     hass.states.async_set("sensor.test_room_humidity", "61", {"unit_of_measurement": "%"})
     entry, entity_id, _ = await _setup_room_climate(hass, config_data, room_humidity="sensor.test_room_humidity")
     assert hass.states.get(entity_id).attributes["current_humidity"] == 61.0
+
+
+async def _heating_only(hass, room="19.0", outdoor="5.0", extra=None):
+    """A control-on room with a heater switch and no AC. Returns the entry, the heater calls and the climate calls."""
+    hass.states.async_set(ROOM_A, room, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(OUTDOOR, outdoor, {"unit_of_measurement": "°C", "device_class": "temperature"})
+    hass.states.async_set(HEATER, "off", {"friendly_name": "Panel heater"})
+    heater, climate = [], []
+
+    async def switch(call):
+        heater.append(call.service)
+        hass.states.async_set(HEATER, "on" if call.service == "turn_on" else "off", {"friendly_name": "Panel heater"})
+
+    async def climate_call(call):
+        if CLIMATE in str(call.data.get("entity_id")) or "no_ac" in str(call.data.get("entity_id")):
+            climate.append(call.service)
+
+    hass.services.async_register("switch", "turn_on", switch)
+    hass.services.async_register("switch", "turn_off", switch)
+    data = {CONF_ROOM_SENSORS: [ROOM_A], CONF_OUTDOOR: OUTDOOR, CONF_HEATER_SWITCH: HEATER, "control": True, **(extra or {})}
+    entry = MockConfigEntry(domain=DOMAIN, title="Panel heater", data=data, unique_id=HEATER)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry, heater, climate
+
+
+async def test_the_flow_sets_up_a_room_with_a_heater_and_no_ac(hass, enable_custom_integrations):
+    hass.states.async_set(HEATER, "off", {"friendly_name": "Panel heater"})
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    rooms = {CONF_ROOM_SENSORS: [ROOM_A], CONF_OUTDOOR: OUTDOOR}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], rooms)
+    assert result["type"] == "form" and result["errors"] == {"base": "need_device"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**rooms, CONF_CLIMATE: CLIMATE})
+    assert result["type"] == "form" and result["errors"] == {CONF_POWER: "need_power"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**rooms, CONF_HEATER_SWITCH: HEATER})
+    assert result["type"] == "menu"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"next_step_id": "finish"})
+    assert result["type"] == "create_entry" and result["title"] == "Panel heater"
+    assert CONF_CLIMATE not in result["data"] and result["data"][CONF_HEATER_SWITCH] == HEATER
+    assert result["result"].unique_id == HEATER
+
+
+async def test_the_flow_takes_an_ac_with_rated_power_and_no_power_sensor(hass, enable_custom_integrations):
+    set_inputs(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CLIMATE: CLIMATE, "ac_rated_w": 900, CONF_ROOM_SENSORS: [ROOM_A], CONF_OUTDOOR: OUTDOOR}
+    )
+    assert result["type"] == "menu"
+
+
+async def test_a_room_with_heating_only_heats_and_offers_off_and_heat(hass, enable_custom_integrations, freezer):
+    """No AC is set. The thermostat lists off and heat, the heater holds the heat target, and no AC command is sent."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, heater, climate = await _heating_only(hass)
+    await refresh(hass, entry)
+    room = _room_climate_id(hass, entry)
+    state = hass.states.get(room)
+    assert state.attributes["hvac_modes"] == ["off", "heat"]
+    assert (state.state, state.attributes["temperature"], state.attributes["hvac_action"]) == ("heat", 24.0, "heating")
+    assert "turn_on" in heater
+    assert "fan_modes" not in state.attributes and "target_temp_low" not in state.attributes  # one target, no AC options
+    # A warm room turns the heater off.
+    hass.states.async_set(ROOM_A, "25.0", {"unit_of_measurement": "°C", "device_class": "temperature"})
+    freezer.tick(timedelta(minutes=10))
+    await refresh(hass, entry)
+    assert hass.states.get(HEATER).state == "off"
+    await hass.services.async_call("climate", "set_hvac_mode", {"entity_id": room, "hvac_mode": "off"}, blocking=True)
+    assert hass.states.get(room).state == "off"
+    assert climate == []
+    data = entry.runtime_data.data
+    assert data["status"] == "learning" and data["reason"] == "the room has no AC"
+
+
+async def test_a_room_with_heating_only_learns_its_heater_and_forecasts_the_heat_up(hass, enable_custom_integrations, freezer):
+    """Three days of readings: the room loses 0.3/h toward outdoors and the heater adds 3 K/h. The forecast gives the minutes to the target."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _, _ = await _heating_only(hass, room="19.0", outdoor="15.0")
+    coordinator = entry.runtime_data
+    now = dt_util.utcnow().timestamp()
+    temp, entries = 20.0, []
+    for i in range(864):
+        outdoor = 6.0 + 5.0 * math.sin(i / 40.0)
+        on = 1.0 if (i // 6) % 3 == 0 else 0.0
+        entries.append(Entry(t=now - (864 - i) * 300, room_c=temp, outdoor_c=outdoor, power_w=0.0, heat_pct=100.0 * on))
+        temp += (0.3 * (outdoor - temp) + 0.2 + 3.0 * on) * (5 / 60)
+    coordinator._entries = entries
+    coordinator._refit()
+    assert coordinator._tpi.k == pytest.approx(0.3, abs=0.02) and coordinator._tpi.c == 0.0
+    assert coordinator._heat_rate == pytest.approx(3.0, abs=0.1)
+    await refresh(hass, entry)
+    data = coordinator.data
+    assert (data["forecast_mode"], data["status"]) == ("heat", "reachable")
+    assert data["heat_model"]["source"] == "heater"
+    assert 60 < data["minutes"] < 600
+
+
+async def test_an_ac_with_no_power_sensor_takes_its_rated_power_while_it_runs(hass, enable_custom_integrations, freezer):
+    """The AC reports its action. Each reading takes 900 W while it cools and 0 W while it idles, and the fit learns from them."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "hvac_action": "cooling"})
+    data = {CONF_CLIMATE: CLIMATE, "ac_rated_w": 900, CONF_ROOM_SENSORS: [ROOM_A, ROOM_B], CONF_OUTDOOR: OUTDOOR}
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=data, unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    assert coordinator._entries[-1].power_w == 900.0
+    assert hass.states.get(_room_climate_id(hass, entry)).attributes["hvac_action"] == "cooling"
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0, "hvac_action": "idle"})
+    freezer.tick(timedelta(minutes=5))
+    await refresh(hass, entry)
+    assert coordinator._entries[-1].power_w == 0.0
+    assert hass.states.get(_room_climate_id(hass, entry)).attributes["hvac_action"] == "idle"
+    # An AC that reports no action counts by its mode.
+    hass.states.async_set(CLIMATE, "cool", {"temperature": 24.0})
+    freezer.tick(timedelta(minutes=5))
+    await refresh(hass, entry)
+    assert coordinator._entries[-1].power_w == 900.0
+    coordinator._entries = [replace(e, power_w=900.0 * (e.power_w / 1000.0)) for e in _cycling_entries(dt_util.utcnow().timestamp())]
+    coordinator._refit()
+    await refresh(hass, entry)
+    assert coordinator._fit is not None and coordinator.data["status"] != "learning"

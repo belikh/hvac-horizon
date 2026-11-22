@@ -13,6 +13,7 @@ from homeassistant.components import persistent_notification
 
 from .const import (
     CONF_AWAY_DELAY_MIN,
+    CONF_AC_RATED_W,
     CONF_CLIMATE,
     CONF_CLIMATE_2,
     CONF_ENERGY,
@@ -44,7 +45,7 @@ from custom_components.hvac_horizon.engine.features import (
     sensor_stalled,
     surface_humidity,
 )
-from custom_components.hvac_horizon.coordinator_common import _float
+from custom_components.hvac_horizon.coordinator_common import NO_AC, _float
 
 
 class InputsMixin:
@@ -149,7 +150,7 @@ class InputsMixin:
 
     def _device_setpoint(self) -> float | None:
         """The setpoint the climate entity reports, or None when it reports none."""
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         if climate is None or climate.attributes.get("temperature") is None:
             return None
         return float(climate.attributes["temperature"])
@@ -237,15 +238,43 @@ class InputsMixin:
         entity = self.entry.data.get(key)
         return self.hass.states.get(entity) if entity else None
 
+    @property
+    def has_ac(self) -> bool:
+        """True when the entry has a first AC. A room with a heater and no AC has none."""
+        return bool(self.entry.data.get(CONF_CLIMATE))
+
+    @property
+    def _ac_id(self) -> str:
+        """The first AC's entity, or an entity that never exists. Every read of a missing AC gives None, as for a removed one."""
+        return self.entry.data.get(CONF_CLIMATE) or NO_AC
+
+    def _ac_power_w(self) -> float | None:
+        """The AC's power in watts: the power sensor's reading, or the rated watts while the AC reports that it runs.
+
+        Without a power sensor the AC counts as running when its hvac_action is cooling, heating or drying. An AC that
+        reports no action counts by its mode. None when the reading is missing.
+        """
+        sensor = self.entry.data.get(CONF_POWER)
+        if sensor:
+            return _float(self.hass.states.get(sensor))
+        if not self.has_ac:
+            return 0.0
+        climate = self.hass.states.get(self._ac_id)
+        if climate is None or climate.state in ("unavailable", "unknown"):
+            return None
+        action = climate.attributes.get("hvac_action")
+        running = action in ("cooling", "heating", "drying") if action is not None else climate.state in ("cool", "heat", "dry")
+        return float(self.entry.data.get(CONF_AC_RATED_W) or 0.0) if running else 0.0
+
     def _read_inputs(self, now: float) -> Entry | None:
         rooms = self._rooms()
         # A learning sample needs a measured outdoor temperature. A stalled sensor's old value and the forecast
         # that stands in for it are both left out, so the fit only sees real readings.
         outdoor = self._fresh_outdoor_sensor(now)
-        power_w = _float(self.hass.states.get(self.entry.data[CONF_POWER]))
+        power_w = self._ac_power_w()
         if not rooms or outdoor is None or power_w is None:
             return None
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         setpoint = climate.attributes.get("temperature") if climate else None
         price = _float(self._optional(CONF_PRICE))
         second_w = _float(self._optional(CONF_POWER_2)) if self.entry.data.get(CONF_CLIMATE_2) else None

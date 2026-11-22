@@ -23,6 +23,7 @@ from .const import (
     CONF_AWAY_C,
     CONF_BOOST_C,
     CONF_CLIMATE,
+    CONF_POWER,
     CONF_CO2,
     CONF_COMFORT_ENERGY_WEIGHT,
     CONF_CONTROL,
@@ -335,7 +336,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
         if self._rooms() and self._outdoor_now() is not None:
             self._inputs_seen = True
         reading = self._read_inputs(now)
-        interval_mean = self._take_interval_mean(now)
+        interval_mean = self._take_interval_mean(now) if self.entry.data.get(CONF_POWER) else None
         if reading is not None:
             reading = replace(reading, power_mean_w=interval_mean)
             self._entries.append(reading)
@@ -535,7 +536,7 @@ class HorizonCoordinator(StoreMixin, UserMixin, LearningMixin, ForecastMixin, In
                         out_min=0.0,
                         out_max=100.0,
                     )
-                climate_now = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+                climate_now = self.hass.states.get(self._ac_id)
                 # The heater output is forced to 0 in the heat band and while the AC cools. Hold the integral then,
                 # so the positive error of that time does not wind it up.
                 forced_off = pid_room >= self._heat_on_below_c or (climate_now is not None and climate_now.state == "cool")

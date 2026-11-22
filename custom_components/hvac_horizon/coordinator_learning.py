@@ -41,6 +41,7 @@ from custom_components.hvac_horizon.room_model.tpi import (
     adjust_cool_gain,
     adjust_heat_gain,
     learn_heat_rate,
+    learn_passive_rates,
     learn_room_rates,
 )
 from custom_components.hvac_horizon.room_model.backfill import backtest, median_abs_error
@@ -78,6 +79,7 @@ class LearningMixin:
     _total_min: float
     _tpi: TpiFit | None
     entry: ConfigEntry
+    has_ac: bool
 
     def _heater_gain_values(self) -> tuple[float, float, float]:
         """kp, ki, kd for the heater PID. Each gain field the user set wins. A field at its default takes the tuned value."""
@@ -125,6 +127,8 @@ class LearningMixin:
 
     def _active_fit(self) -> Fit | None:
         """The room model for the forecast: the fitted rates with the online cooling gain, else the single-device fit."""
+        if not self.has_ac:
+            return None  # a room with no AC has no cooling model
         if self._tpi is not None:
             return self._tpi.to_fit(self._auto_tpi_gain)
         return self._fit
@@ -236,7 +240,7 @@ class LearningMixin:
         self._refit_room_model()
         self._refit_fleet()
         try:
-            self._tpi = learn_room_rates(samples)
+            self._tpi = learn_room_rates(samples) if self.has_ac else learn_passive_rates(samples)
         except NotEnoughData:
             self._tpi = None
         self._tpi = self._keep("tpi", self._tpi)
@@ -249,6 +253,9 @@ class LearningMixin:
         self._heat_rate = self._keep("heat_rate", self._heat_rate)
         self._backtest_runs = []
         self._fit = None
+        if not self.has_ac:
+            self._fit_reason = "the room has no AC"
+            return
         self._fit_reason = "need at least 3 hours of AC on and off time over 3 runs"
         if has_enough_cycles(samples):
             try:

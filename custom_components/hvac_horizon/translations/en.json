@@ -3,10 +3,12 @@
     "step": {
       "room": {
         "title": "Room",
-        "description": "Pick the AC, its power sensor, and the room and outdoor temperature sensors. Every other setting is optional.",
+        "description": "Pick the AC or the heater of the room, and the room and outdoor temperature sensors. An AC needs a power sensor or its rated power. Every other setting is optional.",
         "data": {
-          "climate": "AC climate entity",
+          "climate": "AC climate entity (leave empty for a room with heating only)",
           "power": "AC power sensor (W)",
+          "ac_rated_w": "AC rated power, W (for an AC with no power sensor)",
+          "heater_switch": "Heater switch (optional)",
           "room_sensors": "Room temperature sensors",
           "outdoor": "Outdoor temperature sensor"
         }
@@ -41,9 +43,8 @@
       },
       "heater": {
         "title": "Heater",
-        "description": "A heater switch or valve, its PID or TPI settings and output limits. Submit empty to skip.",
+        "description": "The heater's power, a valve, the PID or TPI settings and output limits. The heater switch is in the Room section. Submit empty to skip.",
         "data": {
-          "heater_switch": "Heater switch (optional)",
           "heater_inverted": "Heater switch is inverted (on means off)",
           "radiators": "Heater is radiators or underfloor heat (residual heat after it stops)",
           "heater_algorithm": "Heater algorithm",
@@ -167,10 +168,12 @@
       }
     },
     "abort": {
-      "already_configured": "This AC is already set up.",
+      "already_configured": "This device is already set up.",
       "reconfigure_successful": "Settings updated. Stored samples are kept."
     },
     "error": {
+      "need_device": "Pick an AC or a heater switch.",
+      "need_power": "Pick the AC's power sensor, or enter its rated power.",
       "invalid_fleet": "Room devices are invalid: {fleet_problem}",
       "invalid_price": "Enter a price as a number from 0 to 10.",
       "price_order": "The cheap price threshold must be below the expensive price threshold.",

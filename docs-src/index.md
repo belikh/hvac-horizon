@@ -9,7 +9,7 @@ status: draft
 
 ## What it does
 
-HVAC Horizon controls the climate of one room in Home Assistant. You give it an air conditioner, a power sensor, room temperature sensors and an outdoor temperature sensor. It adds one thermostat for the room and 75 sensors.
+HVAC Horizon controls the climate of one room in Home Assistant. You give it an air conditioner or a heater, room temperature sensors and an outdoor temperature sensor. It adds one thermostat for the room and 85 sensors.
 
 - It learns how fast the room gains heat and how fast the AC cools it, from readings it takes every 5 minutes.
 - It forecasts the minutes, the energy and the cost for the room to reach its target.
@@ -19,13 +19,13 @@ A new entry starts in observe-only mode. It learns and forecasts, and it sends n
 
 ## Who it is for
 
-HVAC Horizon fits a room with an AC that Home Assistant controls and a power sensor on that AC. The room model, the forecast and the cost all come from the measured power. A heater, a valve or a second AC is an addition to that room.
+HVAC Horizon fits one room with an AC, a heater on a switch, or both.
 
-It does not fit these cases:
+- **An AC with a power sensor** gives the full room model: the forecast of time, energy and cost comes from the measured power.
+- **An AC with no power sensor** works with its rated power. The AC counts as drawing it while it reports that it runs, so the energy and the cost are estimates.
+- **A room with heating only** has the modes `off` and `heat`. It learns the heater's rate and forecasts the heat-up time.
 
-- A room with heating only. The setup needs an AC `climate` entity.
-- An AC with no power sensor.
-- A house you want on one thermostat. Each entry is one room.
+It does not fit a house you want on one thermostat. Each entry is one room.
 
 AC cooling has run on one real installation. Every other device type has run in tests and in a simulated room only: see [[concepts/limits#what-has-run-on-real-devices|What has run on real devices]].
 
@@ -43,6 +43,6 @@ AC cooling has run on one real installation. Every other device type has run in 
 ## Requirements
 
 - Home Assistant 2026.11.2 or later.
-- A `climate` entity for the AC, with the modes `off` and `cool`.
-- A power sensor in watts that reads the whole AC unit. A wall plug with power metering works.
+- A `climate` entity for the AC, with the modes `off` and `cool`, or a `switch` for a heater.
+- For an AC: a power sensor in watts that reads the whole unit, or its rated power. A wall plug with power metering works.
 - At least one room temperature sensor and one outdoor temperature sensor.

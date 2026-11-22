@@ -20,12 +20,14 @@ HVAC Horizon needs Home Assistant 2026.11.2 or later.
 
 1. Select the button above. Or open **Settings > Devices & services**, select **Add integration** and search for **HVAC Horizon**.
 
-2. In the **Room** step, select the four required entities, then select **Submit**.
+2. In the **Room** step, select the devices and sensors of the room, then select **Submit**.
 
    | Field | Entity |
    | :--- | :--- |
-   | AC climate entity | The `climate` entity of the AC |
+   | AC climate entity | The `climate` entity of the AC. Leave it empty for a room with heating only |
    | AC power sensor (W) | A power sensor in watts that reads the whole AC unit |
+   | AC rated power, W | The watts the AC draws while it runs, for an AC with no power sensor |
+   | Heater switch | The switch of the heater. A room needs an AC or a heater switch |
    | Room temperature sensors | One or more temperature sensors in the room |
    | Outdoor temperature sensor | A temperature sensor outside |
 

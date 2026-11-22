@@ -20,6 +20,7 @@ from .const import (
     CONF_COIL_DRY,
     CONF_DRY_FOR_HUMIDITY,
     CONF_AC_HEAT,
+    CONF_AC_RATED_W,
     CONF_MPC_HEAT_PLAN,
     CONF_AUTO_FAN,
     CONF_SETPOINT_REGULATION,
@@ -209,9 +210,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
 
     return vol.Schema(
         {
-            key(CONF_CLIMATE, True): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
-            key(CONF_POWER, True): selector.EntitySelector(
+            key(CONF_CLIMATE): selector.EntitySelector(selector.EntitySelectorConfig(domain="climate")),
+            key(CONF_POWER): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            key(CONF_AC_RATED_W): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=50, max=10000, step=10, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="W")
             ),
             key(CONF_ROOM_SENSORS, True): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature", multiple=True)
@@ -389,7 +393,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
 # The form is split into sections. Each section is one step. SECTIONS lists the fields of each one, and every
 # field of the full schema is in exactly one section (a test checks this). "room" holds the required fields.
 SECTIONS: dict[str, tuple[str, ...]] = {
-    "room": (CONF_CLIMATE, CONF_POWER, CONF_ROOM_SENSORS, CONF_OUTDOOR),
+    "room": (CONF_CLIMATE, CONF_POWER, CONF_AC_RATED_W, CONF_HEATER_SWITCH, CONF_ROOM_SENSORS, CONF_OUTDOOR),
     "comfort": (
         CONF_COMFORT_C, CONF_ECO_C, CONF_BOOST_C, CONF_AWAY_C, CONF_HEAT_ECO_C, CONF_HEAT_BOOST_C,
         CONF_COMFORT_ENERGY_WEIGHT, CONF_SCHEDULE, CONF_SCHEDULE_BLOCKS, CONF_VACATION, CONF_VACATION_C,
@@ -397,7 +401,7 @@ SECTIONS: dict[str, tuple[str, ...]] = {
     ),
     "price": (CONF_PRICE, CONF_PRICE_CHEAP, CONF_PRICE_EXPENSIVE, CONF_ENERGY),
     "heater": (
-        CONF_HEATER_SWITCH, CONF_HEATER_INVERTED, CONF_HEATER_POWER_W, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
+        CONF_HEATER_INVERTED, CONF_HEATER_POWER_W, CONF_RADIATORS, CONF_HEATER_ALGORITHM, CONF_HEATER_KP,
         CONF_HEATER_KI, CONF_HEATER_KD, CONF_TPI_COEF_INT, CONF_TPI_COEF_EXT, CONF_TPI_THRESHOLD_HIGH,
         CONF_TPI_THRESHOLD_LOW, CONF_MAX_ON_PERCENT, CONF_OUTPUT_MIN, CONF_OUTPUT_MAX, CONF_OUTPUT_MIN_ENTITY,
         CONF_OUTPUT_MAX_ENTITY, CONF_VALVE, CONF_TRV_TEMPERATURE, CONF_BOILER, CONF_AC_HEAT, CONF_MPC_HEAT_PLAN,
@@ -434,6 +438,12 @@ def _section_problems(section: str, data: dict[str, Any]) -> tuple[dict[str, str
     """Return the form errors and description placeholders for a submitted section."""
     errors: dict[str, str] = {}
     placeholders: dict[str, str] = {}
+    if section == "room":
+        # The room needs a device: an AC or a heater. An AC needs its power, measured or rated.
+        if not data.get(CONF_CLIMATE) and not data.get(CONF_HEATER_SWITCH):
+            errors["base"] = "need_device"
+        elif data.get(CONF_CLIMATE) and not data.get(CONF_POWER) and not data.get(CONF_AC_RATED_W):
+            errors[CONF_POWER] = "need_power"
     if section == "comfort" and _schedule_block_problem(data.get(CONF_SCHEDULE_BLOCKS, [])):
         errors[CONF_SCHEDULE_BLOCKS] = "invalid_schedule_blocks"
     if section == "devices" and (problem := _fleet_problem(data.get(CONF_FLEET, []))):
@@ -495,7 +505,7 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_room(self, user_input: dict | None = None) -> ConfigFlowResult:
         if user_input is not None and self.source != SOURCE_RECONFIGURE:
-            await self.async_set_unique_id(user_input[CONF_CLIMATE])
+            await self.async_set_unique_id(user_input.get(CONF_CLIMATE) or user_input.get(CONF_HEATER_SWITCH))
             self._abort_if_unique_id_configured()
         return await self._async_section("room", user_input)
 
@@ -524,6 +534,7 @@ class HorizonConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.source == SOURCE_RECONFIGURE:
             return self.async_update_reload_and_abort(self._get_reconfigure_entry(), data=dict(self._data))
         data = {CONF_CONTROL: False, **self._data}  # finishing early leaves the room in observe-only mode
-        climate = self.hass.states.get(data[CONF_CLIMATE])
-        title = climate.attributes.get("friendly_name", data[CONF_CLIMATE]) if climate else data[CONF_CLIMATE]
+        device_id = data.get(CONF_CLIMATE) or data[CONF_HEATER_SWITCH]
+        device = self.hass.states.get(device_id)
+        title = device.attributes.get("friendly_name", device_id) if device else device_id
         return self.async_create_entry(title=title, data=data)

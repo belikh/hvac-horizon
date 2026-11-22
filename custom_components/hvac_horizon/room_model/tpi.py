@@ -74,6 +74,23 @@ def adjust_cool_gain(gain: float, sample: Sample, tpi: TpiFit) -> float:
 HEAT_RATE_MAX = 20.0  # K/h at full heater output; a learned heat rate above this is clamped
 
 
+def learn_passive_rates(samples: list[Sample]) -> TpiFit:
+    """Fit k and g of a room with no AC, from the intervals in which nothing heated or cooled. c is 0.
+
+    Raises NotEnoughData with too few samples or when outdoor minus room temperature hardly varied.
+    """
+    off = [s for s in samples if s.minutes > 0 and s.power_kw <= 0]
+    if len(off) < MIN_STATE_SAMPLES:
+        raise NotEnoughData(f"need {MIN_STATE_SAMPLES} samples with the heater off, got {len(off)}")
+    rows = [[s.outdoor_c - s.temp_c, 1.0] for s in off]
+    y = [(s.temp_next_c - s.temp_c) / (s.minutes / 60.0) for s in off]
+    if max(r[0] for r in rows) - min(r[0] for r in rows) < MIN_OUTDOOR_SPREAD_K:
+        raise NotEnoughData("outdoor minus room temperature hardly varied; cannot fit heat gain")
+    k_raw, g = _least_squares(rows, y, [0, 1])
+    k_stderr, g_stderr, residual = _off_fit_errors(rows, y, k_raw, g)
+    return TpiFit(k=max(k_raw, 0.0), g=g, c=0.0, samples_off=len(off), samples_on=0, k_stderr=k_stderr, g_stderr=g_stderr, residual_k_per_h=residual)
+
+
 def learn_heat_rate(pairs: list[tuple[Sample, float]], k: float, g: float) -> float:
     """Heat rate in K/h at 100 percent heater output, from the AC-off intervals in which the heater ran.
 

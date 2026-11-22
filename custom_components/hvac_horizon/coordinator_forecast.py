@@ -343,7 +343,7 @@ class ForecastMixin:
         if deadline is None:
             self._precool_status = "no deadline: schedule has no next_event"
             return None
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         outdoor = self._outdoor_now()
         setpoint = self.comfort_c
         if climate is None or outdoor is None or not rooms:
@@ -425,7 +425,7 @@ class ForecastMixin:
         """What the room is asked to do. With control on it is the thermostat's mode, and None while it is off. In observe-only it is the AC's own mode."""
         if self.entry.data.get(CONF_CONTROL):
             return None if self._user_off else self.user_mode
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         return None if climate is None else climate.state
 
     def _heat_source_model(self) -> tuple[float, float | None, float | None, str] | None:
@@ -480,7 +480,7 @@ class ForecastMixin:
         if control:
             target = self._heat_target_c
         else:
-            climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+            climate = self.hass.states.get(self._ac_id)
             setpoint = _float_or_none(climate.attributes.get("temperature")) if climate else None
             if setpoint is None:
                 return None
@@ -566,7 +566,7 @@ class ForecastMixin:
             fit_outliers_dropped=active.outliers_dropped,
             fit_confidence=fit_confidence(active),
         )
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         rooms = self._rooms()
         outdoor = self._outdoor_now()
         # Observe-only uses the climate entity's own setpoint, as the original request asked.
@@ -587,7 +587,7 @@ class ForecastMixin:
                 result.update(minutes_low=0.0, minutes_high=0.0)
             return result
 
-        power_kw = (_float(self.hass.states.get(self.entry.data[CONF_POWER])) or 0.0) / 1000.0
+        power_kw = (self._ac_power_w() or 0.0) / 1000.0
         if power_kw < 0.2:
             power_kw = running_power_kw(self._entries, now) or 0.0
         if power_kw <= 0:

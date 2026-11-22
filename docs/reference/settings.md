@@ -4,7 +4,7 @@
 
 ## How settings are stored
 
-Each entry has 86 settings. Four are required: `climate`, `power`, `room_sensors` and `outdoor`. The rest are optional, in seven form sections. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
+Each entry has 88 settings. Two are required: `room_sensors` and `outdoor`. A room also needs `climate` or `heater_switch`, and an AC needs `power` or `ac_rated_w`. The rest are optional, in seven form sections. Change them with **Reconfigure** on the entry. See [Set up the integration](../guides/set-up-the-integration.md).
 
 The Key column is the name in the config entry and in the diagnostics download. The label is the text on the form.
 
@@ -14,8 +14,10 @@ The Key column is the name in the config entry and in the diagnostics download. 
 
 | Key | Form label | Default | Effect |
 | :--- | :--- | :--- | :--- |
-| `climate` | AC climate entity | required | The AC that HVAC Horizon reads and, with control on, drives. One entry per climate entity. |
-| `power` | AC power sensor (W) | required | Power of the whole AC unit in watts. Feeds the room model, the energy forecast and the running check: below 0.2 kW the AC counts as off. |
+| `climate` | AC climate entity | unset | The AC that HVAC Horizon reads and, with control on, drives. Leave it empty for a room with heating only. A room needs this or `heater_switch`. |
+| `power` | AC power sensor (W) | unset | Power of the whole AC unit in watts. Feeds the room model, the energy forecast and the running check: below 0.2 kW the AC counts as off. An AC needs this or `ac_rated_w`. |
+| `ac_rated_w` | AC rated power, W | unset | For an AC with no power sensor. The AC counts as drawing this while its `hvac_action` is `cooling`, `heating` or `drying`. An AC that reports no action counts by its mode. |
+| `heater_switch` | Heater switch | unset | Switch for the heater plug. The heater output runs in 10 minute windows. |
 | `room_sensors` | Room temperature sensors | required | One or more temperature sensors in the room. The room temperature is their median. A stalled sensor drops out of the median. |
 | `outdoor` | Outdoor temperature sensor | required | Outdoor temperature. Feeds the room model, the forecast, the 16 °C cooling limit of `auto` with a window actuator or whole-house fan, and the 22 °C heating limit of `auto` and `dry`. |
 
@@ -52,7 +54,6 @@ The Key column is the name in the config entry and in the diagnostics download. 
 | `boiler` | Boiler switch | unset | On when the heat source is the boiler, at 5 °C outdoors or below, and the room is below comfort minus 1 K. |
 | `valve` | Valve or TRV opening number | unset | Opening in percent. Fully open 1 K below the target, closed at the target. |
 | `trv_temperature` | TRV own temperature sensor | unset | The TRV's own reading, compared with the room. Each 1 K of offset moves the opening by 100 points, clamped to 0 to 100. |
-| `heater_switch` | Heater switch | unset | Switch for the heater plug. The heater output runs in 10 minute windows. |
 | `radiators` | Heater is radiators or underfloor heat (residual heat after it stops) | `False` | Counts the residual heat after the heater stops: a 1 K peak that decays over 20 minutes. |
 | `heater_power_w` | Heater power, W | unset | Rated power of the heater on the heater switch. Gives the heating forecast its energy and cost. |
 | `heater_kp` | Heater PID proportional gain | `20.0` | Used at the default. A value you set wins. At the default, the gain from a relay test applies. |

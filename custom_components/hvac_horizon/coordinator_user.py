@@ -132,10 +132,10 @@ class UserMixin:
         off and nothing running is "idle".
         """
         data = self.entry.data
-        climate = self.hass.states.get(data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         fan_only = False
         if climate is not None and climate.state in ("cool", "heat", "dry"):
-            power = _float(self.hass.states.get(data[CONF_POWER]))
+            power = self._ac_power_w()
             if power is None or power / 1000.0 >= RUNNING_MIN_KW:
                 return {"cool": "cooling", "heat": "heating", "dry": "drying"}[climate.state]
             fan_only = True
@@ -170,10 +170,14 @@ class UserMixin:
         data = self.entry.data
         return (
             bool(data.get(CONF_HEATER_SWITCH))
-            or bool(data.get(CONF_AC_HEAT, False))
-            or bool(data.get(CONF_MPC_HEAT_PLAN, False))
+            or (self.has_ac and (bool(data.get(CONF_AC_HEAT, False)) or bool(data.get(CONF_MPC_HEAT_PLAN, False))))
             or any(device.kind == HEAT for device in self._fleet())
         )
+
+    @property
+    def has_cool(self) -> bool:
+        """True when the entry can cool: a first AC or a cooling fleet device. A room with heating only has neither."""
+        return self.has_ac or any(device.kind == COOL for device in self._fleet())
 
     @property
     def can_dry(self) -> bool:
@@ -184,9 +188,9 @@ class UserMixin:
         data = self.entry.data
         if data.get(CONF_DEHUMIDIFIER):
             return True
-        if any(device.entity_id for device in self._fleet()):
+        if not self.has_ac or any(device.entity_id for device in self._fleet()):
             return False
-        climate = self.hass.states.get(data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         modes = None if climate is None else climate.attributes.get("hvac_modes")
         return modes is None or "dry" in modes
 
@@ -197,6 +201,8 @@ class UserMixin:
         A stored "heat" on an entry that can no longer heat reads "auto", and so does a stored "dry" on an entry
         that cannot dehumidify, so the entity and control agree.
         """
+        if not self.has_cool:
+            return "dry" if self._user_mode == "dry" and self.can_dry else "heat"
         if (self._user_mode == "heat" and not self.has_heat) or (self._user_mode == "dry" and not self.can_dry):
             return "auto"
         return self._user_mode
@@ -246,7 +252,9 @@ class UserMixin:
     async def async_set_ac_option(self, option: str, value: str) -> None:
         """Pass a fan mode or a swing mode from the room thermostat to the first AC."""
         self._require_unlocked()
-        await self.hass.services.async_call("climate", f"set_{option}", {"entity_id": self.entry.data[CONF_CLIMATE], option: value}, blocking=True)
+        if not self.has_ac:
+            raise HomeAssistantError("this room has no AC")
+        await self.hass.services.async_call("climate", f"set_{option}", {"entity_id": self._ac_id, option: value}, blocking=True)
 
     def _to_comfort_preset(self) -> None:
         self._manual_preset = Preset.COMFORT.value

@@ -116,7 +116,7 @@ class SafetyMixin:
 
         if self._last_written_mode is not None:
             mode = self._last_written_mode
-            check(self.entry.data[CONF_CLIMATE], mode, lambda s: s == mode or (mode == "off" and s == "fan_only"))
+            check(self._ac_id, mode, lambda s: s == mode or (mode == "off" and s == "fan_only"))
         if self._second_ac_commanded_on:
             check(self.entry.data.get(CONF_CLIMATE_2), "on", lambda s: s in ("cool", "heat", "dry"))
         if self._heater_commanded_on is not None:
@@ -139,7 +139,7 @@ class SafetyMixin:
         await self._fleet_all_off(dt_util.utcnow().timestamp())
         if not self.entry.data.get(CONF_CONTROL):
             return
-        climate_id = self.entry.data[CONF_CLIMATE]
+        climate_id = self._ac_id
         if self._last_written_mode in ("cool", "heat", "dry") or self._coil_dry_sent:
             climate = self.hass.states.get(climate_id)
             if climate is not None and climate.state in ("cool", "heat", "dry"):

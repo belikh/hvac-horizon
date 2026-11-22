@@ -4,13 +4,13 @@
 
 ## Entities per entry
 
-Each entry creates one device named `HVAC Horizon <AC name>`. The device holds one `climate` entity for the room and 75 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
+Each entry creates one device named `HVAC Horizon <AC name>`. The device holds one `climate` entity for the room and 85 sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
 
 A sensor's entity ID is `sensor.hvac_horizon_<ac name>_<name>`. The Key column is the suffix of the unique ID and the name of the value in the diagnostics download.
 
 ## Primary sensors
 
-These 11 sensors have no entity category. Home Assistant shows them on the device page and in dashboards.
+These 12 sensors have no entity category. Home Assistant shows them on the device page and in dashboards.
 
 | Key | Name | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
@@ -29,7 +29,7 @@ These 11 sensors have no entity category. Home Assistant shows them on the devic
 
 ## Diagnostic sensors
 
-These 28 sensors have the entity category `diagnostic` and are enabled. They show under **Diagnostic** on the device page.
+These 30 sensors have the entity category `diagnostic` and are enabled. They show under **Diagnostic** on the device page.
 
 | Key | Name | Unit | Meaning |
 | :--- | :--- | :--- | :--- |
@@ -64,7 +64,7 @@ These 28 sensors have the entity category `diagnostic` and are enabled. They sho
 
 ## Sensors disabled by default
 
-These 36 sensors hold internal detail. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
+These 43 sensors hold internal detail. To use one, open it in **Settings > Devices & services > Entities** and turn on **Enabled**. The coordinator publishes every key whether or not its sensor is enabled.
 
 | Key | Name | Unit | Meaning |
 | :--- | :--- | :--- | :--- |

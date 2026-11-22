@@ -24,7 +24,7 @@ The same sections appear when you add a new entry, after the **Room** step. Subm
 
 | Section | What you set there |
 | :-- | :-- |
-| Room | The AC, its power sensor, the room sensors and the outdoor sensor |
+| Room | The AC and its power sensor or rated power, the heater switch, the room sensors and the outdoor sensor |
 | Comfort and presets | Setpoints for each preset, schedule blocks, the vacation switch |
 | Price | The price sensor and the cheap and expensive thresholds |
 | Heater | A heater switch, its algorithm and limits, a valve, a boiler, AC heat |

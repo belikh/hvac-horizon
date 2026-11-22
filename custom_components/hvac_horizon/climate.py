@@ -69,14 +69,15 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
         # Cool only cools, heat only heats, auto does both. A room with nothing to heat with has no heat mode.
 
     def _ac_attribute(self, name: str) -> Any:
-        ac = self.hass.states.get(self._entry.data[CONF_CLIMATE]) if self.hass else None
+        ac_id = self._entry.data.get(CONF_CLIMATE)
+        ac = self.hass.states.get(ac_id) if self.hass and ac_id else None
         return ac.attributes.get(name) if ac else None
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
         """A room that can heat has a low and a high target in auto. Fan and swing modes are the first AC's, when it has them."""
         features = self._BASE_FEATURES
-        if self._has_heat:
+        if self._has_heat and self.coordinator.has_cool:
             features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         if self._ac_attribute("fan_modes"):
             features |= ClimateEntityFeature.FAN_MODE
@@ -119,15 +120,18 @@ class HorizonClimate(CoordinatorEntity[HorizonCoordinator], ClimateEntity):
     @property
     def _ranged(self) -> bool:
         """True in auto when the room can heat: the card shows the heat target and the cool target as low and high."""
-        return self._has_heat and self.hvac_mode == HVACMode.AUTO
+        return self._has_heat and self.coordinator.has_cool and self.hvac_mode == HVACMode.AUTO
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
-        """Off, cool, auto, heat when the entry can heat, and dry when it can dehumidify."""
-        modes = [HVACMode.OFF, HVACMode.COOL]
+        """Off, cool, auto, heat when the entry can heat, and dry when it can dehumidify. A room with heating only has off and heat."""
+        modes = [HVACMode.OFF]
+        if self.coordinator.has_cool:
+            modes.append(HVACMode.COOL)
         if self._has_heat:
             modes.append(HVACMode.HEAT)
-        modes.append(HVACMode.AUTO)
+        if self.coordinator.has_cool:
+            modes.append(HVACMode.AUTO)
         if self.coordinator.can_dry:
             modes.append(HVACMode.DRY)
         return modes

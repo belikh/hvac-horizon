@@ -94,6 +94,8 @@ def _stored_number(value: Any) -> float | None:
 def _stored_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
+NO_AC = "climate.hvac_horizon_no_ac"  # stands for the first AC in a room that has none; the entity never exists
+
 MPC_STEP_MIN = 15.0
 OUTDOOR_AHEAD_H = (1, 3, 6)  # hours ahead published as outdoor_forecast_next_c
 

@@ -86,7 +86,9 @@ class StoreMixin:
         start = now - timedelta(days=days)
         room_ids = list(self.entry.data[CONF_ROOM_SENSORS])
         outdoor_id = self.entry.data[CONF_OUTDOOR]
-        power_id = self.entry.data[CONF_POWER]
+        power_id = self.entry.data.get(CONF_POWER)
+        if not power_id:
+            return 0  # the history of the AC's power is what the readings are built from
         entity_ids = room_ids + [outdoor_id, power_id]
         try:
             states = await get_instance(self.hass).async_add_executor_job(
@@ -125,12 +127,14 @@ class StoreMixin:
     def start_power_tracking(self) -> None:
         """Integrate the power sensor between samples, so each sample gets a true interval mean."""
         now = dt_util.utcnow().timestamp()
-        self._last_power_w = _float(self.hass.states.get(self.entry.data[CONF_POWER])) or 0.0
+        self._last_power_w = self._ac_power_w() or 0.0
         self._last_t = now
         self._ws_total = 0.0
         self._ws_at_sample = 0.0
         self._t_at_sample = now
-        entity = self.entry.data[CONF_POWER]
+        entity = self.entry.data.get(CONF_POWER)
+        if not entity:
+            return  # with no power sensor each reading takes the power estimate of its own tick
 
         @callback
         def _changed(event) -> None:

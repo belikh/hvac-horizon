@@ -143,7 +143,7 @@ class AcMixin:
             result["ac_sensor_offset_k"] = self._regulation_offset_k
 
     async def _async_control_cycle(self, now: float, result: dict[str, Any]) -> None:
-        climate_id = self.entry.data[CONF_CLIMATE]
+        climate_id = self._ac_id
         first_ac = self.hass.states.get(climate_id)
         self._ac_cooling_tick = (first_ac is not None and first_ac.state == "cool") or self._fleet_cooling()
         if not lock_allows_control(self._locked):
@@ -515,7 +515,7 @@ class AcMixin:
         max_drop = abs(limit - target_c) if limit is not None else REGULATION_MAX_DROP_K
         threshold = self._heat_on_below_c if heat else self._cool_above_c
         needs_more = room_c < threshold if heat else room_c > threshold
-        power = _float(self.hass.states.get(self.entry.data[CONF_POWER]))
+        power = self._ac_power_w()
         if power is None:
             return self._regulation_drop_k
         compressor_runs = power / 1000.0 >= RUNNING_MIN_KW
@@ -675,7 +675,7 @@ class AcMixin:
 
         Runs on every tick, with or without control, so an observe-only entry still reports its AC.
         """
-        climate = self.hass.states.get(self.entry.data[CONF_CLIMATE])
+        climate = self.hass.states.get(self._ac_id)
         group = self._compressor_group()
         registry = self.hass.data.setdefault(DOMAIN, {}).setdefault("cooling", {})
         registry[self.entry.entry_id] = (group, (climate is not None and climate.state == "cool") or self._fleet_cooling())
@@ -760,7 +760,7 @@ class AcMixin:
         The lock is checked by the caller and by set_user_off.
         """
         data = self.entry.data
-        climate_id = data[CONF_CLIMATE]
+        climate_id = self._ac_id
         for entity_id in (climate_id, data.get(CONF_CLIMATE_2)):
             state = self.hass.states.get(entity_id) if entity_id else None
             if state is None or state.state in ("off", "unavailable", "unknown"):

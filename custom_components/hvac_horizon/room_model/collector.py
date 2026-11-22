@@ -102,8 +102,9 @@ def samples_from_entries(entries: list[Entry]) -> list[Sample]:
     """Pair consecutive readings that are one step apart. Gaps break the chain.
 
     Intervals where the AC ran in heat, dry or fan-only mode are left out: they are not passive drift and not cooling.
+    Intervals where the heater ran are left out too, so its heat is not counted as the room's own gain.
     """
-    return [sample for sample, _ in heat_pairs_from_entries(entries)]
+    return [sample for sample, duty in heat_pairs_from_entries(entries) if duty <= 0]
 
 
 def heat_pairs_from_entries(entries: list[Entry]) -> list[tuple[Sample, float]]:

@@ -11,7 +11,13 @@ Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the ta
   above the high one. Setting one temperature sets both.
 - The thermostat lists the first AC's fan modes and swing modes and passes a change to the AC. It shows the room
   humidity when a room humidity sensor is set.
-- The start page says which rooms the integration fits and which it does not.
+- A room with heating only: the AC is optional when a heater switch is set. The thermostat lists `off` and `heat`,
+  and the room learns its heat loss and the heater's rate from the readings. The heater switch moved to the Room step.
+- An AC with no power sensor: the new setting `ac_rated_w` stands in for it. The AC counts as drawing that power
+  while its `hvac_action` says it runs.
+- Readings taken while the heater ran no longer count as passive drift in the room fit. Before, the heater's heat was
+  fitted as the room's own gain.
+- The start page says which rooms the integration fits.
 
 ## 0.6.1 (2026-11-22)
 
