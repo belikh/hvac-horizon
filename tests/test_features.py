@@ -160,6 +160,38 @@ class SafetyAndBriefingTests(unittest.TestCase):
         self.assertFalse(heating_failed(60.0, 0.5))
         self.assertFalse(heating_failed(59.9, 0.0))
 
+    def test_run_share_weights_each_power_sample_by_the_time_it_held(self):
+        from custom_components.hvac_horizon.engine.features import run_share
+
+        # 20 minute window ending at 1200 s. The compressor ran for the first 5 minutes and for 3 minutes near the end.
+        samples = [(-60.0, 1050.0), (300.0, 78.0), (900.0, 1040.0), (1080.0, 78.0)]
+        self.assertAlmostEqual(run_share(samples, 1200.0, 1200.0, 200.0), (300.0 + 180.0) / 1200.0)
+        self.assertEqual(run_share([(0.0, 1050.0)], 1200.0, 1200.0, 200.0), 1.0)
+        self.assertEqual(run_share([(0.0, 78.0)], 1200.0, 1200.0, 200.0), 0.0)
+        self.assertEqual(run_share([(0.0, 200.0)], 1200.0, 1200.0, 200.0), 1.0)  # at the limit counts as running
+
+    def test_run_share_is_unknown_until_the_samples_cover_the_window(self):
+        from custom_components.hvac_horizon.engine.features import run_share
+
+        self.assertIsNone(run_share([], 1200.0, 1200.0, 200.0))
+        self.assertIsNone(run_share([(1.0, 78.0)], 1200.0, 1200.0, 200.0))
+        self.assertIsNone(run_share([(0.0, 78.0)], 1200.0, 0.0, 200.0))
+
+    def test_ac_failure_needs_the_full_window_and_less_than_half_running(self):
+        from custom_components.hvac_horizon.engine.features import ac_failed
+
+        self.assertTrue(ac_failed(20.0, 0.49, False))
+        self.assertFalse(ac_failed(20.0, 0.5, False))
+        self.assertFalse(ac_failed(19.9, 0.0, False))
+        self.assertFalse(ac_failed(60.0, None, False))
+
+    def test_ac_failure_stays_reported_until_the_compressor_runs_three_quarters_of_the_window(self):
+        from custom_components.hvac_horizon.engine.features import ac_failed
+
+        self.assertTrue(ac_failed(40.0, 0.6, True))
+        self.assertFalse(ac_failed(40.0, 0.75, True))
+        self.assertFalse(ac_failed(40.0, None, True))
+
     def test_heat_on_below_is_target_minus_deadband(self):
         from custom_components.hvac_horizon.engine.features import heat_on_below
 

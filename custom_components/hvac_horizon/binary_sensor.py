@@ -26,6 +26,7 @@ BINARY_KEYS: dict[str, BinarySensorDeviceClass | None] = {
     "boiler_demand": None,
     "whole_house_fan": BinarySensorDeviceClass.RUNNING,
     "heating_failure": BinarySensorDeviceClass.PROBLEM,
+    "ac_failure": BinarySensorDeviceClass.PROBLEM,
     "house_cooling": None,
     "outdoor_forecast_used": None,
 }

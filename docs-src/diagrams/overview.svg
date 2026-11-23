@@ -32,7 +32,7 @@
   <text x="524" y="48" font-size="13" fill="var(--jp-text-muted)">mode, target, preset</text>
   <path d="M510 36 H452" marker-end="url(#to)"/>
   <rect x="510" y="86" width="200" height="56"/>
-  <text x="524" y="107" font-size="14" font-weight="700">85 sensor entities</text>
+  <text x="524" y="107" font-size="14" font-weight="700">86 sensor entities</text>
   <text x="524" y="126" font-size="13" fill="var(--jp-text-muted)">minutes, kWh, cost</text>
   <path d="M450 114 H508" marker-end="url(#to)"/>
   <rect x="510" y="164" width="200" height="58" stroke="var(--jp-accent)"/>

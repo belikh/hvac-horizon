@@ -4,7 +4,7 @@
 
 ## Entities per entry
 
-Each entry creates one device named `HVAC Horizon` and the entry's title: the area's name, or the AC's when no area is set. The device holds one `climate` entity for the room, 73 sensors and 12 binary sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
+Each entry creates one device named `HVAC Horizon` and the entry's title: the area's name, or the AC's when no area is set. The device holds one `climate` entity for the room, 73 sensors and 13 binary sensors. See [Use the room thermostat](../guides/use-the-room-thermostat.md) for the climate entity.
 
 A sensor's entity ID is `sensor.hvac_horizon_<title>_<name>`, and a binary sensor's starts with `binary_sensor`. The names are entity translations, so Home Assistant can show them in the user's language once a translation exists.
 
@@ -108,7 +108,7 @@ A list or dict value shows as JSON text cut to 255 characters in the state. The 
 
 ## Binary sensors
 
-These 12 values are on or off. Each is a `binary_sensor` entity with the entity category `diagnostic`. Before 0.7.0 they were sensors that read `True` or `False`.
+These 13 values are on or off. Each is a `binary_sensor` entity with the entity category `diagnostic`. Before 0.7.0 they were sensors that read `True` or `False`.
 
 | Key | Name | Device class | On means | Enabled |
 | :--- | :--- | :--- | :--- | :--- |
@@ -120,6 +120,7 @@ These 12 values are on or off. Each is a `binary_sensor` entity with the entity 
 | `vacation` | Vacation mode | none | The vacation switch is on. | yes |
 | `whole_house_fan` | Whole-house fan | `running` | The whole-house fan may run. | yes |
 | `heating_failure` | Heating failure | `problem` | The heater ran 60 minutes and the room rose less than 0.5 K. | yes |
+| `ac_failure` | AC failure | `problem` | The AC has been in `cool` or `dry` for 20 minutes while the room still needs it, and its power stayed under 200 W for more than half of them. Needs the power sensor. See \[\[guides/troubleshoot#the-ac-is-on-and-the-compressor-does-not-run | The AC is on and the compressor does not run\]\]. |
 | `outdoor_forecast_used` | Outdoor forecast used | none | A fresh hourly forecast feeds the forecast, the plans, pre-cool and preheat. | yes |
 | `heater_pwm_on` | Heater PWM on | `running` | The heater is on inside the current 10 minute window. | no |
 | `boiler_demand` | Boiler demand | none | The boiler should run. | no |

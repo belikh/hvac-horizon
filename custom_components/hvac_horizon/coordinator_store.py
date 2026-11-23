@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+from collections import deque
 from typing import Any
 from dataclasses import asdict
 from datetime import timedelta
@@ -17,7 +19,7 @@ from .const import CONF_OUTDOOR, CONF_POWER, CONF_ROOM_SENSORS, DOMAIN, MAX_ENTR
 from custom_components.hvac_horizon.room_model.collector import Entry, entries_from_history
 from custom_components.hvac_horizon.room_model.model import Fit
 from custom_components.hvac_horizon.room_model import kept
-from custom_components.hvac_horizon.engine.features import HUMIDITY_TARGET_MAX_PCT, HUMIDITY_TARGET_MIN_PCT, house_mode_from_store
+from custom_components.hvac_horizon.engine.features import AC_FAILURE_WINDOW_MIN, HUMIDITY_TARGET_MAX_PCT, HUMIDITY_TARGET_MIN_PCT, house_mode_from_store
 from custom_components.hvac_horizon.coordinator_common import USER_MODES, _LOGGER, _entries_from_store, _float, _stored_dict, _stored_number
 
 
@@ -40,8 +42,10 @@ class StoreMixin:
     _kept: kept.Kept
     _kept_used: set[str]
     _last_power_w: float
+    _power_samples: deque[tuple[float, float]]
     _last_t: float
     _last_written_mode: str | None
+    _mode_written_at: float
     _last_written_setpoint: float | None
     _loaded_at: float
     _locked: bool
@@ -136,13 +140,21 @@ class StoreMixin:
         entity = self.settings.get(CONF_POWER)
         if not entity:
             return  # with no power sensor each reading takes the power estimate of its own tick
+        first = _float(self.hass.states.get(entity))
+        if first is not None:
+            self._power_samples.append((now, first))
 
         @callback
         def _changed(event) -> None:
             new_value = _float(event.data.get("new_state"))
-            self._accumulate(dt_util.utcnow().timestamp())
+            changed_at = dt_util.utcnow().timestamp()
+            self._accumulate(changed_at)
             if new_value is not None:
                 self._last_power_w = new_value
+                # The compressor check reads the last AC_FAILURE_WINDOW_MIN, so one sample at or before its start is kept.
+                self._power_samples.append((changed_at, new_value))
+                while len(self._power_samples) >= 2 and self._power_samples[1][0] <= changed_at - AC_FAILURE_WINDOW_MIN * 60.0:
+                    self._power_samples.popleft()
 
         self.entry.async_on_unload(async_track_state_change_event(self.hass, [entity], _changed))
 
@@ -265,6 +277,7 @@ class StoreMixin:
         self._last_written_setpoint = _stored_number(setpoint)
         mode = stored.get("mode")
         self._last_written_mode = mode if isinstance(mode, str) else None
+        self._mode_written_at = math.inf  # the write was before this start, so the AC's state time cannot be compared with it
         heater_on = stored.get("heater_on")
         self._heater_commanded_on = bool(heater_on) if heater_on is not None else None
         switch = stored.get("heater_switch")

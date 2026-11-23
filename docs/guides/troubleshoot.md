@@ -32,7 +32,7 @@ Then find the text in the table below.
 | `off: night hold: AC does not start` | `night_plan_act` is on and the night plan is `hold`. | Turn `night_plan_act` off to cool. |
 | `off: sensor stalled` | A sensor stall blocks the AC. | See [Sensor stalled](#sensor-stalled). |
 | `off: no room reading` | No room sensor has had a valid reading for the stall window. | Check the room sensors. |
-| `inhibited after a manual change` | Someone changed the AC setpoint by hand in the last 30 minutes. | See [Manual changes](#manual-changes). |
+| `inhibited after a manual change` | Someone changed the AC setpoint by hand, or turned the AC off at the unit, in the last 30 minutes. | See [Manual changes](#manual-changes). |
 | `locked` | The lock is on. | Unlock with `hvac_horizon.set_lock`. |
 | `locked: off, sensor stalled` | The lock is on and a safety stop turned the AC off. The reason can also be `window open` or `house away`. | Clear the cause, or unlock. |
 
@@ -69,9 +69,43 @@ A sensor is stalled when its last report is older than the stall window, 900 sec
 
 A stall also keeps the window actuator and the whole-house fan from starting. HVAC Horizon raises the repair issue `HVAC Horizon sensors not updating` with the list of sensors. The issue clears when they report again.
 
+## The AC is on and the compressor does not run
+
+The AC failure binary sensor turns on, and a repair issue and a notification appear, when all of these hold:
+
+- The entry has a power sensor.
+- The first AC has been in `cool` or `dry` for 20 minutes or longer.
+- The room still needs it for that whole time. For `cool` the room is more than 0.5 K above the Cool above sensor. For `dry` the room humidity is at or above the humidity target.
+- The power was under 200 W for more than half of the last 20 minutes.
+
+Check the unit for an error code. On a portable unit, check whether the water tank is full: such a unit keeps reporting its mode while the compressor rests.
+
+The sensor turns off when the compressor has run for 15 of the last 20 minutes, when the AC leaves the mode, or when the room no longer needs it.
+
+Two cases get no check: `dry` mode in a room with no humidity sensor, and the 20 minute coil dry after cooling.
+
+A unit that rests its compressor for more than half the time in `dry` mode by design raises the issue while the humidity is above the target. Ignore the repair issue and disable the binary sensor for such a unit.
+
+To get the alert on a phone, add an automation on the binary sensor:
+
+**Notify when the AC stops drying or cooling**
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.hvac_horizon_bedroom_ac_failure
+    to: "on"
+actions:
+  - action: notify.mobile_app_phone
+    data:
+      message: The AC is on and its compressor is not running. Check the water tank.
+```
+
 ## Manual changes
 
 When the AC setpoint differs from the value HVAC Horizon last wrote by more than 0.05 K, HVAC Horizon treats it as your change. It sends no commands for 30 minutes. Each new change starts a new 30 minutes.
+
+Turning the AC off at the unit, with its remote or on its own entity starts the same 30 minutes. This applies to the first AC, once it has reported the mode HVAC Horizon set. After the 30 minutes the AC starts again when the room still needs it. An AC that you turn on again in the same mode within the 30 minutes keeps running, and HVAC Horizon takes that mode as the one it set. After any other mode change at the unit, HVAC Horizon sets its own mode again and raises `HVAC Horizon mode does not match`.
 
 Four commands still go out in that time: a stall stop, every heater turn-off, a window close, and off from the room thermostat.
 
@@ -92,6 +126,7 @@ Each issue clears when its cause ends. None has a fix flow.
 | :--- | :--- | :--- |
 | `HVAC Horizon sensors not updating` | A room or outdoor sensor is stalled. | The sensors listed in the issue. |
 | `HVAC Horizon heater is not warming the room` | The heater ran 60 minutes and the room rose less than 0.5 K. | The heater, its plug and its switch. |
+| `HVAC Horizon AC is not running its compressor` | The AC has been in `cool` or `dry` for 20 minutes with demand and its power stayed under 200 W for more than half of them. | The unit's error code, and the water tank of a portable unit. |
 | `HVAC Horizon mode does not match` | The AC mode differs from the last mode written and the setpoint did not change. | The AC unit, and any other automation that sets its mode. |
 
 ## Send a bug report

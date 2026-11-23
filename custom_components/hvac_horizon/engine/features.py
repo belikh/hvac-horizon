@@ -213,6 +213,46 @@ def heating_failed(minutes_on: float, rise_c: float, window_min: float = 60.0, m
     return minutes_on >= window_min and rise_c < min_rise_c
 
 
+AC_FAILURE_WINDOW_MIN = 20.0  # minutes the compressor check looks back over
+AC_FAILURE_RUN_SHARE = 0.5  # the check fails when the compressor ran for less than this share of the window
+AC_FAILURE_CLEAR_SHARE = 0.75  # a reported failure clears once the compressor has run for this share of the window
+
+
+def run_share(samples: list[tuple[float, float]], now: float, window_s: float, running_w: float) -> float | None:
+    """Share of the last `window_s` seconds with power at or above `running_w`.
+
+    `samples` are (time, watts) pairs in time order, and each value holds until the next sample. None when no sample
+    is as old as the start of the window, because the power in the first part of the window is then unknown.
+    """
+    start = now - window_s
+    if window_s <= 0 or not samples or samples[0][0] > start:
+        return None
+    running = 0.0
+    for (t, watts), (t_next, _) in zip(samples, [*samples[1:], (now, 0.0)]):
+        low, high = max(t, start), min(t_next, now)
+        if high > low and watts >= running_w:
+            running += high - low
+    return running / window_s
+
+
+def ac_failed(
+    demand_min: float,
+    share: float | None,
+    was_failed: bool,
+    window_min: float = AC_FAILURE_WINDOW_MIN,
+    min_share: float = AC_FAILURE_RUN_SHARE,
+    clear_share: float = AC_FAILURE_CLEAR_SHARE,
+) -> bool:
+    """True when the AC has been on with demand for `window_min` or longer and its compressor ran for less than `min_share` of that window.
+
+    A failure already reported stays until the share reaches `clear_share`, so a share near `min_share` does not flip the report.
+    An unknown share reports no failure.
+    """
+    if share is None or demand_min < window_min:
+        return False
+    return share < (clear_share if was_failed else min_share)
+
+
 def heat_setpoint(preset: str, comfort_c: float, heat_eco_c: float | None, heat_boost_c: float | None, motion_idle: bool) -> float:
     """Heat target for an occupied house. Boost uses its heat setpoint. Eco and motion idle use the eco heat setpoint.
 

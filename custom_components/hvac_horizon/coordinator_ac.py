@@ -103,6 +103,7 @@ class AcMixin:
     _last_start_min: dict[str, float]
     _last_written_mode: str | None
     _last_written_setpoint: float | None
+    _mode_before_off: str | None
     _locked: bool
     _peer_setpoint_original: float | None
     _pending_waits: list[tuple[float, str | None]]
@@ -118,6 +119,7 @@ class AcMixin:
     _settings: Settings | None
     _someone_home: bool
     _state_changed_at: float | None
+    _unconfirmed_seen: set[str]
     _store: Store[dict[str, Any]]
     _user_off: bool
     _was_cooling: bool
@@ -170,6 +172,24 @@ class AcMixin:
                 self._inhibited_for_setpoint = manual
         else:
             self._inhibited_for_setpoint = None
+        if self._manual_off(first_ac):
+            # Off at the unit is a manual change too. The off stands as the mode on record, so one off starts one window.
+            self._mode_before_off = self._last_written_mode
+            self._inhibit_until_min = now_min + INHIBIT_MIN
+            self._last_written_mode = "off"
+            self._coil_dry_sent = False
+            self._state_changed_at = now
+            self._check_mode("off")
+            self._unconfirmed_seen.discard(climate_id)  # the difference seen this tick is explained
+            self._store.async_delay_save(self._save_payload, 0)
+        elif not inhibited(now_min, self._inhibit_until_min):
+            self._mode_before_off = None
+        elif first_ac is not None and first_ac.state == self._mode_before_off and self._last_written_mode == "off":
+            # Someone turned the AC on again in the mode it had. That mode is on record again, so the first cycle
+            # after the window does not turn the AC off and start it again.
+            self._last_written_mode = self._mode_before_off
+            self._mode_before_off = None
+            self._unconfirmed_seen.discard(climate_id)
         # A stalled sensor stops the AC even inside the inhibit window. The window sends nothing else.
         stalled = self._stall_blocks(result) or self._no_room_data_stop(now)
         inhibit_on = inhibited(now_min, self._inhibit_until_min)
@@ -440,6 +460,8 @@ class AcMixin:
                 self._last_sent_min = now / 60.0
                 self._last_written_mode = "off"
                 self._coil_dry_sent = False
+            elif self._last_written_mode is not None:
+                self._last_written_mode = "off"  # the AC is off and off is wanted, so no earlier mode is still expected
             return
         self._was_cooling = climate.state == "cool"
         self._dry_started_min = None
@@ -635,11 +657,13 @@ class AcMixin:
                     self._record_group_start(now)
                     self._coil_dry_sent = True
                     await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "dry"}, blocking=True)
+                    self._last_written_mode = "dry"
                 handled = True
             elif self._dry_started_min is not None:
                 self._dry_started_min = None
                 if climate.state == "dry":
                     await self._send("climate", "set_hvac_mode", {"entity_id": climate_id, "hvac_mode": "off"}, blocking=True)
+                    self._last_written_mode = "off"
                     self._coil_dry_sent = False
                     handled = True
         self._was_cooling = now_cooling
@@ -790,6 +814,8 @@ class AcMixin:
         climate_id = self._ac_id
         for entity_id in (climate_id, data.get(CONF_CLIMATE_2)):
             state = self.hass.states.get(entity_id) if entity_id else None
+            if state is not None and state.state == "off" and entity_id == climate_id and self._last_written_mode is not None:
+                self._last_written_mode = "off"  # already off: the mode written earlier is no longer expected
             if state is None or state.state in ("off", "unavailable", "unknown"):
                 continue
             await self._send("climate", "set_hvac_mode", {"entity_id": entity_id, "hvac_mode": "off"}, blocking=True)

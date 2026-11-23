@@ -18,7 +18,7 @@ Each entry creates one device with these entities:
 
 - A room ``climate`` entity with a target temperature, the presets ``comfort``, ``eco``, ``boost`` and ``away``, and the modes ``off``, ``cool``, ``heat`` (with a heater), ``heat_cool`` (a room that heats and cools, with a low and a high target) or ``auto`` (a room that only cools), ``dry`` (with an AC dry mode or a dehumidifier) and ``fan_only`` (with an AC fan mode). With a room humidity sensor it has a humidity target.
 - 73 sensors. 12 are forecast sensors: minutes, energy and cost to the target, a status, the sample count and the forecast error among them. 61 are diagnostic sensors for the target, preset, heater and valve output, ventilation, humidity and the device dispatch. 40 of those are disabled until you enable them.
-- 12 binary sensors for the values that are on or off, such as Heating allowed, Mould risk and Heating failure.
+- 13 binary sensors for the values that are on or off, such as Heating allowed, Mould risk, Heating failure and AC failure.
 
 Actions cover the lock, house mode, timed presets, a heater relay auto-tune, a what-if forecast and data export. Control is off after setup, so a new entry only observes.
 

@@ -2038,10 +2038,10 @@ async def test_sensor_entities_split_into_primary_diagnostic_and_disabled(hass, 
     diagnostic = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and not e.disabled}
     disabled = {e.unique_id.removeprefix(prefix) for e in sensors if e.entity_category is EntityCategory.DIAGNOSTIC and e.disabled}
     assert primary == PRIMARY_KEYS and len(primary) == 12
-    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 30
+    assert diagnostic == DIAGNOSTIC_ENABLED_KEYS and len(diagnostic) == 31
     assert disabled == DIAGNOSTIC_DISABLED_KEYS and len(disabled) == 43
-    assert len(sensors) == 85
-    assert sum(e.domain == "binary_sensor" for e in sensors) == 12  # the values that are on or off
+    assert len(sensors) == 86
+    assert sum(e.domain == "binary_sensor" for e in sensors) == 13  # the values that are on or off
     assert not any(e.disabled for e in sensors if e.entity_category is None)
 
 
@@ -7828,6 +7828,226 @@ async def test_dry_mode_reports_the_drying_decision_in_a_hot_room(hass, enable_c
     assert data["action"] == "off: dry mode, humidity within band"
     assert data["daily_briefing"].endswith("Next: off: dry mode, humidity within band.")
     assert data["drying_needed"] is False
+
+
+def _set_power(hass, watts):
+    hass.states.async_set(POWER, str(watts), {"unit_of_measurement": "W", "device_class": "power"})
+
+
+async def _dry_minutes(hass, entry, freezer, minutes, watts, rh="70"):
+    """Advance in 5 minute ticks with the AC's power at `watts`."""
+    _set_power(hass, watts)
+    await hass.async_block_till_done()
+    for _ in range(minutes // 5):
+        await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh=rh)
+
+
+async def test_ac_failure_turns_on_when_the_ac_dries_without_its_compressor(hass, enable_custom_integrations, config_data, freezer):
+    """A portable AC with a full tank stays in dry and draws fan power. After 20 minutes the problem sensor, a repair and a notification appear."""
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, _calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    issue_id = f"{entry.entry_id}_ac_failure"
+    await _set_room_mode(hass, entity_id, "dry")
+    await _dry_minutes(hass, entry, freezer, 25, 1050)
+    assert entry.runtime_data.data["ac_failure"] is False
+    # The tank fills: the AC stays in dry and the plug reads the fan's 78 W.
+    await _dry_minutes(hass, entry, freezer, 10, 78)
+    assert hass.states.get(CLIMATE).state == "dry"
+    assert entry.runtime_data.data["ac_failure"] is False  # the compressor ran for half of the last 20 minutes
+    await _dry_minutes(hass, entry, freezer, 5, 78)
+    assert entry.runtime_data.data["ac_failure"] is True
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+    assert hass.states.get(f"binary_sensor.hvac_horizon_test_ac_ac_failure").state == "on"
+    notifications = hass.data["persistent_notification"]
+    assert "check the water tank" in notifications[issue_id]["message"]
+    # The tank is emptied. The report stays until the compressor has run for 15 of the last 20 minutes.
+    await _dry_minutes(hass, entry, freezer, 10, 1050)
+    assert entry.runtime_data.data["ac_failure"] is True
+    await _dry_minutes(hass, entry, freezer, 5, 1050)
+    assert entry.runtime_data.data["ac_failure"] is False
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    assert issue_id not in notifications
+
+
+async def test_ac_failure_stays_off_once_the_humidity_is_below_the_target(hass, enable_custom_integrations, config_data, freezer):
+    """Between the target and the end of the dry cycle the AC may rest its compressor, so no failure is reported."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, _calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    await _dry_minutes(hass, entry, freezer, 10, 1050)
+    await _dry_minutes(hass, entry, freezer, 40, 78, rh="58")  # under the 60 % target, above the 57 % end of the cycle
+    assert hass.states.get(CLIMATE).state == "dry"
+    assert entry.runtime_data.data["ac_failure"] is False
+
+
+async def test_ac_failure_turns_on_when_the_ac_cools_without_its_compressor(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _entity_id, _calls = await _setup_with_devices(hass, config_data, room="27.0", outdoor="30.0")
+    assert hass.states.get(CLIMATE).state == "cool"
+    _set_power(hass, 60)
+    await hass.async_block_till_done()
+    for _ in range(3):
+        await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+    assert entry.runtime_data.data["ac_failure"] is False  # 15 minutes with demand
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+    assert entry.runtime_data.data["ac_failure"] is True
+    # The AC goes off: nothing is expected of the compressor.
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0})
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+    assert entry.runtime_data.data["ac_failure"] is False
+
+
+async def test_ac_failure_needs_the_power_sensor(hass, enable_custom_integrations, config_data, freezer):
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    data = {k: v for k, v in config_data.items() if k != CONF_POWER}
+    entry, _entity_id, _calls = await _setup_with_devices(hass, data, room="27.0", outdoor="30.0")
+    for _ in range(6):
+        await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+    assert hass.states.get(CLIMATE).state == "cool"
+    assert entry.runtime_data.data["ac_failure"] is False
+
+
+def _ac_off_at_the_unit(hass):
+    """The AC reports off with the current time, as a real device does."""
+    hass.states.async_set(
+        CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0}, timestamp=dt_util.utcnow().timestamp()
+    )
+
+
+async def test_off_at_the_unit_starts_the_manual_change_window(hass, enable_custom_integrations, config_data, freezer):
+    """The AC dries, someone turns it off at the unit. Nothing is sent for 30 minutes, then the AC dries again."""
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+    assert hass.states.get(CLIMATE).state == "dry"
+    calls.clear()
+    freezer.tick(timedelta(minutes=2))
+    _ac_off_at_the_unit(hass)
+    for _ in range(6):
+        await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+        assert entry.runtime_data.data["action"] == "inhibited after a manual change"
+        assert entry.runtime_data.data["commands_unconfirmed"] == []
+    assert calls == []
+    assert hass.states.get(CLIMATE).state == "off"
+    assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_mode_mismatch") is None
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")  # 30 minutes after the tick that saw the off
+    assert ("set_hvac_mode", CLIMATE, "dry") in calls
+    assert hass.states.get(CLIMATE).state == "dry"
+
+
+async def test_ac_turned_on_again_at_the_unit_keeps_running_after_the_window(hass, enable_custom_integrations, config_data, freezer):
+    """Off at the unit, the tank is emptied, on again at the unit. The AC is not turned off and restarted when the window ends."""
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+    calls.clear()
+    _ac_off_at_the_unit(hass)
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+    assert entry.runtime_data.data["action"] == "inhibited after a manual change"
+    hass.states.async_set(
+        CLIMATE, "dry", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0}, timestamp=dt_util.utcnow().timestamp()
+    )
+    for _ in range(8):  # to 10 minutes after the window
+        await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+        assert hass.states.get(CLIMATE).state == "dry"
+        assert entry.runtime_data.data["commands_unconfirmed"] == []
+        assert ir.async_get(hass).async_get_issue(DOMAIN, f"{entry.entry_id}_mode_mismatch") is None
+    assert calls == []
+    assert entry.runtime_data.data["action"] == "dry: humidity 70 % above 57 %"
+
+
+async def test_off_at_the_unit_right_after_a_start_starts_the_window(hass, enable_custom_integrations, config_data, freezer):
+    """The off comes before any tick has seen the AC in its new mode. The time of the off, after the write, shows the AC had started."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    assert hass.states.get(CLIMATE).state == "dry"
+    calls.clear()
+    freezer.tick(timedelta(minutes=1))
+    _ac_off_at_the_unit(hass)
+    assert entry.runtime_data._mode_confirmed is None
+    await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+    assert entry.runtime_data.data["action"] == "inhibited after a manual change"
+    assert calls == []
+
+
+async def test_an_ac_that_ignores_a_start_gets_the_command_again(hass, enable_custom_integrations, config_data, freezer):
+    """An AC still off from before the write did not follow the command. That starts no window, and the next tick sends the mode again."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    set_inputs(hass)
+    set_room(hass, "27.0")
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC"})
+    modes = []
+
+    async def record_mode(call):
+        modes.append(call.data["hvac_mode"])  # the state stays off
+
+    async def ignore(call):
+        pass
+
+    hass.services.async_register("climate", "set_hvac_mode", record_mode)
+    hass.services.async_register("climate", "set_temperature", ignore)
+    entry = MockConfigEntry(domain=DOMAIN, title="Test AC", data=dict(config_data, control=True, min_off_min=0), unique_id=CLIMATE)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert modes == ["cool"]
+    for count in (2, 3):
+        await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+        assert modes == ["cool"] * count
+        assert entry.runtime_data.data["action"] != "inhibited after a manual change"
+    assert entry.runtime_data.data["commands_unconfirmed"] == [f"{CLIMATE}: expected cool, is off"]
+
+
+async def test_room_off_with_the_ac_already_off_leaves_no_unconfirmed_command(hass, enable_custom_integrations, config_data, freezer):
+    """The AC ignored the dry command and is still off when the user turns the room off. Off is then the mode on record."""
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    _set_rh(hass, "70")
+    entry, entity_id, _calls = await _setup_with_devices(hass, config_data, room="23.8", outdoor="20.0", extra={"room_humidity": ROOM_RH, "min_off_min": 0})
+    await _set_room_mode(hass, entity_id, "dry")
+    coordinator = entry.runtime_data
+    # Put the AC back to off with the time of the state before the write, as an AC that never started.
+    hass.states.async_set(CLIMATE, "off", {"temperature": 24.0, "friendly_name": "Test AC", "target_temp_step": 1.0}, timestamp=coordinator._mode_written_at - 60.0)
+    assert coordinator._last_written_mode == "dry"
+    await _room_off(hass, entity_id)
+    assert coordinator._last_written_mode == "off"
+    for _ in range(3):
+        await _dry_tick(hass, entry, freezer, "23.8", "20.0", rh="70")
+        assert coordinator.data["commands_unconfirmed"] == []
+
+
+async def test_coil_dry_records_its_modes(hass, enable_custom_integrations, config_data, freezer):
+    """The coil dry writes dry, then off. Neither reads as a mode mismatch or as an off at the unit."""
+    from homeassistant.helpers import issue_registry as ir
+
+    freezer.move_to("2026-11-20T10:00:00+00:00")
+    entry, _entity_id, calls = await _setup_with_devices(hass, config_data, room="27.0", outdoor="30.0", extra={"coil_dry": True, "min_off_min": 0, "min_on_min": 0})
+    issue_id = f"{entry.entry_id}_mode_mismatch"
+    await _dry_tick(hass, entry, freezer, "27.0", "30.0")
+    assert hass.states.get(CLIMATE).state == "cool"
+    await _dry_tick(hass, entry, freezer, "22.0", "30.0")
+    assert hass.states.get(CLIMATE).state == "off", calls  # cooling stops; the coil dry starts on the next tick
+    seen = []
+    for _ in range(8):
+        await _dry_tick(hass, entry, freezer, "22.0", "30.0")
+        seen.append(hass.states.get(CLIMATE).state)
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None, seen
+        assert entry.runtime_data.data["commands_unconfirmed"] == [], seen
+        assert entry.runtime_data.data["action"] != "inhibited after a manual change", seen
+    assert seen[:4] == ["dry"] * 4 and seen[-2:] == ["off", "off"], seen
 
 
 async def test_drying_needed_stays_off_in_a_hot_humid_room_outside_dry_mode(hass, enable_custom_integrations, config_data, freezer):

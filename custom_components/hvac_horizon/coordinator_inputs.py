@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import statistics
+from collections import deque
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -29,9 +30,13 @@ from .const import (
     DEFAULT_AWAY_DELAY_MIN,
     DOMAIN,
 )
-from custom_components.hvac_horizon.room_model.collector import Entry
+from custom_components.hvac_horizon.room_model.collector import RUNNING_MIN_KW, Entry
 from custom_components.hvac_horizon.room_model.outdoor import night_low
+from custom_components.hvac_horizon.engine.decide import COOL_DEADBAND_C
 from custom_components.hvac_horizon.engine.features import (
+    AC_FAILURE_WINDOW_MIN,
+    ac_failed,
+    run_share,
     dew_point_c,
     humid_air_blocks_opening,
     SENSOR_STALL_S,
@@ -50,6 +55,10 @@ from custom_components.hvac_horizon.coordinator_common import NO_AC, _float
 
 class InputsMixin:
     # Instance attributes set in HorizonCoordinator.__init__ and used here.
+    _ac_demand_mode: str | None
+    _ac_demand_since: float | None
+    _ac_failure_reported: bool
+    _coil_dry_sent: bool
     _cool_above_c: float
     _forecast_daily: list[dict]
     _forecast_highs: list[float]
@@ -57,6 +66,9 @@ class InputsMixin:
     _last_room_data_s: float | None
     _last_written_mode: str | None
     _last_written_setpoint: float | None
+    _mode_confirmed: str | None
+    _mode_written_at: float
+    _power_samples: deque[tuple[float, float]]
     _pwm_pct_now: float
     _stall_reported: bool
     _window_advice_open: bool
@@ -172,6 +184,75 @@ class InputsMixin:
             )
         else:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    def _manual_off(self, climate: State | None) -> bool:
+        """True when the first AC reports off after it ran in the mode this entry last wrote: someone turned it off at the unit.
+
+        The AC counts as having run in the mode when a tick saw it there, or when it went off after the write. An AC
+        that is still off from before the write did not follow the command. That is the Unconfirmed commands sensor's
+        case and starts no hold.
+        """
+        written = self._last_written_mode
+        if climate is None or written in (None, "off"):
+            self._mode_confirmed = None
+            return False
+        if climate.state == written:
+            self._mode_confirmed = written
+            return False
+        if climate.state != "off":
+            return False
+        return self._mode_confirmed == written or climate.last_changed.timestamp() > self._mode_written_at
+
+    def _ac_demand(self) -> str | None:
+        """The compressor mode the first AC is in while the room still needs it: "cool", "dry" or None.
+
+        Cool: the room is more than COOL_DEADBAND_C above the cool threshold. Dry: the room humidity is at or above the
+        humidity target. Below those the AC's own thermostat may rest the compressor. The 20 minute coil dry is left out.
+        """
+        climate = self.hass.states.get(self._ac_id) if self.has_ac else None
+        if climate is None:
+            return None
+        if climate.state == "cool":
+            rooms = self._rooms()
+            return "cool" if rooms and statistics.median(rooms) > self._cool_above_c + COOL_DEADBAND_C else None
+        if climate.state == "dry" and not self._coil_dry_sent:
+            humidity = _float(self._optional(CONF_ROOM_HUMIDITY))
+            return "dry" if humidity is not None and humidity >= self.humidity_target_pct else None
+        return None
+
+    def _ac_failure(self, now: float) -> bool:
+        """True when the AC has been in cool or dry with demand for 20 minutes and the power sensor shows the compressor ran for less than half of them.
+
+        A full water tank on a portable unit and a tripped protection both look like this. Needs the power sensor.
+        """
+        mode = self._ac_demand() if self.settings.get(CONF_POWER) else None
+        if mode != self._ac_demand_mode:
+            self._ac_demand_mode = mode
+            self._ac_demand_since = now if mode else None
+        if mode is None or self._ac_demand_since is None or _float(self._optional(CONF_POWER)) is None:
+            return False
+        share = run_share(list(self._power_samples), now, AC_FAILURE_WINDOW_MIN * 60.0, RUNNING_MIN_KW * 1000.0)
+        return ac_failed((now - self._ac_demand_since) / 60.0, share, self._ac_failure_reported)
+
+    def _report_ac_failure(self, failed: bool) -> None:
+        """Repair issue and notification while the AC is on with demand and its compressor does not run. Cleared when it recovers."""
+        issue_id = f"{self.entry.entry_id}_ac_failure"
+        if failed and not self._ac_failure_reported:
+            ir.async_create_issue(
+                self.hass, DOMAIN, issue_id, is_fixable=False, severity=ir.IssueSeverity.WARNING,
+                translation_key="ac_failure", translation_placeholders={"mode": str(self._ac_demand_mode)},
+            )
+            persistent_notification.async_create(
+                self.hass,
+                f"HVAC Horizon: the AC of {self.entry.title} is in {self._ac_demand_mode} mode and its compressor is not running. "
+                "On a portable unit, check the water tank.",
+                title="HVAC Horizon", notification_id=issue_id,
+            )
+            self._ac_failure_reported = True
+        elif not failed and self._ac_failure_reported:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            persistent_notification.async_dismiss(self.hass, issue_id)
+            self._ac_failure_reported = False
 
     def _stall_blocks(self, result: dict[str, Any]) -> bool:
         """True when a stall stops the AC and the heater. A stalled outdoor sensor does unless a fresh hourly forecast stands in for it, and so does every room sensor being stale.

@@ -2,6 +2,20 @@
 
 Versions follow `custom_components/hvac_horizon/manifest.json`. Dates are the tag dates.
 
+## 0.8.0 (2026-11-23)
+
+- **AC failure.** New binary sensor, repair issue and notification for an AC that is on and does not run its
+  compressor. It turns on when the first AC has been in `cool` or `dry` for 20 minutes while the room still needs it
+  and its power stayed under 200 W for more than half of them. A full water tank on a portable unit looks like this.
+  It needs the power sensor. Each entry now has 13 binary sensors.
+- **Off at the unit.** Turning the first AC off at the unit, with its remote or on its own entity now starts the
+  30 minutes without commands that a setpoint change starts. Before, HVAC Horizon turned the AC on again after the
+  restart delay and raised `HVAC Horizon mode does not match`. An AC turned on again in the same mode within the
+  30 minutes keeps running.
+- **Unconfirmed commands.** The sensor no longer lists `expected dry, is off` (or `cool`) for an AC that was already
+  off when HVAC Horizon wanted it off. The coil dry now records its `dry` and `off` commands, so it no longer raises
+  `HVAC Horizon mode does not match` while it runs.
+
 ## 0.7.1 (2026-11-23)
 
 - **Start-up time.** The read of 10 days of recorder history now runs in the background after setup. Before, setup

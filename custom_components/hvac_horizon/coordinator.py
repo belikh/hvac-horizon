@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import timedelta
@@ -285,7 +287,14 @@ class HorizonCoordinator(_Settings, StoreMixin, UserMixin, LearningMixin, Foreca
         self._timed_preset: str | None = None
         self._timed_started_min: float | None = None
         self._timed_duration_min: float = 0.0
-        self._last_written_mode: str | None = None
+        self._written_mode: str | None = None
+        self._mode_written_at = math.inf  # when _last_written_mode was last set; infinite for a mode read from the store
+        self._mode_confirmed: str | None = None  # the written mode the first AC has reported at a tick since the write
+        self._mode_before_off: str | None = None  # the mode the first AC had when it was turned off at the unit, kept for the window after it
+        self._power_samples: deque[tuple[float, float]] = deque()  # (time, watts) of the power sensor over the compressor check window
+        self._ac_demand_mode: str | None = None  # the mode the first AC is in with demand, for the compressor check
+        self._ac_demand_since: float | None = None
+        self._ac_failure_reported = False
         self._window_paused = False
         self._precool_status: str | None = None
         self._precool_warned: str | None = None
@@ -309,6 +318,17 @@ class HorizonCoordinator(_Settings, StoreMixin, UserMixin, LearningMixin, Foreca
         self._heater_start_temp: float | None = None
         self._backtest_runs: list = []
         self._forecast_error_min: float | None = None
+
+    @property
+    def _last_written_mode(self) -> str | None:
+        """The mode this entry last wrote to the first AC, or None before the first write."""
+        return self._written_mode
+
+    @_last_written_mode.setter
+    def _last_written_mode(self, mode: str | None) -> None:
+        # The time of the write tells an off at the unit after it from a command the AC did not follow.
+        self._written_mode = mode
+        self._mode_written_at = dt_util.utcnow().timestamp()
 
     async def async_shutdown(self) -> None:
         # Timers scheduled by this entry must not fire after it unloads.
@@ -628,6 +648,8 @@ class HorizonCoordinator(_Settings, StoreMixin, UserMixin, LearningMixin, Foreca
         finally:
             self._heater_step_done = True
             await self._async_heater_step(now, result)
+        result["ac_failure"] = self._ac_failure(now)
+        self._report_ac_failure(result["ac_failure"])
         await self._publish_investigation(now, result)
         heater_switch = (room_devices(self.settings)["heating"] or [None])[0]
         heater_state = self.hass.states.get(heater_switch) if heater_switch else None

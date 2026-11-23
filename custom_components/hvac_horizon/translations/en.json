@@ -487,6 +487,10 @@
       "title": "HVAC Horizon heater is not warming the room",
       "description": "The heater has been on for 60 minutes and the room has risen less than 0.5 °C. Check the heater and its switch."
     },
+    "ac_failure": {
+      "title": "HVAC Horizon AC is not running its compressor",
+      "description": "The AC has been in {mode} mode for 20 minutes while the room still needs it, and its power sensor shows the compressor ran for less than half of that time. Check the unit for a fault. On a portable unit, check whether the water tank is full."
+    },
     "mode_mismatch": {
       "title": "HVAC Horizon mode does not match",
       "description": "The AC is in a different mode than HVAC Horizon last set. Check whether it was changed on the unit or another automation."
@@ -744,6 +748,9 @@
       },
       "heating_failure": {
         "name": "Heating failure"
+      },
+      "ac_failure": {
+        "name": "AC failure"
       },
       "house_cooling": {
         "name": "House cooling"

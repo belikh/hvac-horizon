@@ -47,7 +47,7 @@ PRIMARY_KEYS = frozenset(
 # Diagnostic sensors that stay enabled: a user reads or acts on them.
 DIAGNOSTIC_ENABLED_KEYS = frozenset(
     {
-        "sensors_stalled", "commands_unconfirmed", "watchdog_trips", "heating_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
+        "sensors_stalled", "commands_unconfirmed", "watchdog_trips", "heating_failure", "ac_failure", "window_advice", "mould_risk", "dispatch", "precool_status", "mpc_status",
         "samples", "day_type", "night_plan", "daily_briefing", "ventilation", "humidity", "drying_needed",
         "compliance_pct", "heatwave", "occupancy", "heating_allowed", "vacation", "heat_source", "whole_house_fan",
         "learning_suggestion", "external_change", "pending", "outdoor_forecast_used", "outdoor_source", "ac_setpoint_sent_c", "ac_sensor_offset_k",
